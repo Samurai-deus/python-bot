@@ -1,0 +1,37 @@
+# Telegram polling lock file
+.telegram_polling.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Logs
+*.log
+runner.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+*.log
+last_heartbeat.txt
+__pycache__/
+.env
+venv/
