@@ -64,6 +64,11 @@ MAX_ANALYSIS_TIME = float(os.environ.get("MAX_ANALYSIS_TIME", "30"))  # секу
 ALERT_ANALYSIS_TIME = float(os.environ.get("ALERT_ANALYSIS_TIME", "60"))  # секунд - порог для алерта
 ALERT_COOLDOWN = int(os.environ.get("ALERT_COOLDOWN", "300"))  # секунд - cooldown между алертами
 METRICS_LOG_INTERVAL = int(os.environ.get("METRICS_LOG_INTERVAL", "600"))  # секунд - интервал логирования метрик
+
+# Alert escalation thresholds
+WARN_ERROR_THRESHOLD = int(os.environ.get("WARN_ERROR_THRESHOLD", "3"))  # WARN при >= 3 ошибках
+CRITICAL_ERROR_THRESHOLD = int(os.environ.get("CRITICAL_ERROR_THRESHOLD", "5"))  # CRITICAL при >= 5 ошибках
+VOLATILITY_THRESHOLD = float(os.environ.get("VOLATILITY_THRESHOLD", "0.5"))  # Порог волатильности для WARN (placeholder)
 RUNTIME_HEARTBEAT_INTERVAL = 10.0  # 10 секунд для runtime heartbeat
 
 # Health server configuration
@@ -207,6 +212,212 @@ def update_analysis_metrics(metrics_update: dict):
     """Обновляет глобальные метрики анализа"""
     global _analysis_metrics
     _analysis_metrics.update(metrics_update)
+
+# ========== ALERT ESCALATION SYSTEM ==========
+
+# Alert deduplication: track last sent timestamp per alert type
+_alert_last_sent: dict[str, float] = {}
+
+def _get_alert_key(alert_type: str, level: str) -> str:
+    """Генерирует ключ для дедупликации алертов"""
+    return f"{level}:{alert_type}"
+
+def _should_send_alert(alert_key: str) -> bool:
+    """Проверяет, можно ли отправить алерт (cooldown)"""
+    global _alert_last_sent
+    now = time.monotonic()
+    last_sent = _alert_last_sent.get(alert_key, 0.0)
+    return (now - last_sent) >= ALERT_COOLDOWN
+
+def _mark_alert_sent(alert_key: str):
+    """Отмечает, что алерт был отправлен"""
+    global _alert_last_sent
+    _alert_last_sent[alert_key] = time.monotonic()
+
+async def evaluate_and_send_alerts(duration: float):
+    """
+    Оценивает условия для алертов и отправляет их асинхронно.
+    
+    NON-BLOCKING: Выполняется в отдельной задаче, не блокирует analysis loop.
+    
+    Args:
+        duration: Длительность последнего анализа в секундах
+    """
+    try:
+        # Получаем текущие метрики
+        metrics = get_analysis_metrics()
+        now = time.monotonic()
+        
+        # Вычисляем uptime для сообщений
+        uptime = 0.0
+        if metrics["start_time"] is not None:
+            uptime = now - metrics["start_time"]
+        
+        alerts_to_send = []
+        
+        # ========== WARN ALERTS ==========
+        
+        # WARN: Analysis duration > ALERT_ANALYSIS_TIME
+        if duration > ALERT_ANALYSIS_TIME:
+            alert_key = _get_alert_key("analysis_duration_warn", "WARN")
+            if _should_send_alert(alert_key):
+                alerts_to_send.append({
+                    "level": "WARN",
+                    "type": "analysis_duration",
+                    "message": (
+                        f"⚠️ **WARN**: Market analysis slow\n\n"
+                        f"Duration: {duration:.2f}s (limit: {ALERT_ANALYSIS_TIME:.2f}s)\n"
+                        f"Uptime: {uptime:.0f}s\n"
+                        f"Analysis runs: {metrics.get('analysis_count', 0)}\n"
+                        f"Trading continues normally."
+                    )
+                })
+                _mark_alert_sent(alert_key)
+                logger.warning(f"WARN alert: Analysis duration {duration:.2f}s > {ALERT_ANALYSIS_TIME:.2f}s")
+        
+        # WARN: Consecutive errors >= WARN_ERROR_THRESHOLD
+        if system_state.system_health.consecutive_errors >= WARN_ERROR_THRESHOLD:
+            alert_key = _get_alert_key("consecutive_errors_warn", "WARN")
+            if _should_send_alert(alert_key):
+                alerts_to_send.append({
+                    "level": "WARN",
+                    "type": "consecutive_errors",
+                    "message": (
+                        f"⚠️ **WARN**: Multiple consecutive errors\n\n"
+                        f"Consecutive errors: {system_state.system_health.consecutive_errors} "
+                        f"(threshold: {WARN_ERROR_THRESHOLD})\n"
+                        f"Uptime: {uptime:.0f}s\n"
+                        f"Trading continues normally."
+                    )
+                })
+                _mark_alert_sent(alert_key)
+                logger.warning(f"WARN alert: Consecutive errors {system_state.system_health.consecutive_errors} >= {WARN_ERROR_THRESHOLD}")
+        
+        # WARN: Volatility spike (placeholder - пока не отслеживается)
+        # TODO: Реализовать отслеживание волатильности
+        volatility = 0.0  # Placeholder
+        if volatility > VOLATILITY_THRESHOLD:
+            alert_key = _get_alert_key("volatility_warn", "WARN")
+            if _should_send_alert(alert_key):
+                alerts_to_send.append({
+                    "level": "WARN",
+                    "type": "volatility",
+                    "message": (
+                        f"⚠️ **WARN**: Market volatility spike\n\n"
+                        f"Volatility: {volatility:.3f} (threshold: {VOLATILITY_THRESHOLD:.3f})\n"
+                        f"Uptime: {uptime:.0f}s\n"
+                        f"Trading continues normally."
+                    )
+                })
+                _mark_alert_sent(alert_key)
+                logger.warning(f"WARN alert: Volatility {volatility:.3f} > {VOLATILITY_THRESHOLD:.3f}")
+        
+        # ========== CRITICAL ALERTS ==========
+        
+        # CRITICAL: Analysis duration > MAX_ANALYSIS_TIME
+        if duration > MAX_ANALYSIS_TIME:
+            alert_key = _get_alert_key("analysis_duration_critical", "CRITICAL")
+            if _should_send_alert(alert_key):
+                alerts_to_send.append({
+                    "level": "CRITICAL",
+                    "type": "analysis_duration",
+                    "message": (
+                        f"🚨 **CRITICAL**: Market analysis exceeded maximum time\n\n"
+                        f"Duration: {duration:.2f}s (max: {MAX_ANALYSIS_TIME:.2f}s)\n"
+                        f"Uptime: {uptime:.0f}s\n"
+                        f"Analysis runs: {metrics.get('analysis_count', 0)}\n"
+                        f"**Trading paused for safety.**"
+                    ),
+                    "pause_trading": True
+                })
+                _mark_alert_sent(alert_key)
+                logger.error(f"CRITICAL alert: Analysis duration {duration:.2f}s > {MAX_ANALYSIS_TIME:.2f}s")
+        
+        # CRITICAL: Consecutive errors >= CRITICAL_ERROR_THRESHOLD
+        if system_state.system_health.consecutive_errors >= CRITICAL_ERROR_THRESHOLD:
+            alert_key = _get_alert_key("consecutive_errors_critical", "CRITICAL")
+            if _should_send_alert(alert_key):
+                alerts_to_send.append({
+                    "level": "CRITICAL",
+                    "type": "consecutive_errors",
+                    "message": (
+                        f"🚨 **CRITICAL**: Critical error threshold exceeded\n\n"
+                        f"Consecutive errors: {system_state.system_health.consecutive_errors} "
+                        f"(threshold: {CRITICAL_ERROR_THRESHOLD})\n"
+                        f"Uptime: {uptime:.0f}s\n"
+                        f"**Trading paused for safety.**"
+                    ),
+                    "pause_trading": True
+                })
+                _mark_alert_sent(alert_key)
+                logger.error(f"CRITICAL alert: Consecutive errors {system_state.system_health.consecutive_errors} >= {CRITICAL_ERROR_THRESHOLD}")
+        
+        # CRITICAL: System entered safe_mode
+        if system_state.system_health.safe_mode:
+            alert_key = _get_alert_key("safe_mode", "CRITICAL")
+            if _should_send_alert(alert_key):
+                alerts_to_send.append({
+                    "level": "CRITICAL",
+                    "type": "safe_mode",
+                    "message": (
+                        f"🚨 **CRITICAL**: System entered safe mode\n\n"
+                        f"Consecutive errors: {system_state.system_health.consecutive_errors}\n"
+                        f"Uptime: {uptime:.0f}s\n"
+                        f"**Trading paused for safety.**"
+                    ),
+                    "pause_trading": True
+                })
+                _mark_alert_sent(alert_key)
+                logger.error(f"CRITICAL alert: System entered safe_mode")
+        
+        # CRITICAL: Scheduler stall detected (via heartbeat miss)
+        # Проверяем через последний heartbeat
+        if system_state.system_health.last_heartbeat:
+            time_since_heartbeat = (datetime.now(UTC) - system_state.system_health.last_heartbeat).total_seconds()
+            expected_interval = RUNTIME_HEARTBEAT_INTERVAL
+            if time_since_heartbeat > expected_interval * HEARTBEAT_MISS_THRESHOLD:
+                alert_key = _get_alert_key("scheduler_stall", "CRITICAL")
+                if _should_send_alert(alert_key):
+                    missed_heartbeats = int((time_since_heartbeat - expected_interval) / expected_interval)
+                    alerts_to_send.append({
+                        "level": "CRITICAL",
+                        "type": "scheduler_stall",
+                        "message": (
+                            f"🚨 **CRITICAL**: Scheduler stall detected\n\n"
+                            f"Time since last heartbeat: {time_since_heartbeat:.1f}s\n"
+                            f"Expected interval: {expected_interval}s\n"
+                            f"Missed heartbeats: {missed_heartbeats}\n"
+                            f"Uptime: {uptime:.0f}s\n"
+                            f"**Trading paused for safety.**"
+                        ),
+                        "pause_trading": True
+                    })
+                    _mark_alert_sent(alert_key)
+                    logger.error(f"CRITICAL alert: Scheduler stall detected (missed {missed_heartbeats} heartbeats)")
+        
+        # Отправляем все алерты (неблокирующе)
+        for alert in alerts_to_send:
+            try:
+                # Отправляем через Telegram (неблокирующе)
+                await asyncio.wait_for(
+                    asyncio.to_thread(send_message, alert["message"]),
+                    timeout=10.0
+                )
+                logger.info(f"Alert sent: {alert['level']} - {alert['type']}")
+                
+                # CRITICAL alerts: приостанавливаем торговлю
+                if alert.get("pause_trading") and alert["level"] == "CRITICAL":
+                    system_state.system_health.trading_paused = True
+                    logger.error(f"Trading paused due to CRITICAL alert: {alert['type']}")
+                    
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout sending alert: {alert['level']} - {alert['type']}")
+            except Exception as e:
+                logger.warning(f"Error sending alert {alert['level']} - {alert['type']}: {type(e).__name__}: {e}")
+                
+    except Exception as e:
+        # Не блокируем analysis loop при ошибках в алертах
+        logger.warning(f"Error in alert evaluation: {type(e).__name__}: {e}")
 
 # ========== SINGLE-INSTANCE PROTECTION ==========
 
@@ -725,8 +936,9 @@ async def market_analysis_loop():
     if _analysis_metrics["start_time"] is None:
         update_analysis_metrics({"start_time": metrics["start_time"]})
     
-    # ========== АЛЕРТЫ ==========
-    last_alert_ts = 0.0
+    # ========== ALERT ESCALATION ==========
+    # Alert evaluation теперь выполняется в evaluate_and_send_alerts()
+    # с дедупликацией через _alert_last_sent
     
     while system_state.system_health.is_running and not shutdown_evt.is_set():
         try:
@@ -761,21 +973,16 @@ async def market_analysis_loop():
                     MAX_ANALYSIS_TIME
                 )
             
-            # ========== АЛЕРТЫ ПРИ МЕДЛЕННОМ АНАЛИЗЕ ==========
-            now = time.monotonic()
-            if duration > ALERT_ANALYSIS_TIME and (now - last_alert_ts) > ALERT_COOLDOWN:
-                try:
-                    alert_msg = f"⚠️ MarketAnalysis slow: {duration:.2f}s (limit {ALERT_ANALYSIS_TIME:.2f}s)"
-                    await asyncio.wait_for(
-                        asyncio.to_thread(error_alert, alert_msg),
-                        timeout=10.0
-                    )
-                    last_alert_ts = now
-                except Exception:
-                    # Игнорируем ошибки отправки алерта
-                    pass
+            # ========== ALERT ESCALATION (NON-BLOCKING) ==========
+            # Оцениваем и отправляем алерты асинхронно, не блокируя analysis loop
+            # Создаём задачу для алертов (не ждём её завершения)
+            asyncio.create_task(
+                evaluate_and_send_alerts(duration),
+                name="AlertEvaluation"
+            )
             
             # ========== ПЕРИОДИЧЕСКОЕ ЛОГИРОВАНИЕ МЕТРИК ==========
+            now = time.monotonic()
             if (now - metrics["last_metrics_log"]) >= METRICS_LOG_INTERVAL:
                 if metrics["analysis_count"] > 0:
                     avg = metrics["analysis_total_time"] / metrics["analysis_count"]
@@ -1606,6 +1813,7 @@ async def health_server():
                 "uptime": round(uptime, 2),
                 "last_analysis_duration": round(metrics.get("last_analysis_duration", 0.0), 2),
                 "safe_mode": system_state.system_health.safe_mode,
+                "trading_paused": system_state.system_health.trading_paused,
                 "analysis_count": metrics.get("analysis_count", 0),
                 "consecutive_errors": system_state.system_health.consecutive_errors,
             }
@@ -1664,6 +1872,10 @@ async def health_server():
             # safe_mode (gauge: 0/1) - режим безопасной работы
             safe_mode_value = 1 if system_state.system_health.safe_mode else 0
             lines.append(f'safe_mode {safe_mode_value}')
+            
+            # trading_paused (gauge: 0/1) - торговля приостановлена
+            trading_paused_value = 1 if system_state.system_health.trading_paused else 0
+            lines.append(f'trading_paused {trading_paused_value}')
             
             # Объединяем все метрики
             body = '\n'.join(lines) + '\n'

@@ -34,6 +34,7 @@ class SystemHealth:
     """Здоровье системы"""
     is_running: bool = True
     safe_mode: bool = False  # Режим безопасности - блокирует торговлю
+    trading_paused: bool = False  # Торговля приостановлена (CRITICAL alert)
     last_heartbeat: Optional[datetime] = None
     consecutive_errors: int = 0
 
@@ -219,6 +220,7 @@ class SystemState:
             "system_health": {
                 "is_running": self.system_health.is_running,
                 "safe_mode": self.system_health.safe_mode,
+                "trading_paused": self.system_health.trading_paused,
                 "last_heartbeat": self.system_health.last_heartbeat.isoformat() if self.system_health.last_heartbeat else None,
                 "consecutive_errors": self.system_health.consecutive_errors
             },
@@ -254,6 +256,7 @@ class SystemState:
                 sh = snapshot["system_health"]
                 self.system_health.is_running = sh.get("is_running", True)
                 self.system_health.safe_mode = sh.get("safe_mode", False)
+                self.system_health.trading_paused = sh.get("trading_paused", False)
                 if sh.get("last_heartbeat"):
                     try:
                         self.system_health.last_heartbeat = datetime.fromisoformat(sh["last_heartbeat"])
