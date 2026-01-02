@@ -65,6 +65,10 @@ ALERT_ANALYSIS_TIME = float(os.environ.get("ALERT_ANALYSIS_TIME", "60"))  # се
 ALERT_COOLDOWN = int(os.environ.get("ALERT_COOLDOWN", "300"))  # секунд - cooldown между алертами
 METRICS_LOG_INTERVAL = int(os.environ.get("METRICS_LOG_INTERVAL", "600"))  # секунд - интервал логирования метрик
 RUNTIME_HEARTBEAT_INTERVAL = 10.0  # 10 секунд для runtime heartbeat
+
+# Health server configuration
+HEALTH_SERVER_HOST = os.environ.get("HEALTH_SERVER_HOST", "127.0.0.1")
+HEALTH_SERVER_PORT = int(os.environ.get("HEALTH_SERVER_PORT", "8080"))
 SYNTHETIC_DECISION_TICK_INTERVAL = 10.0  # 10 секунд для synthetic decision tick
 ENABLE_SYNTHETIC_DECISION_TICK = os.environ.get("ENABLE_SYNTHETIC_DECISION_TICK", "false").lower() == "true"
 FAULT_INJECT_LOOP_STALL = os.environ.get("FAULT_INJECT_LOOP_STALL", "false").lower() == "true"
@@ -183,6 +187,26 @@ system_state = SystemState()
 # Устанавливаем глобальный экземпляр для доступа из telegram_commands
 from system_state import set_system_state
 set_system_state(system_state)
+
+# ========== GLOBAL METRICS FOR HEALTH ENDPOINT ==========
+# Метрики анализа рынка для healthcheck endpoint
+# Обновляются в market_analysis_loop
+_analysis_metrics = {
+    "analysis_count": 0,
+    "analysis_total_time": 0.0,
+    "analysis_max_time": 0.0,
+    "last_analysis_duration": 0.0,
+    "start_time": None,  # Будет установлено при первом запуске
+}
+
+def get_analysis_metrics():
+    """Возвращает текущие метрики анализа для health endpoint"""
+    return _analysis_metrics.copy()
+
+def update_analysis_metrics(metrics_update: dict):
+    """Обновляет глобальные метрики анализа"""
+    global _analysis_metrics
+    _analysis_metrics.update(metrics_update)
 
 # ========== SINGLE-INSTANCE PROTECTION ==========
 
@@ -697,6 +721,10 @@ async def market_analysis_loop():
         "last_metrics_log": time.monotonic(),
     }
     
+    # Инициализируем глобальные метрики при первом запуске
+    if _analysis_metrics["start_time"] is None:
+        update_analysis_metrics({"start_time": metrics["start_time"]})
+    
     # ========== АЛЕРТЫ ==========
     last_alert_ts = 0.0
     
@@ -715,6 +743,14 @@ async def market_analysis_loop():
             metrics["analysis_count"] += 1
             metrics["analysis_total_time"] += duration
             metrics["analysis_max_time"] = max(metrics["analysis_max_time"], duration)
+            
+            # Обновляем глобальные метрики для health endpoint
+            update_analysis_metrics({
+                "analysis_count": metrics["analysis_count"],
+                "analysis_total_time": metrics["analysis_total_time"],
+                "analysis_max_time": metrics["analysis_max_time"],
+                "last_analysis_duration": duration,
+            })
             
             # ========== МЯГКИЙ КОНТРОЛЬ ВРЕМЕНИ ==========
             # Заменяем аварийный watchdog на мягкое предупреждение
@@ -1374,6 +1410,8 @@ async def _telegram_polling_task(app, shutdown_event):
     - loop.run_until_complete() - управляет event loop
     - asyncio.run() - создает новый event loop
     """
+    from telegram.error import Conflict
+    
     try:
         # Инициализация приложения
         await app.initialize()
@@ -1383,12 +1421,33 @@ async def _telegram_polling_task(app, shutdown_event):
             raise RuntimeError("Application does not have an Updater")
         
         # Запускаем polling
-        await app.updater.start_polling(
-            poll_interval=0.0,
-            timeout=10,
-            bootstrap_retries=-1,
-            drop_pending_updates=True
-        )
+        # CRITICAL: Defensive Conflict handling - exit cleanly if another instance is running
+        try:
+            logger.info("Starting Telegram polling...")
+            await app.updater.start_polling(
+                poll_interval=0.0,
+                timeout=10,
+                bootstrap_retries=-1,
+                drop_pending_updates=True
+            )
+            logger.info("Telegram polling started")
+        except Conflict as e:
+            # Conflict detected - another instance is already polling
+            # This is NOT retryable - exit cleanly and let systemd restart later
+            logger.error(
+                f"Telegram Conflict detected (another instance running): {type(e).__name__}: {e}. "
+                f"Exiting cleanly to allow systemd restart."
+            )
+            # Cleanup before exit
+            try:
+                await app.shutdown()
+            except Exception:
+                pass
+            # Wait 10 seconds to allow previous instance to fully stop
+            await asyncio.sleep(10.0)
+            # Exit process cleanly - systemd will restart
+            import sys
+            sys.exit(1)
         
         # Запускаем приложение
         await app.start()
@@ -1441,6 +1500,99 @@ async def _telegram_polling_task(app, shutdown_event):
         except Exception:
             pass
         raise
+
+
+async def health_server():
+    """
+    HTTP healthcheck server для мониторинга состояния сервиса.
+    
+    Endpoint: GET /health
+    Response: JSON с status, uptime, last_analysis_duration, safe_mode
+    
+    Features:
+    - Не блокирует event loop (aiohttp работает асинхронно)
+    - Graceful shutdown support
+    - Bind к 127.0.0.1 (безопасно для production)
+    """
+    try:
+        import aiohttp
+        from aiohttp import web
+    except ImportError:
+        logger.warning("aiohttp not available, health server disabled")
+        return
+    
+    logger.info(f"Starting health server on {HEALTH_SERVER_HOST}:{HEALTH_SERVER_PORT}")
+    
+    app = web.Application()
+    
+    async def health_handler(request):
+        """Обработчик GET /health"""
+        try:
+            # Получаем метрики анализа
+            metrics = get_analysis_metrics()
+            
+            # Вычисляем uptime
+            uptime = 0.0
+            if metrics["start_time"] is not None:
+                uptime = time.monotonic() - metrics["start_time"]
+            
+            # Определяем status
+            # "degraded" если safe_mode активен или есть ошибки
+            status = "ok"
+            if system_state.system_health.safe_mode:
+                status = "degraded"
+            elif system_state.system_health.consecutive_errors > 0:
+                status = "degraded"
+            
+            # Формируем ответ
+            response_data = {
+                "status": status,
+                "uptime": round(uptime, 2),
+                "last_analysis_duration": round(metrics.get("last_analysis_duration", 0.0), 2),
+                "safe_mode": system_state.system_health.safe_mode,
+                "analysis_count": metrics.get("analysis_count", 0),
+                "consecutive_errors": system_state.system_health.consecutive_errors,
+            }
+            
+            return web.json_response(response_data)
+        except Exception as e:
+            logger.error(f"Error in health handler: {type(e).__name__}: {e}")
+            return web.json_response(
+                {"status": "error", "error": str(e)},
+                status=500
+            )
+    
+    app.router.add_get("/health", health_handler)
+    
+    # Создаём runner для сервера
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Создаём site
+    site = web.TCPSite(runner, HEALTH_SERVER_HOST, HEALTH_SERVER_PORT)
+    
+    try:
+        # Запускаем сервер
+        await site.start()
+        logger.info(f"Health server started on http://{HEALTH_SERVER_HOST}:{HEALTH_SERVER_PORT}/health")
+        
+        # Ждём shutdown signal
+        shutdown_evt = get_shutdown_event()
+        while system_state.system_health.is_running and not shutdown_evt.is_set():
+            await asyncio.sleep(1.0)
+        
+    except asyncio.CancelledError:
+        logger.info("Health server cancelled")
+    except Exception as e:
+        logger.error(f"Error in health server: {type(e).__name__}: {e}")
+    finally:
+        # Graceful shutdown
+        try:
+            await site.stop()
+            await runner.cleanup()
+            logger.info("Health server stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping health server: {type(e).__name__}: {e}")
 
 
 async def telegram_supervisor(system_state):
@@ -1560,16 +1712,60 @@ async def telegram_supervisor(system_state):
             logger.info("📱 Telegram polling stopped normally")
             break
             
-        except (NetworkError, Conflict) as e:
-            # КРИТИЧНО: НЕ пробрасываем эти исключения наружу
-            # Это fault isolation, не error handling
+        except Conflict as e:
+            # КРИТИЧНО: Conflict означает, что другой экземпляр уже запущен
+            # Это НЕ retryable - нужно выйти и дать systemd перезапустить позже
             logger.error(
+                f"TELEGRAM_CONFLICT: Another instance is already polling. "
+                f"This usually happens during systemd restart when previous instance hasn't fully stopped. "
+                f"Exiting cleanly to allow systemd restart. error={e}"
+            )
+            
+            # Останавливаем все Telegram ресурсы
+            if polling_task and not polling_task.done():
+                try:
+                    polling_task.cancel()
+                    await asyncio.wait_for(polling_task, timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                except Exception:
+                    pass
+            
+            if monitor_task and not monitor_task.done():
+                try:
+                    monitor_task.cancel()
+                    await asyncio.wait_for(monitor_task, timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                except Exception:
+                    pass
+            
+            if app:
+                try:
+                    if app.running:
+                        await app.stop()
+                    await app.shutdown()
+                except Exception:
+                    pass
+            
+            # Ждём 10 секунд перед выходом (даём время предыдущему экземпляру завершиться)
+            logger.info("Waiting 10 seconds before exit to allow previous instance to stop...")
+            await asyncio.sleep(10.0)
+            
+            # Выходим - systemd перезапустит позже
+            logger.info("Exiting due to Telegram Conflict. systemd will restart the service.")
+            system_state.system_health.is_running = False
+            return
+            
+        except NetworkError as e:
+            # NetworkError - retryable, продолжаем работу
+            logger.warning(
                 f"TELEGRAM_NETWORK_FAILURE: {type(e).__name__}: {e}. "
                 f"Retrying in {backoff_seconds:.1f}s. "
                 f"Runtime continues normally."
             )
             
-            # Обновляем system health
+            # Обновляем system health (только для NetworkError, не для Conflict)
             system_state.record_error(f"TELEGRAM_NETWORK_FAILURE: {type(e).__name__}")
             if system_state.system_health.consecutive_errors >= 5:
                 system_state.system_health.safe_mode = True
@@ -1845,6 +2041,11 @@ async def main():
         logger.warning(f"Failed to send startup message (non-critical): {type(e).__name__}: {e}")
     
     # Создаём и отслеживаем все фоновые задачи
+    # ВАЖНО: Порядок запуска критичен для предотвращения Conflict
+    # 1. Сначала запускаем health server (неблокирующий)
+    # 2. Затем запускаем остальные задачи
+    # 3. Telegram supervisor запускается ПОСЛЕДНИМ с явной задержкой
+    
     tasks = [
         register_task(
             asyncio.create_task(market_analysis_loop(), name="MarketAnalysis"),
@@ -1862,7 +2063,23 @@ async def main():
             asyncio.create_task(daily_report_loop(), name="DailyReport"),
             "DailyReport"
         ),
+        register_task(
+            asyncio.create_task(health_server(), name="HealthServer"),
+            "HealthServer"
+        ),
     ]
+    
+    # Ждём инициализации event loop и старта health server
+    # Это гарантирует, что система готова перед запуском Telegram
+    logger.info("Waiting for event loop initialization and health server startup...")
+    await asyncio.sleep(2.0)  # Даём время для инициализации
+    
+    # Теперь запускаем Telegram supervisor с явным отслеживанием
+    logger.info("Starting Telegram supervisor (after system initialization)...")
+    telegram_task = register_task(
+        asyncio.create_task(telegram_supervisor(system_state), name="TelegramSupervisor"),
+        "TelegramSupervisor"
+    )
     
     # Добавляем synthetic decision tick loop если включен
     if ENABLE_SYNTHETIC_DECISION_TICK:
@@ -1884,25 +2101,17 @@ async def main():
         )
         logger.info("Loop stall injection enabled (for event loop stall detection testing)")
     
-    # Запускаем Telegram supervisor в изолированном async loop
-    # (HARD FAULT ISOLATION - исключения не выходят наружу)
-    # ВАЖНО: НИКОГДА не awaited - только create_task()
-    tasks.append(
-        register_task(
-            asyncio.create_task(telegram_supervisor(system_state), name="TelegramSupervisor"),
-            "TelegramSupervisor"
-        )
-    )
-    
-    logger.info(f"All components started (tasks: {len(tasks)})")
+    logger.info(f"All components started (tasks: {len(tasks) + 1})")
     
     try:
         # Ждем завершения всех задач или shutdown signal
         # Используем return_exceptions=True чтобы одна ошибка не крашила все задачи
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Включаем telegram_task в gather
+        all_tasks = tasks + [telegram_task] if 'telegram_task' in locals() else tasks
+        results = await asyncio.gather(*all_tasks, return_exceptions=True)
         
         # Проверяем результаты на ошибки
-        for task, result in zip(tasks, results):
+        for task, result in zip(all_tasks, results):
             if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
                 logger.error(f"Task {task.get_name()} failed: {type(result).__name__}: {result}")
     except (KeyboardInterrupt, asyncio.CancelledError):
@@ -1944,6 +2153,31 @@ async def main():
         # Set shutdown event to allow loops to exit naturally
         shutdown_evt = get_shutdown_event()
         shutdown_evt.set()
+        
+        # КРИТИЧНО: Явно останавливаем Telegram polling ПЕРЕД общей отменой задач
+        # Это гарантирует, что polling полностью остановлен до выхода процесса
+        try:
+            # Находим telegram_task в зарегистрированных задачах
+            telegram_task_to_stop = None
+            for task in RUNNING_TASKS:
+                if task.get_name() == "TelegramSupervisor":
+                    telegram_task_to_stop = task
+                    break
+            
+            if telegram_task_to_stop and not telegram_task_to_stop.done():
+                logger.info("Stopping Telegram polling task...")
+                telegram_task_to_stop.cancel()
+                try:
+                    await asyncio.wait_for(telegram_task_to_stop, timeout=10.0)
+                    logger.info("Telegram polling stopped")
+                except asyncio.TimeoutError:
+                    logger.warning("Telegram polling task did not stop within timeout")
+                except asyncio.CancelledError:
+                    logger.info("Telegram polling task cancelled")
+                except Exception as e:
+                    logger.warning(f"Error stopping Telegram polling: {type(e).__name__}: {e}")
+        except Exception as e:
+            logger.warning(f"Error during Telegram shutdown: {type(e).__name__}: {e}")
         
         # Cancel and wait for all registered tasks
         # This includes both main tasks and any background tasks they created

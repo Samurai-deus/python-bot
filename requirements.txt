@@ -7,6 +7,7 @@ python-telegram-bot>=20.7
 # HTTP Requests
 requests>=2.31.0
 httpx>=0.25.2
+aiohttp>=3.9.0
 
 # System Monitoring (optional - для расширенного мониторинга)
 psutil>=5.9.0; sys_platform != "win32"
