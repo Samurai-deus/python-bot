@@ -174,11 +174,46 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_text += f"💰 **Баланс:** `{balance:.2f}` USDT\n"
         status_text += f"📈 **P&L:** `{pnl_sign}{pnl:.2f}` USDT (`{pnl_sign}{pnl_pct:.2f}%`)\n\n"
         
-        # Decision Core статус (читает из SystemState)
+        # System State статус (trading, safe_mode, adaptive)
         from system_state import get_system_state
-        decision_core = get_decision_core()
+        import time
+        from runner import get_adaptive_system_state, get_analysis_metrics
+        
         system_state = get_system_state()
-        # Безопасная проверка на None
+        if system_state is None:
+            status_text += "⚠️ **System State:** Недоступно\n\n"
+        else:
+            # Trading status
+            trading_status = "ACTIVE" if not system_state.system_health.trading_paused else "PAUSED"
+            trading_emoji = "🟢" if trading_status == "ACTIVE" else "⏸"
+            status_text += f"{trading_emoji} **Trading:** `{trading_status}`\n"
+            
+            # Safe mode
+            safe_mode_status = "ACTIVE" if system_state.system_health.safe_mode else "INACTIVE"
+            safe_mode_emoji = "🔴" if system_state.system_health.safe_mode else "🟢"
+            status_text += f"{safe_mode_emoji} **Safe Mode:** `{safe_mode_status}`\n"
+            
+            # Adaptive interval
+            adaptive_system = get_adaptive_system_state()
+            adaptive_interval = adaptive_system.get("adaptive_interval", 300)
+            volatility_state = adaptive_system.get("volatility_state", "MEDIUM")
+            status_text += f"📊 **Interval:** `{adaptive_interval:.0f}s` (volatility: `{volatility_state}`)\n"
+            
+            # Uptime
+            metrics = get_analysis_metrics()
+            if metrics.get("start_time"):
+                uptime = time.monotonic() - metrics["start_time"]
+                uptime_hours = uptime / 3600
+                if uptime_hours < 1:
+                    uptime_str = f"{uptime / 60:.0f} мин"
+                else:
+                    uptime_str = f"{uptime_hours:.1f} ч"
+                status_text += f"⏱ **Uptime:** `{uptime_str}`\n"
+            
+            status_text += "\n"
+        
+        # Decision Core статус (читает из SystemState)
+        decision_core = get_decision_core()
         if system_state is None:
             decision_emoji = "⚠️"
             status_text += f"{decision_emoji} **Decision Core:** Состояние недоступно\n"
@@ -206,7 +241,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Последний heartbeat
         if os.path.exists("last_heartbeat.txt"):
             try:
-                with open("last_heartbeat.txt", "r") as f:
+                with open("last_heartbeat.txt", "r", encoding='utf-8') as f:
                     last_heartbeat = float(f.read().strip())
                     time_since = (datetime.now(UTC).timestamp() - last_heartbeat) / 3600
                     if time_since < 1:
@@ -849,6 +884,51 @@ async def cmd_gatekeeper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply_func(f"❌ Ошибка: {e}")
 
 
+async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /pause - приостановка торговли"""
+    try:
+        # Определяем, откуда пришел запрос
+        if hasattr(update, 'message') and update.message:
+            reply_func = update.message.reply_text
+        else:
+            reply_func = update.callback_query.message.reply_text
+        
+        from runner import pause_trading_manually
+        
+        success = pause_trading_manually()
+        if success:
+            await reply_func("⏸ **Trading paused manually**\n\nТорговля приостановлена. Используйте `/resume` для возобновления.", parse_mode="Markdown")
+        else:
+            await reply_func("⏸ **Trading is already paused**\n\nТорговля уже приостановлена.", parse_mode="Markdown")
+    except Exception as e:
+        reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
+        await reply_func(f"❌ Ошибка: {e}")
+
+
+async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /resume - возобновление торговли"""
+    try:
+        # Определяем, откуда пришел запрос
+        if hasattr(update, 'message') and update.message:
+            reply_func = update.message.reply_text
+        else:
+            reply_func = update.callback_query.message.reply_text
+        
+        from runner import resume_trading_manually
+        
+        success, message = resume_trading_manually()
+        if success:
+            await reply_func("✅ **Trading resumed manually**\n\nТорговля возобновлена.", parse_mode="Markdown")
+        else:
+            if "safe_mode" in message.lower():
+                await reply_func("❌ **Нельзя возобновить:** Система в safe_mode. Сначала необходимо выйти из safe_mode.", parse_mode="Markdown")
+            else:
+                await reply_func(f"✅ **{message}**\n\nТорговля уже активна.", parse_mode="Markdown")
+    except Exception as e:
+        reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
+        await reply_func(f"❌ Ошибка: {e}")
+
+
 def setup_commands(app):
     """
     Настраивает обработчики команд для Telegram бота.
@@ -877,6 +957,10 @@ def setup_commands(app):
     app.add_handler(CommandHandler("trades", cmd_trades))
     app.add_handler(CommandHandler("signals", cmd_signals))
     app.add_handler(CommandHandler("gatekeeper", cmd_gatekeeper))
+    
+    # Control plane команды
+    app.add_handler(CommandHandler("pause", cmd_pause))
+    app.add_handler(CommandHandler("resume", cmd_resume))
     
     # Обработчик кнопок
     app.add_handler(CallbackQueryHandler(button_callback))

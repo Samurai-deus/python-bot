@@ -55,9 +55,21 @@ from execution.gatekeeper import get_gatekeeper
 BASE_DIR = Path(__file__).parent.absolute()
 LOG_FILE = os.environ.get("LOG_FILE", str(BASE_DIR / "runner.log"))
 PID_FILE = os.environ.get("PID_FILE", str(BASE_DIR / "market_bot.pid"))
-ANALYSIS_INTERVAL = int(os.environ.get("BOT_INTERVAL", "300"))  # 5 минут
+ANALYSIS_INTERVAL = int(os.environ.get("BOT_INTERVAL", "300"))  # 5 минут (базовый интервал)
 MAX_CONSECUTIVE_ERRORS = int(os.environ.get("MAX_CONSECUTIVE_ERRORS", "5"))
 ERROR_PAUSE = int(os.environ.get("ERROR_PAUSE", "600"))  # 10 минут
+
+# Adaptive system parameters
+ADAPTIVE_INTERVAL_MIN = float(os.environ.get("ADAPTIVE_INTERVAL_MIN", "300"))  # Минимальный интервал (базовый)
+ADAPTIVE_INTERVAL_MAX = float(os.environ.get("ADAPTIVE_INTERVAL_MAX", "900"))  # Максимальный интервал (3x базового)
+ADAPTIVE_INTERVAL_MULTIPLIER = float(os.environ.get("ADAPTIVE_INTERVAL_MULTIPLIER", "1.5"))  # Множитель при ошибках
+ADAPTIVE_STABLE_CYCLES = int(os.environ.get("ADAPTIVE_STABLE_CYCLES", "3"))  # Количество успешных циклов для уменьшения интервала
+AUTO_RESUME_SAFE_MODE_DELAY = int(os.environ.get("AUTO_RESUME_SAFE_MODE_DELAY", "60"))  # Задержка перед auto-resume (секунды)
+
+# Adaptive system feature flags
+ADAPTIVE_INTERVAL_ENABLED = os.environ.get("ADAPTIVE_INTERVAL_ENABLED", "true").lower() == "true"
+AUTO_RESUME_TRADING_ENABLED = os.environ.get("AUTO_RESUME_TRADING_ENABLED", "true").lower() == "true"
+AUTO_RESUME_SUCCESS_CYCLES = int(os.environ.get("AUTO_RESUME_SUCCESS_CYCLES", "3"))  # Количество успешных циклов для auto-resume
 
 # Analysis timing limits
 MAX_ANALYSIS_TIME = float(os.environ.get("MAX_ANALYSIS_TIME", "30"))  # секунд - мягкий лимит
@@ -218,6 +230,20 @@ _prometheus_metrics = {
     # Counters
     "scheduler_stalls_total": 0,
     "analysis_cycles_total": 0,
+    "admin_commands_total": {"pause": 0, "resume": 0},  # Admin command counters
+}
+
+# Adaptive system state (volatility tracking, recovery cycles)
+_adaptive_system_state = {
+    "volatility_state": "MEDIUM",  # LOW, MEDIUM, HIGH (from market_regime.volatility_level)
+    "adaptive_interval": None,  # Current adaptive interval (None = not initialized)
+    "recovery_cycles": 0,  # Consecutive successful cycles while trading_paused
+}
+
+# Control plane state (manual pause tracking)
+_control_plane_state = {
+    "manual_pause_active": False,  # True if trading was paused manually (via admin/telegram)
+    "admin_commands_total": {"pause": 0, "resume": 0},  # Counter for admin commands
 }
 
 def get_analysis_metrics():
@@ -262,6 +288,68 @@ def increment_analysis_cycles():
     """Увеличивает счетчик завершенных циклов анализа (NON-BLOCKING)"""
     global _prometheus_metrics
     _prometheus_metrics["analysis_cycles_total"] += 1
+
+def get_adaptive_system_state():
+    """Возвращает текущее состояние адаптивной системы"""
+    return _adaptive_system_state.copy()
+
+def update_volatility_state(volatility_level: str):
+    """Обновляет состояние волатильности (NON-BLOCKING)"""
+    global _adaptive_system_state
+    # Нормализуем уровень волатильности: LOW, MEDIUM, HIGH
+    if volatility_level in ["LOW", "NORMAL", "MEDIUM", "HIGH", "EXTREME"]:
+        # Маппинг: LOW -> LOW, NORMAL/MEDIUM -> MEDIUM, HIGH/EXTREME -> HIGH
+        if volatility_level == "LOW":
+            _adaptive_system_state["volatility_state"] = "LOW"
+        elif volatility_level in ["NORMAL", "MEDIUM"]:
+            _adaptive_system_state["volatility_state"] = "MEDIUM"
+        else:  # HIGH, EXTREME
+            _adaptive_system_state["volatility_state"] = "HIGH"
+
+def pause_trading_manually():
+    """
+    Приостанавливает торговлю вручную (через admin/telegram).
+    
+    Returns:
+        bool: True если успешно, False если уже приостановлена
+    """
+    global _control_plane_state, _prometheus_metrics, _adaptive_system_state
+    
+    if _control_plane_state["manual_pause_active"]:
+        return False  # Уже приостановлена
+    
+    _control_plane_state["manual_pause_active"] = True
+    system_state.system_health.trading_paused = True
+    _prometheus_metrics["admin_commands_total"]["pause"] += 1
+    _adaptive_system_state["recovery_cycles"] = 0
+    
+    logger.info("Trading paused manually via control plane")
+    return True
+
+def resume_trading_manually():
+    """
+    Возобновляет торговлю вручную (через admin/telegram).
+    
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    global _control_plane_state, _prometheus_metrics, _adaptive_system_state
+    
+    # Проверяем safe_mode (имеет приоритет)
+    if system_state.system_health.safe_mode:
+        return (False, "Cannot resume: system is in safe_mode")
+    
+    # Проверяем, не активна ли уже торговля
+    if not system_state.system_health.trading_paused:
+        return (False, "Trading is already active")
+    
+    _control_plane_state["manual_pause_active"] = False
+    system_state.system_health.trading_paused = False
+    _prometheus_metrics["admin_commands_total"]["resume"] += 1
+    _adaptive_system_state["recovery_cycles"] = 0
+    
+    logger.info("Trading resumed manually via control plane")
+    return (True, "Trading resumed")
 
 # ========== ALERT ESCALATION SYSTEM ==========
 
@@ -712,6 +800,9 @@ async def run_market_analysis():
                 timeout=30.0
             )
             logger.info(f"   Режим: {market_regime.trend_type}, Волатильность: {market_regime.volatility_level}, Risk: {market_regime.risk_sentiment}")
+            # Обновляем состояние волатильности для адаптивной системы
+            if market_regime and hasattr(market_regime, 'volatility_level'):
+                update_volatility_state(market_regime.volatility_level)
         except asyncio.TimeoutError:
             logger.error("⏱ Таймаут анализа Market Regime Brain (30 сек)")
             market_regime = None
@@ -970,8 +1061,23 @@ async def market_analysis_loop():
     
     # ========== АБСОЛЮТНОЕ ПЛАНИРОВАНИЕ ==========
     # Используем monotonic clock для предотвращения дрейфа
-    interval = float(ANALYSIS_INTERVAL)
+    # Адаптивный интервал: увеличивается при ошибках, уменьшается при стабильной работе
+    current_interval = float(ANALYSIS_INTERVAL)
     next_run = time.monotonic()
+    
+    # ========== АДАПТИВНАЯ СИСТЕМА ==========
+    # Отслеживание состояния для адаптации
+    adaptive_state = {
+        "stable_cycles": 0,  # Количество успешных циклов подряд
+        "last_safe_mode_state": system_state.system_health.safe_mode,
+        "last_trading_paused_state": system_state.system_health.trading_paused,
+        "safe_mode_exit_time": None,  # Время выхода из safe_mode
+    }
+    
+    # Инициализируем адаптивный интервал
+    global _adaptive_system_state
+    if _adaptive_system_state["adaptive_interval"] is None:
+        _adaptive_system_state["adaptive_interval"] = float(ANALYSIS_INTERVAL)
     
     # ========== МЕТРИКИ ==========
     metrics = {
@@ -1020,6 +1126,164 @@ async def market_analysis_loop():
             # Увеличиваем счетчик завершенных циклов
             increment_analysis_cycles()
             
+            # ========== АДАПТИВНАЯ СИСТЕМА ==========
+            # Получаем текущее состояние для адаптации
+            consecutive_errors = system_state.system_health.consecutive_errors
+            adaptive_system = get_adaptive_system_state()
+            volatility_state = adaptive_system["volatility_state"]
+            
+            # 1. Адаптивный интервал анализа (на основе волатильности и ошибок)
+            if ADAPTIVE_INTERVAL_ENABLED:
+                # Базовый интервал из глобального состояния
+                base_interval = _adaptive_system_state["adaptive_interval"]
+                
+                # Корректировка на основе волатильности
+                volatility_multiplier = 1.0
+                if volatility_state == "LOW":
+                    # Низкая волатильность - увеличиваем интервал (1.5-2.0)
+                    volatility_multiplier = 1.75  # Среднее значение
+                elif volatility_state == "MEDIUM":
+                    # Средняя волатильность - без изменений
+                    volatility_multiplier = 1.0
+                elif volatility_state == "HIGH":
+                    # Высокая волатильность - уменьшаем интервал (0.7-0.8)
+                    volatility_multiplier = 0.75  # Среднее значение
+                
+                # Применяем множитель волатильности
+                volatility_adjusted_interval = base_interval * volatility_multiplier
+                
+                # Корректировка на основе ошибок (как раньше)
+                if success and consecutive_errors == 0:
+                    # Успешный цикл без ошибок - увеличиваем счетчик стабильности
+                    adaptive_state["stable_cycles"] += 1
+                    # Если достаточно стабильных циклов - уменьшаем базовый интервал
+                    if adaptive_state["stable_cycles"] >= ADAPTIVE_STABLE_CYCLES and base_interval > ADAPTIVE_INTERVAL_MIN:
+                        old_base = base_interval
+                        base_interval = max(ADAPTIVE_INTERVAL_MIN, base_interval / ADAPTIVE_INTERVAL_MULTIPLIER)
+                        if base_interval < old_base:
+                            logger.info(f"📉 Adaptive base interval decreased: {old_base:.0f}s → {base_interval:.0f}s (stable cycles: {adaptive_state['stable_cycles']})")
+                            adaptive_state["stable_cycles"] = 0
+                else:
+                    # Есть ошибки - увеличиваем базовый интервал
+                    adaptive_state["stable_cycles"] = 0
+                    if consecutive_errors > 0:
+                        old_base = base_interval
+                        base_interval = min(ADAPTIVE_INTERVAL_MAX, base_interval * ADAPTIVE_INTERVAL_MULTIPLIER)
+                        if base_interval > old_base:
+                            logger.info(f"📈 Adaptive base interval increased: {old_base:.0f}s → {base_interval:.0f}s (errors: {consecutive_errors})")
+                
+                # Обновляем базовый интервал в глобальном состоянии
+                _adaptive_system_state["adaptive_interval"] = base_interval
+                
+                # Пересчитываем интервал с учетом волатильности (после обновления base_interval)
+                volatility_adjusted_interval = base_interval * volatility_multiplier
+                
+                # Финальный интервал с учетом волатильности (clamp между min и max)
+                current_interval = max(ADAPTIVE_INTERVAL_MIN, min(ADAPTIVE_INTERVAL_MAX, volatility_adjusted_interval))
+            else:
+                # Адаптивный интервал отключен - используем базовую логику на основе ошибок
+                if success and consecutive_errors == 0:
+                    adaptive_state["stable_cycles"] += 1
+                    if adaptive_state["stable_cycles"] >= ADAPTIVE_STABLE_CYCLES and current_interval > ADAPTIVE_INTERVAL_MIN:
+                        old_interval = current_interval
+                        current_interval = max(ADAPTIVE_INTERVAL_MIN, current_interval / ADAPTIVE_INTERVAL_MULTIPLIER)
+                        if current_interval < old_interval:
+                            logger.info(f"📉 Adaptive interval decreased: {old_interval:.0f}s → {current_interval:.0f}s (stable cycles: {adaptive_state['stable_cycles']})")
+                            adaptive_state["stable_cycles"] = 0
+                else:
+                    adaptive_state["stable_cycles"] = 0
+                    if consecutive_errors > 0:
+                        old_interval = current_interval
+                        current_interval = min(ADAPTIVE_INTERVAL_MAX, current_interval * ADAPTIVE_INTERVAL_MULTIPLIER)
+                        if current_interval > old_interval:
+                            logger.info(f"📈 Adaptive interval increased: {old_interval:.0f}s → {current_interval:.0f}s (errors: {consecutive_errors})")
+            
+            # 2. Auto-resume trading (на основе последовательных успешных циклов)
+            # ВАЖНО: Manual pause переопределяет auto-resume
+            global _control_plane_state
+            manual_pause = _control_plane_state.get("manual_pause_active", False)
+            
+            if AUTO_RESUME_TRADING_ENABLED:
+                if system_state.system_health.trading_paused:
+                    # Проверяем, не является ли это manual pause
+                    if manual_pause:
+                        # Manual pause активна - не пытаемся auto-resume
+                        # Сбрасываем recovery cycles, чтобы не накапливать их
+                        if _adaptive_system_state["recovery_cycles"] > 0:
+                            _adaptive_system_state["recovery_cycles"] = 0
+                    elif success and consecutive_errors == 0:
+                        # Успешный цикл - увеличиваем счетчик восстановления (только если не manual pause)
+                        _adaptive_system_state["recovery_cycles"] += 1
+                        remaining = AUTO_RESUME_SUCCESS_CYCLES - _adaptive_system_state["recovery_cycles"]
+                        if remaining > 0:
+                            logger.debug(f"🔄 Recovery progress: {_adaptive_system_state['recovery_cycles']}/{AUTO_RESUME_SUCCESS_CYCLES} successful cycles (remaining: {remaining})")
+                        else:
+                            # Достаточно успешных циклов - возобновляем торговлю
+                            # Проверяем, что не в safe_mode (safe_mode имеет приоритет)
+                            if not system_state.system_health.safe_mode:
+                                system_state.system_health.trading_paused = False
+                                _adaptive_system_state["recovery_cycles"] = 0
+                                logger.info(f"🔄 Trading auto-resumed after {AUTO_RESUME_SUCCESS_CYCLES} successful cycles")
+                                # Отправляем уведомление
+                                try:
+                                    await asyncio.wait_for(
+                                        asyncio.to_thread(send_message, f"✅ **Trading resumed**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} successful analysis cycles. Trading is now active."),
+                                        timeout=5.0
+                                    )
+                                except Exception:
+                                    pass
+                            else:
+                                # В safe_mode - сбрасываем счетчик
+                                _adaptive_system_state["recovery_cycles"] = 0
+                                logger.debug("🔄 Recovery reset: safe_mode active (cannot auto-resume)")
+                    else:
+                        # Ошибка или неуспешный цикл - сбрасываем счетчик
+                        if _adaptive_system_state["recovery_cycles"] > 0:
+                            logger.debug(f"🔄 Recovery reset: error detected (was {_adaptive_system_state['recovery_cycles']}/{AUTO_RESUME_SUCCESS_CYCLES})")
+                        _adaptive_system_state["recovery_cycles"] = 0
+                else:
+                    # Торговля активна - сбрасываем счетчик восстановления
+                    if _adaptive_system_state["recovery_cycles"] > 0:
+                        _adaptive_system_state["recovery_cycles"] = 0
+                    # Если manual pause была активна, но торговля активна - снимаем флаг
+                    if manual_pause:
+                        _control_plane_state["manual_pause_active"] = False
+                
+                # Сбрасываем счетчик при входе в safe_mode
+                if system_state.system_health.safe_mode:
+                    if _adaptive_system_state["recovery_cycles"] > 0:
+                        logger.debug(f"🔄 Recovery reset: safe_mode activated (was {_adaptive_system_state['recovery_cycles']}/{AUTO_RESUME_SUCCESS_CYCLES})")
+                    _adaptive_system_state["recovery_cycles"] = 0
+            else:
+                # Auto-resume отключен - используем старую логику на основе safe_mode exit
+                if adaptive_state["last_safe_mode_state"] and not system_state.system_health.safe_mode:
+                    # Выход из safe_mode
+                    adaptive_state["safe_mode_exit_time"] = time.monotonic()
+                    logger.info("✅ Safe mode deactivated - monitoring for auto-resume")
+                
+                if (adaptive_state["safe_mode_exit_time"] is not None and 
+                    system_state.system_health.trading_paused and
+                    not system_state.system_health.safe_mode):
+                    # Проверяем, прошло ли достаточно времени после выхода из safe_mode
+                    time_since_exit = time.monotonic() - adaptive_state["safe_mode_exit_time"]
+                    if time_since_exit >= AUTO_RESUME_SAFE_MODE_DELAY:
+                        # Автоматически возобновляем торговлю
+                        system_state.system_health.trading_paused = False
+                        adaptive_state["safe_mode_exit_time"] = None
+                        logger.info(f"🔄 Trading auto-resumed after safe_mode exit (delay: {AUTO_RESUME_SAFE_MODE_DELAY}s)")
+                        # Отправляем уведомление
+                        try:
+                            await asyncio.wait_for(
+                                asyncio.to_thread(send_message, "✅ **Trading resumed**\n\nSystem recovered from safe mode. Trading is now active."),
+                                timeout=5.0
+                            )
+                        except Exception:
+                            pass
+            
+            # Обновляем состояние для следующей итерации
+            adaptive_state["last_safe_mode_state"] = system_state.system_health.safe_mode
+            adaptive_state["last_trading_paused_state"] = system_state.system_health.trading_paused
+            
             # ========== МЯГКИЙ КОНТРОЛЬ ВРЕМЕНИ ==========
             # Заменяем аварийный watchdog на мягкое предупреждение
             if duration > MAX_ANALYSIS_TIME:
@@ -1043,14 +1307,21 @@ async def market_analysis_loop():
                 if metrics["analysis_count"] > 0:
                     avg = metrics["analysis_total_time"] / metrics["analysis_count"]
                     uptime = now - metrics["start_time"]
+                    # Улучшенное логирование с адаптивной информацией
+                    mode_status = "SAFE_MODE" if system_state.system_health.safe_mode else ("CAUTION" if consecutive_errors > 0 else "NORMAL")
+                    trading_status = "PAUSED" if system_state.system_health.trading_paused else "ACTIVE"
                     logger.info(
-                        "📈 Metrics | runs=%d avg=%.2fs max=%.2fs uptime=%.0fs",
+                        "📈 Metrics | runs=%d avg=%.2fs max=%.2fs uptime=%.0fs interval=%.0fs mode=%s trading=%s errors=%d",
                         metrics["analysis_count"],
                         avg,
                         metrics["analysis_max_time"],
-                        uptime
+                        uptime,
+                        current_interval,
+                        mode_status,
+                        trading_status,
+                        consecutive_errors
                     )
-                metrics["last_metrics_log"] = now
+                    metrics["last_metrics_log"] = now
             
             if not success:
                 if system_state.system_health.consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
@@ -1100,7 +1371,7 @@ async def market_analysis_loop():
             else:
                 # ========== АБСОЛЮТНОЕ ПЛАНИРОВАНИЕ ==========
                 # Вычисляем время до следующего запуска
-                next_run += interval
+                next_run += current_interval
                 sleep_time = max(0.0, next_run - time.monotonic())
                 
                 # Sleep с проверкой shutdown каждую секунду для быстрого отклика на SIGTERM
@@ -1801,10 +2072,13 @@ async def health_server():
                 return
             
             method = parts[0]
-            path = parts[1]
+            # Parse path and strip query string if present
+            path_with_query = parts[1]
+            path = path_with_query.split('?')[0]
             
             # Читаем остальные заголовки (простой парсинг)
             headers = {}
+            content_length = 0
             while True:
                 line = await asyncio.wait_for(reader.readline(), timeout=1.0)
                 if not line or line == b'\r\n':
@@ -1812,7 +2086,21 @@ async def health_server():
                 line = line.decode('utf-8').strip()
                 if ':' in line:
                     key, value = line.split(':', 1)
-                    headers[key.strip().lower()] = value.strip()
+                    key_lower = key.strip().lower()
+                    headers[key_lower] = value.strip()
+                    if key_lower == 'content-length':
+                        try:
+                            content_length = int(value.strip())
+                        except ValueError:
+                            pass
+            
+            # Читаем тело запроса для POST (если есть)
+            if method == 'POST' and content_length > 0:
+                try:
+                    body_data = await asyncio.wait_for(reader.read(content_length), timeout=5.0)
+                    # Body consumed, not used for admin endpoints
+                except (asyncio.TimeoutError, Exception):
+                    pass  # Ignore errors reading body
             
             # Обрабатываем запрос
             if method == 'GET':
@@ -1820,6 +2108,19 @@ async def health_server():
                     response = await handle_health()
                 elif path == '/metrics':
                     response = await handle_metrics()
+                elif path == '/admin/status':
+                    response = await handle_admin_status()
+                else:
+                    response = ('HTTP/1.1 404 Not Found\r\n'
+                               'Content-Type: text/plain\r\n'
+                               'Content-Length: 9\r\n'
+                               '\r\n'
+                               'Not Found')
+            elif method == 'POST':
+                if path == '/admin/pause':
+                    response = await handle_admin_pause()
+                elif path == '/admin/resume':
+                    response = await handle_admin_resume()
                 else:
                     response = ('HTTP/1.1 404 Not Found\r\n'
                                'Content-Type: text/plain\r\n'
@@ -1965,6 +2266,28 @@ async def health_server():
             trading_paused_value = 1 if system_state.system_health.trading_paused else 0
             lines.append(f'trading_paused {trading_paused_value}')
             
+            # ========== ADAPTIVE SYSTEM METRICS ==========
+            # adaptive_analysis_interval_seconds (gauge) - текущий адаптивный интервал
+            adaptive_system = get_adaptive_system_state()
+            adaptive_interval = adaptive_system.get("adaptive_interval", float(ANALYSIS_INTERVAL))
+            lines.append(f'adaptive_analysis_interval_seconds {adaptive_interval:.1f}')
+            
+            # recovery_cycles_remaining (gauge) - оставшиеся циклы для auto-resume
+            recovery_cycles = adaptive_system.get("recovery_cycles", 0)
+            recovery_remaining = max(0, AUTO_RESUME_SUCCESS_CYCLES - recovery_cycles) if AUTO_RESUME_TRADING_ENABLED else 0
+            lines.append(f'recovery_cycles_remaining {recovery_remaining}')
+            
+            # ========== CONTROL PLANE METRICS ==========
+            # manual_pause_active (gauge: 0/1) - ручная пауза активна
+            global _control_plane_state
+            manual_pause_value = 1 if _control_plane_state["manual_pause_active"] else 0
+            lines.append(f'manual_pause_active {manual_pause_value}')
+            
+            # admin_commands_total (counter) - счетчик admin команд
+            admin_commands = _prometheus_metrics["admin_commands_total"]
+            lines.append(f'admin_commands_total{{command="pause"}} {admin_commands["pause"]}')
+            lines.append(f'admin_commands_total{{command="resume"}} {admin_commands["resume"]}')
+            
             # Объединяем все метрики
             body = '\n'.join(lines) + '\n'
             
@@ -1979,6 +2302,110 @@ async def health_server():
             error_body = f'# Error generating metrics: {str(e)}\n'
             response = (f'HTTP/1.1 500 Internal Server Error\r\n'
                        f'Content-Type: text/plain\r\n'
+                       f'Content-Length: {len(error_body)}\r\n'
+                       f'\r\n'
+                       f'{error_body}')
+            return response
+    
+    async def handle_admin_pause():
+        """Обработчик POST /admin/pause - приостановка торговли"""
+        try:
+            # Call existing manual pause logic
+            pause_trading_manually()
+            # Set trading_paused = True and manual_pause_active = True (already done in pause_trading_manually)
+            
+            body = json.dumps({"status": "paused"})
+            response = (f'HTTP/1.1 200 OK\r\n'
+                       f'Content-Type: application/json\r\n'
+                       f'Content-Length: {len(body)}\r\n'
+                       f'\r\n'
+                       f'{body}')
+            return response
+        except Exception as e:
+            logger.error(f"Error in admin pause handler: {type(e).__name__}: {e}")
+            error_body = json.dumps({"status": "error", "message": str(e)})
+            response = (f'HTTP/1.1 500 Internal Server Error\r\n'
+                       f'Content-Type: application/json\r\n'
+                       f'Content-Length: {len(error_body)}\r\n'
+                       f'\r\n'
+                       f'{error_body}')
+            return response
+    
+    async def handle_admin_resume():
+        """Обработчик POST /admin/resume - возобновление торговли"""
+        try:
+            # Call existing manual resume logic
+            success, message = resume_trading_manually()
+            if not success:
+                # If resume failed (e.g., safe_mode), return error
+                if "safe_mode" in message.lower():
+                    error_body = json.dumps({"status": "error", "message": message})
+                    response = (f'HTTP/1.1 400 Bad Request\r\n'
+                               f'Content-Type: application/json\r\n'
+                               f'Content-Length: {len(error_body)}\r\n'
+                               f'\r\n'
+                               f'{error_body}')
+                    return response
+                else:
+                    # Already active or other issue - still return resumed status
+                    pass
+            
+            # Clear recovery counters (already done in resume_trading_manually)
+            # Set trading_paused = False and manual_pause_active = False (already done in resume_trading_manually)
+            
+            body = json.dumps({"status": "resumed"})
+            response = (f'HTTP/1.1 200 OK\r\n'
+                       f'Content-Type: application/json\r\n'
+                       f'Content-Length: {len(body)}\r\n'
+                       f'\r\n'
+                       f'{body}')
+            return response
+        except Exception as e:
+            logger.error(f"Error in admin resume handler: {type(e).__name__}: {e}")
+            error_body = json.dumps({"status": "error", "message": str(e)})
+            response = (f'HTTP/1.1 500 Internal Server Error\r\n'
+                       f'Content-Type: application/json\r\n'
+                       f'Content-Length: {len(error_body)}\r\n'
+                       f'\r\n'
+                       f'{error_body}')
+            return response
+    
+    async def handle_admin_status():
+        """Обработчик GET /admin/status - статус системы"""
+        try:
+            global _control_plane_state, _adaptive_system_state
+            
+            # Получаем метрики
+            metrics = get_analysis_metrics()
+            adaptive_system = get_adaptive_system_state()
+            
+            # Вычисляем uptime
+            uptime = 0.0
+            if metrics["start_time"] is not None:
+                uptime = time.monotonic() - metrics["start_time"]
+            
+            # Формируем ответ
+            status_data = {
+                "trading_paused": system_state.system_health.trading_paused,
+                "manual_pause_active": _control_plane_state.get("manual_pause_active", False),
+                "safe_mode": system_state.system_health.safe_mode,
+                "adaptive_interval": adaptive_system.get("adaptive_interval", float(ANALYSIS_INTERVAL)),
+                "volatility_state": adaptive_system.get("volatility_state", "MEDIUM"),
+                "uptime_seconds": uptime
+            }
+            
+            body = json.dumps(status_data, indent=2)
+            response = (f'HTTP/1.1 200 OK\r\n'
+                       f'Content-Type: application/json\r\n'
+                       f'Content-Length: {len(body)}\r\n'
+                       f'\r\n'
+                       f'{body}')
+            return response
+        except Exception as e:
+            logger.error(f"Error in admin status handler: {type(e).__name__}: {e}")
+            error_body = json.dumps({"status": "error", "message": str(e)})
+            response = (f'HTTP/1.1 500 Internal Server Error\r\n'
+                       f'Content-Type: application/json\r\n'
                        f'Content-Length: {len(error_body)}\r\n'
                        f'\r\n'
                        f'{error_body}')
