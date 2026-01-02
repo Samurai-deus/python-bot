@@ -10,8 +10,13 @@ from typing import Dict, Optional, List
 from datetime import datetime, UTC
 from dataclasses import dataclass, asdict
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+# ========== FAULT INJECTION (для тестирования устойчивости) ==========
+
+FAULT_INJECT_DECISION_EXCEPTION = os.environ.get("FAULT_INJECT_DECISION_EXCEPTION", "false").lower() == "true"
 
 
 @dataclass
@@ -238,7 +243,17 @@ class DecisionCore:
                 recommendations=recommendations
             )
             
-            # Обновляем решение в SystemState
+            # ========== FAULT INJECTION (контролируемая) ==========
+            # Поднимаем исключение ПОСЛЕ создания snapshot (в signal_generator),
+            # но ДО side effects (update_trading_decision)
+            if FAULT_INJECT_DECISION_EXCEPTION:
+                raise RuntimeError(
+                    "FAULT_INJECTION: decision_exception - "
+                    "Controlled fault injection for runtime resilience testing. "
+                    "This exception is expected when FAULT_INJECT_DECISION_EXCEPTION=true"
+                )
+            
+            # Обновляем решение в SystemState (side effect - выполняется только если fault injection не активен)
             if system_state:
                 system_state.update_trading_decision(can_trade)
             

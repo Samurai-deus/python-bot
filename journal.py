@@ -5,6 +5,10 @@ from typing import List, Dict, Optional
 from core.market_state import MarketState, state_to_string
 from core.signal_snapshot import SignalSnapshot, SignalDecision
 
+# ========== FAULT INJECTION (для тестирования устойчивости) ==========
+
+FAULT_INJECT_STORAGE_FAILURE = os.environ.get("FAULT_INJECT_STORAGE_FAILURE", "false").lower() == "true"
+
 def log_signal(symbol, states, risk):
     """
     УСТАРЕВШАЯ функция - используйте log_signal_snapshot().
@@ -22,6 +26,10 @@ def log_signal_snapshot(snapshot: SignalSnapshot):
     
     Args:
         snapshot: SignalSnapshot для логирования
+    
+    Note:
+        Fault injection проверяется в SignalSnapshotStore.save() - entry point.
+        Эта функция вызывается только после проверки fault injection.
     """
     file_exists = os.path.exists("signals_log.csv")
     with open("signals_log.csv", "a", newline="", encoding="utf-8") as f:
