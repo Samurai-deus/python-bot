@@ -204,6 +204,22 @@ _analysis_metrics = {
     "start_time": None,  # Будет установлено при первом запуске
 }
 
+# ========== PROMETHEUS METRICS STATE ==========
+# Histogram buckets for analysis duration (seconds)
+ANALYSIS_DURATION_BUCKETS = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0]
+
+# Prometheus metrics state
+_prometheus_metrics = {
+    # Histogram: analysis duration buckets
+    "analysis_duration_buckets": {bucket: 0 for bucket in ANALYSIS_DURATION_BUCKETS},
+    "analysis_duration_sum": 0.0,  # Sum of all durations
+    "analysis_duration_count": 0,  # Total observations
+    
+    # Counters
+    "scheduler_stalls_total": 0,
+    "analysis_cycles_total": 0,
+}
+
 def get_analysis_metrics():
     """Возвращает текущие метрики анализа для health endpoint"""
     return _analysis_metrics.copy()
@@ -212,6 +228,40 @@ def update_analysis_metrics(metrics_update: dict):
     """Обновляет глобальные метрики анализа"""
     global _analysis_metrics
     _analysis_metrics.update(metrics_update)
+
+def get_prometheus_metrics():
+    """Возвращает текущие Prometheus метрики"""
+    return _prometheus_metrics.copy()
+
+def record_analysis_duration(duration: float):
+    """
+    Записывает длительность анализа в histogram buckets.
+    
+    NON-BLOCKING: Просто обновляет счетчики в памяти.
+    
+    Prometheus histogram buckets are cumulative:
+    - Each bucket counts all observations <= bucket value
+    - Values < smallest bucket are still counted in smallest bucket
+    """
+    global _prometheus_metrics
+    # Обновляем sum и count
+    _prometheus_metrics["analysis_duration_sum"] += duration
+    _prometheus_metrics["analysis_duration_count"] += 1
+    
+    # Обновляем buckets (cumulative - все bucket'ы >= duration увеличиваются)
+    for bucket in ANALYSIS_DURATION_BUCKETS:
+        if duration <= bucket:
+            _prometheus_metrics["analysis_duration_buckets"][bucket] += 1
+
+def increment_scheduler_stalls():
+    """Увеличивает счетчик scheduler stalls (NON-BLOCKING)"""
+    global _prometheus_metrics
+    _prometheus_metrics["scheduler_stalls_total"] += 1
+
+def increment_analysis_cycles():
+    """Увеличивает счетчик завершенных циклов анализа (NON-BLOCKING)"""
+    global _prometheus_metrics
+    _prometheus_metrics["analysis_cycles_total"] += 1
 
 # ========== ALERT ESCALATION SYSTEM ==========
 
@@ -964,6 +1014,12 @@ async def market_analysis_loop():
                 "last_analysis_duration": duration,
             })
             
+            # ========== PROMETHEUS METRICS (NON-BLOCKING) ==========
+            # Записываем длительность в histogram
+            record_analysis_duration(duration)
+            # Увеличиваем счетчик завершенных циклов
+            increment_analysis_cycles()
+            
             # ========== МЯГКИЙ КОНТРОЛЬ ВРЕМЕНИ ==========
             # Заменяем аварийный watchdog на мягкое предупреждение
             if duration > MAX_ANALYSIS_TIME:
@@ -1145,6 +1201,10 @@ async def runtime_heartbeat_loop():
                     f"(expected={expected_interval}s) "
                     f"missed_heartbeats={missed_heartbeats}"
                 )
+                
+                # ========== PROMETHEUS METRICS (NON-BLOCKING) ==========
+                # Увеличиваем счетчик scheduler stalls
+                increment_scheduler_stalls()
                 
                 # Проверяем, не является ли это fault injection
                 if FAULT_INJECT_LOOP_STALL:
@@ -1840,29 +1900,57 @@ async def health_server():
         try:
             # Получаем метрики анализа
             metrics = get_analysis_metrics()
+            prom_metrics = get_prometheus_metrics()
             
             # Вычисляем uptime
             uptime = 0.0
             if metrics["start_time"] is not None:
                 uptime = time.monotonic() - metrics["start_time"]
             
+            # Определяем mode для labels (low cardinality)
+            mode = "SAFE_MODE" if system_state.system_health.safe_mode else "NORMAL"
+            if system_state.system_health.consecutive_errors > 0:
+                mode = "CAUTION"
+            
             # Формируем Prometheus metrics
             lines = []
             
-            # market_analysis_duration_seconds (gauge) - последняя длительность анализа
-            duration = metrics.get("last_analysis_duration", 0.0)
-            lines.append(f'market_analysis_duration_seconds {duration:.3f}')
+            # ========== HISTOGRAM: market_analysis_duration_seconds ==========
+            # Histogram buckets (cumulative)
+            for bucket in ANALYSIS_DURATION_BUCKETS:
+                count = prom_metrics["analysis_duration_buckets"].get(bucket, 0)
+                lines.append(f'market_analysis_duration_seconds_bucket{{le="{bucket:.1f}",mode="{mode}"}} {count}')
+            # +Inf bucket (total count)
+            total_count = prom_metrics["analysis_duration_count"]
+            lines.append(f'market_analysis_duration_seconds_bucket{{le="+Inf",mode="{mode}"}} {total_count}')
+            # Sum and count
+            lines.append(f'market_analysis_duration_seconds_sum{{mode="{mode}"}} {prom_metrics["analysis_duration_sum"]:.3f}')
+            lines.append(f'market_analysis_duration_seconds_count{{mode="{mode}"}} {total_count}')
             
-            # market_analysis_runs_total (counter) - общее количество запусков
+            # ========== GAUGE: last_analysis_duration_seconds ==========
+            # Последняя длительность анализа (для быстрого доступа)
+            duration = metrics.get("last_analysis_duration", 0.0)
+            lines.append(f'last_analysis_duration_seconds{{mode="{mode}"}} {duration:.3f}')
+            
+            # ========== COUNTERS ==========
+            # market_analysis_runs_total (legacy, kept for compatibility)
             runs_total = metrics.get("analysis_count", 0)
             lines.append(f'market_analysis_runs_total {runs_total}')
             
+            # analysis_cycles_total (new counter)
+            cycles_total = prom_metrics["analysis_cycles_total"]
+            lines.append(f'analysis_cycles_total{{mode="{mode}"}} {cycles_total}')
+            
             # market_analysis_errors_total (counter) - количество ошибок
             errors_total = system_state.system_health.consecutive_errors
-            lines.append(f'market_analysis_errors_total {errors_total}')
+            lines.append(f'market_analysis_errors_total{{mode="{mode}"}} {errors_total}')
             
-            # market_volatility (gauge) - волатильность рынка (placeholder, так как не отслеживается)
-            # TODO: Добавить реальное отслеживание волатильности
+            # scheduler_stalls_total (counter)
+            stalls_total = prom_metrics["scheduler_stalls_total"]
+            lines.append(f'scheduler_stalls_total {stalls_total}')
+            
+            # ========== GAUGES ==========
+            # market_volatility (gauge) - волатильность рынка (placeholder)
             volatility = 0.0
             lines.append(f'market_volatility {volatility:.3f}')
             
