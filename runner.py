@@ -1506,26 +1506,82 @@ async def health_server():
     """
     HTTP healthcheck server для мониторинга состояния сервиса.
     
-    Endpoint: GET /health
-    Response: JSON с status, uptime, last_analysis_duration, safe_mode
+    Endpoints:
+    - GET /health - JSON с status, uptime, last_analysis_duration, safe_mode
+    - GET /metrics - Prometheus-compatible metrics (text/plain)
     
     Features:
-    - Не блокирует event loop (aiohttp работает асинхронно)
+    - Использует stdlib asyncio.start_server (без внешних зависимостей)
+    - Не блокирует event loop
     - Graceful shutdown support
     - Bind к 127.0.0.1 (безопасно для production)
     """
-    try:
-        import aiohttp
-        from aiohttp import web
-    except ImportError:
-        logger.warning("aiohttp not available, health server disabled")
-        return
+    import json
     
     logger.info(f"Starting health server on {HEALTH_SERVER_HOST}:{HEALTH_SERVER_PORT}")
     
-    app = web.Application()
+    async def handle_client(reader, writer):
+        """Обработчик клиентских соединений"""
+        try:
+            # Читаем HTTP запрос
+            request_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+            if not request_line:
+                return
+            
+            request_line = request_line.decode('utf-8').strip()
+            parts = request_line.split()
+            if len(parts) < 2:
+                return
+            
+            method = parts[0]
+            path = parts[1]
+            
+            # Читаем остальные заголовки (простой парсинг)
+            headers = {}
+            while True:
+                line = await asyncio.wait_for(reader.readline(), timeout=1.0)
+                if not line or line == b'\r\n':
+                    break
+                line = line.decode('utf-8').strip()
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    headers[key.strip().lower()] = value.strip()
+            
+            # Обрабатываем запрос
+            if method == 'GET':
+                if path == '/health':
+                    response = await handle_health()
+                elif path == '/metrics':
+                    response = await handle_metrics()
+                else:
+                    response = ('HTTP/1.1 404 Not Found\r\n'
+                               'Content-Type: text/plain\r\n'
+                               'Content-Length: 9\r\n'
+                               '\r\n'
+                               'Not Found')
+            else:
+                response = ('HTTP/1.1 405 Method Not Allowed\r\n'
+                           'Content-Type: text/plain\r\n'
+                           'Content-Length: 18\r\n'
+                           '\r\n'
+                           'Method Not Allowed')
+            
+            # Отправляем ответ
+            writer.write(response.encode('utf-8'))
+            await writer.drain()
+            
+        except asyncio.TimeoutError:
+            pass
+        except Exception as e:
+            logger.warning(f"Error handling client request: {type(e).__name__}: {e}")
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
     
-    async def health_handler(request):
+    async def handle_health():
         """Обработчик GET /health"""
         try:
             # Получаем метрики анализа
@@ -1554,27 +1610,90 @@ async def health_server():
                 "consecutive_errors": system_state.system_health.consecutive_errors,
             }
             
-            return web.json_response(response_data)
+            body = json.dumps(response_data, indent=2)
+            response = (f'HTTP/1.1 200 OK\r\n'
+                       f'Content-Type: application/json\r\n'
+                       f'Content-Length: {len(body)}\r\n'
+                       f'\r\n'
+                       f'{body}')
+            return response
         except Exception as e:
             logger.error(f"Error in health handler: {type(e).__name__}: {e}")
-            return web.json_response(
-                {"status": "error", "error": str(e)},
-                status=500
-            )
+            error_body = json.dumps({"status": "error", "error": str(e)})
+            response = (f'HTTP/1.1 500 Internal Server Error\r\n'
+                       f'Content-Type: application/json\r\n'
+                       f'Content-Length: {len(error_body)}\r\n'
+                       f'\r\n'
+                       f'{error_body}')
+            return response
     
-    app.router.add_get("/health", health_handler)
+    async def handle_metrics():
+        """Обработчик GET /metrics - Prometheus exposition format"""
+        try:
+            # Получаем метрики анализа
+            metrics = get_analysis_metrics()
+            
+            # Вычисляем uptime
+            uptime = 0.0
+            if metrics["start_time"] is not None:
+                uptime = time.monotonic() - metrics["start_time"]
+            
+            # Формируем Prometheus metrics
+            lines = []
+            
+            # market_analysis_duration_seconds (gauge) - последняя длительность анализа
+            duration = metrics.get("last_analysis_duration", 0.0)
+            lines.append(f'market_analysis_duration_seconds {duration:.3f}')
+            
+            # market_analysis_runs_total (counter) - общее количество запусков
+            runs_total = metrics.get("analysis_count", 0)
+            lines.append(f'market_analysis_runs_total {runs_total}')
+            
+            # market_analysis_errors_total (counter) - количество ошибок
+            errors_total = system_state.system_health.consecutive_errors
+            lines.append(f'market_analysis_errors_total {errors_total}')
+            
+            # market_volatility (gauge) - волатильность рынка (placeholder, так как не отслеживается)
+            # TODO: Добавить реальное отслеживание волатильности
+            volatility = 0.0
+            lines.append(f'market_volatility {volatility:.3f}')
+            
+            # uptime_seconds (gauge) - время работы сервиса
+            lines.append(f'uptime_seconds {uptime:.3f}')
+            
+            # safe_mode (gauge: 0/1) - режим безопасной работы
+            safe_mode_value = 1 if system_state.system_health.safe_mode else 0
+            lines.append(f'safe_mode {safe_mode_value}')
+            
+            # Объединяем все метрики
+            body = '\n'.join(lines) + '\n'
+            
+            response = (f'HTTP/1.1 200 OK\r\n'
+                       f'Content-Type: text/plain; version=0.0.4\r\n'
+                       f'Content-Length: {len(body)}\r\n'
+                       f'\r\n'
+                       f'{body}')
+            return response
+        except Exception as e:
+            logger.error(f"Error in metrics handler: {type(e).__name__}: {e}")
+            error_body = f'# Error generating metrics: {str(e)}\n'
+            response = (f'HTTP/1.1 500 Internal Server Error\r\n'
+                       f'Content-Type: text/plain\r\n'
+                       f'Content-Length: {len(error_body)}\r\n'
+                       f'\r\n'
+                       f'{error_body}')
+            return response
     
-    # Создаём runner для сервера
-    runner = web.AppRunner(app)
-    await runner.setup()
-    
-    # Создаём site
-    site = web.TCPSite(runner, HEALTH_SERVER_HOST, HEALTH_SERVER_PORT)
-    
+    # Создаём сервер используя stdlib asyncio.start_server
     try:
-        # Запускаем сервер
-        await site.start()
-        logger.info(f"Health server started on http://{HEALTH_SERVER_HOST}:{HEALTH_SERVER_PORT}/health")
+        server = await asyncio.start_server(
+            handle_client,
+            HEALTH_SERVER_HOST,
+            HEALTH_SERVER_PORT
+        )
+        
+        logger.info(f"Health server started on http://{HEALTH_SERVER_HOST}:{HEALTH_SERVER_PORT}")
+        logger.info("Endpoints: /health (JSON), /metrics (Prometheus)")
         
         # Ждём shutdown signal
         shutdown_evt = get_shutdown_event()
@@ -1588,8 +1707,9 @@ async def health_server():
     finally:
         # Graceful shutdown
         try:
-            await site.stop()
-            await runner.cleanup()
+            if 'server' in locals():
+                server.close()
+                await server.wait_closed()
             logger.info("Health server stopped")
         except Exception as e:
             logger.warning(f"Error stopping health server: {type(e).__name__}: {e}")
