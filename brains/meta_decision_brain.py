@@ -6,6 +6,11 @@ MetaDecisionBrain НЕ работает с рынком напрямую.
 
 Это мета-уровень принятия решений, который анализирует состояние системы
 в целом и решает, можно ли торговать в данный момент.
+
+АРХИТЕКТУРА ПЕРЕХОДОВ СОСТОЯНИЙ:
+- Явные состояния: ALLOW, HARD_BLOCK, SOFT_BLOCK
+- Явные переходы через методы: _transition_to_hard_block, _transition_to_soft_block, _transition_to_allow
+- Приоритет проверок: HARD_BLOCK > SOFT_BLOCK > ALLOW (явно заявлен)
 """
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -32,6 +37,18 @@ class TimeContext(str, Enum):
     SESSION_END = "SESSION_END"  # Конец сессии
     AFTER_HOURS = "AFTER_HOURS"  # Вне торговых часов
     UNKNOWN = "UNKNOWN"  # Неизвестный контекст
+
+
+class DecisionState(str, Enum):
+    """
+    Явные состояния решения о торговле.
+    
+    Используется для явного определения текущего состояния системы
+    и явных переходов между состояниями.
+    """
+    ALLOW = "ALLOW"  # Торговля разрешена
+    HARD_BLOCK = "HARD_BLOCK"  # Жёсткая блокировка торговли
+    SOFT_BLOCK = "SOFT_BLOCK"  # Мягкая блокировка торговли
 
 
 @dataclass
@@ -71,7 +88,27 @@ class MetaDecisionBrain:
     - Работает ТОЛЬКО с агрегированными метриками
     - Детерминированный код без состояния
     - Лёгкий, быстрый, без внешних зависимостей
+    - Явные переходы состояний через методы _transition_to_*
+    
+    ПЕРЕХОДЫ СОСТОЯНИЙ (явные, в порядке приоритета):
+    1. HARD_BLOCK - проверяется первым (высший приоритет)
+    2. SOFT_BLOCK - проверяется вторым (средний приоритет)
+    3. ALLOW - состояние по умолчанию (низший приоритет)
     """
+    
+    # Явные константы для приоритетности проверок
+    CHECK_PRIORITY_HARD_BLOCK = 1  # Высший приоритет
+    CHECK_PRIORITY_SOFT_BLOCK = 2  # Средний приоритет
+    CHECK_PRIORITY_ALLOW = 3  # Низший приоритет (по умолчанию)
+    
+    # Явные константы для cooldown
+    HARD_BLOCK_COOLDOWN_MINUTES = 30
+    SOFT_BLOCK_COOLDOWN_OVERTRADING = 15
+    SOFT_BLOCK_COOLDOWN_UNCERTAINTY = 10
+    SOFT_BLOCK_COOLDOWN_BAD_OUTCOMES = 20
+    SOFT_BLOCK_COOLDOWN_HIGH_EXPOSURE = 15
+    SOFT_BLOCK_COOLDOWN_SESSION_END = 5
+    ALLOW_COOLDOWN_MINUTES = 0
     
     def __init__(self):
         """
@@ -95,6 +132,11 @@ class MetaDecisionBrain:
         """
         Оценивает возможность торговли на основе агрегированных метрик.
         
+        Явный порядок проверок (по приоритету):
+        1. HARD_BLOCK (приоритет 1) - проверяется первым
+        2. SOFT_BLOCK (приоритет 2) - проверяется вторым
+        3. ALLOW (приоритет 3) - состояние по умолчанию
+        
         Args:
             market_regime: Режим рынка (опционально)
             confidence_score: Средняя уверенность системы (0.0 - 1.0)
@@ -108,17 +150,90 @@ class MetaDecisionBrain:
         Returns:
             MetaDecisionResult: Результат мета-решения
         
-        Логика:
-        - HARD BLOCK если выполнено любое критическое условие
-        - SOFT BLOCK если выполнены предупреждающие условия
-        - ALLOW только если НЕТ ни одного блокирующего условия
+        Переходы состояний:
+        - Если выполнено условие HARD_BLOCK → переход в HARD_BLOCK
+        - Если выполнено условие SOFT_BLOCK → переход в SOFT_BLOCK
+        - Иначе → переход в ALLOW
         """
-        # Нормализуем входные данные
-        confidence_score = max(0.0, min(1.0, confidence_score))
-        entropy_score = max(0.0, min(1.0, entropy_score))
-        portfolio_exposure = max(0.0, min(1.0, portfolio_exposure))
+        # Явная нормализация входных данных
+        normalized_inputs = self._normalize_inputs(
+            confidence_score=confidence_score,
+            entropy_score=entropy_score,
+            portfolio_exposure=portfolio_exposure
+        )
         
-        # ========== HARD BLOCK - Критические условия ==========
+        # ЯВНЫЙ ПЕРЕХОД 1: Проверка HARD_BLOCK (приоритет 1)
+        hard_block_result = self._evaluate_hard_block_transition(
+            entropy_score=normalized_inputs['entropy_score'],
+            confidence_score=normalized_inputs['confidence_score'],
+            portfolio_exposure=normalized_inputs['portfolio_exposure'],
+            system_health=system_health
+        )
+        if hard_block_result is not None:
+            return hard_block_result
+        
+        # ЯВНЫЙ ПЕРЕХОД 2: Проверка SOFT_BLOCK (приоритет 2)
+        soft_block_result = self._evaluate_soft_block_transition(
+            confidence_score=normalized_inputs['confidence_score'],
+            entropy_score=normalized_inputs['entropy_score'],
+            signals_count_recent=signals_count_recent,
+            recent_outcomes=recent_outcomes,
+            portfolio_exposure=normalized_inputs['portfolio_exposure'],
+            time_context=time_context
+        )
+        if soft_block_result is not None:
+            return soft_block_result
+        
+        # ЯВНЫЙ ПЕРЕХОД 3: Переход в ALLOW (приоритет 3, по умолчанию)
+        return self._transition_to_allow()
+    
+    def _normalize_inputs(
+        self,
+        confidence_score: float,
+        entropy_score: float,
+        portfolio_exposure: float
+    ) -> dict:
+        """
+        Явная нормализация входных данных.
+        
+        Обеспечивает, что все значения находятся в допустимом диапазоне [0.0, 1.0].
+        
+        Args:
+            confidence_score: Уверенность системы
+            entropy_score: Энтропия системы
+            portfolio_exposure: Экспозиция портфеля
+        
+        Returns:
+            dict: Словарь с нормализованными значениями
+        """
+        return {
+            'confidence_score': max(0.0, min(1.0, confidence_score)),
+            'entropy_score': max(0.0, min(1.0, entropy_score)),
+            'portfolio_exposure': max(0.0, min(1.0, portfolio_exposure))
+        }
+    
+    def _evaluate_hard_block_transition(
+        self,
+        entropy_score: float,
+        confidence_score: float,
+        portfolio_exposure: float,
+        system_health: SystemHealthStatus
+    ) -> Optional[MetaDecisionResult]:
+        """
+        Явная проверка перехода в состояние HARD_BLOCK.
+        
+        Проверяет критические условия для жёсткой блокировки торговли.
+        Если условие выполнено, выполняет явный переход в HARD_BLOCK.
+        
+        Args:
+            entropy_score: Средняя энтропия системы
+            confidence_score: Средняя уверенность системы
+            portfolio_exposure: Экспозиция портфеля
+            system_health: Состояние здоровья системы
+        
+        Returns:
+            MetaDecisionResult с HARD_BLOCK или None (если переход не требуется)
+        """
         hard_block_reason = self._check_hard_block_conditions(
             entropy_score=entropy_score,
             confidence_score=confidence_score,
@@ -126,15 +241,37 @@ class MetaDecisionBrain:
             system_health=system_health
         )
         
-        if hard_block_reason:
-            return MetaDecisionResult(
-                allow_trading=False,
-                reason=hard_block_reason,
-                block_level=BlockLevel.HARD,
-                cooldown_minutes=30  # Жёсткая блокировка - ждём 30 минут
-            )
+        if hard_block_reason is not None:
+            return self._transition_to_hard_block(reason=hard_block_reason)
         
-        # ========== SOFT BLOCK - Предупреждающие условия ==========
+        return None
+    
+    def _evaluate_soft_block_transition(
+        self,
+        confidence_score: float,
+        entropy_score: float,
+        signals_count_recent: int,
+        recent_outcomes: Optional[List[float]],
+        portfolio_exposure: float,
+        time_context: TimeContext
+    ) -> Optional[MetaDecisionResult]:
+        """
+        Явная проверка перехода в состояние SOFT_BLOCK.
+        
+        Проверяет предупреждающие условия для мягкой блокировки торговли.
+        Если условие выполнено, выполняет явный переход в SOFT_BLOCK.
+        
+        Args:
+            confidence_score: Средняя уверенность системы
+            entropy_score: Средняя энтропия системы
+            signals_count_recent: Количество сигналов за период
+            recent_outcomes: Список последних результатов
+            portfolio_exposure: Экспозиция портфеля
+            time_context: Контекст времени
+        
+        Returns:
+            MetaDecisionResult с SOFT_BLOCK или None (если переход не требуется)
+        """
         soft_block_reason, cooldown = self._check_soft_block_conditions(
             confidence_score=confidence_score,
             entropy_score=entropy_score,
@@ -144,20 +281,71 @@ class MetaDecisionBrain:
             time_context=time_context
         )
         
-        if soft_block_reason:
-            return MetaDecisionResult(
-                allow_trading=False,
+        if soft_block_reason is not None:
+            return self._transition_to_soft_block(
                 reason=soft_block_reason,
-                block_level=BlockLevel.SOFT,
                 cooldown_minutes=cooldown
             )
         
-        # ========== ALLOW - Нет блокирующих условий ==========
+        return None
+    
+    def _transition_to_hard_block(self, reason: str) -> MetaDecisionResult:
+        """
+        Явный переход в состояние HARD_BLOCK.
+        
+        Создаёт результат с жёсткой блокировкой торговли.
+        
+        Args:
+            reason: Причина блокировки
+        
+        Returns:
+            MetaDecisionResult с allow_trading=False, block_level=HARD
+        """
+        return MetaDecisionResult(
+            allow_trading=False,
+            reason=reason,
+            block_level=BlockLevel.HARD,
+            cooldown_minutes=self.HARD_BLOCK_COOLDOWN_MINUTES
+        )
+    
+    def _transition_to_soft_block(
+        self,
+        reason: str,
+        cooldown_minutes: int
+    ) -> MetaDecisionResult:
+        """
+        Явный переход в состояние SOFT_BLOCK.
+        
+        Создаёт результат с мягкой блокировкой торговли.
+        
+        Args:
+            reason: Причина блокировки
+            cooldown_minutes: Время ожидания в минутах
+        
+        Returns:
+            MetaDecisionResult с allow_trading=False, block_level=SOFT
+        """
+        return MetaDecisionResult(
+            allow_trading=False,
+            reason=reason,
+            block_level=BlockLevel.SOFT,
+            cooldown_minutes=cooldown_minutes
+        )
+    
+    def _transition_to_allow(self) -> MetaDecisionResult:
+        """
+        Явный переход в состояние ALLOW.
+        
+        Создаёт результат с разрешением торговли.
+        
+        Returns:
+            MetaDecisionResult с allow_trading=True, block_level=None
+        """
         return MetaDecisionResult(
             allow_trading=True,
             reason="No blocking conditions detected. System is ready for trading.",
             block_level=None,
-            cooldown_minutes=0
+            cooldown_minutes=self.ALLOW_COOLDOWN_MINUTES
         )
     
     def _check_hard_block_conditions(
@@ -240,7 +428,7 @@ class MetaDecisionBrain:
             return (
                 f"SOFT BLOCK: Too many signals in recent period ({signals_count_recent}). "
                 f"Risk of overtrading. Recommend cooldown.",
-                15  # 15 минут cooldown
+                self.SOFT_BLOCK_COOLDOWN_OVERTRADING
             )
         
         # 2. confidence средний, entropy средний (неопределённость)
@@ -251,7 +439,7 @@ class MetaDecisionBrain:
                     f"SOFT BLOCK: Medium confidence ({confidence_score:.2f}) and entropy ({entropy_score:.2f}) "
                     f"with high exposure ({portfolio_exposure * 100:.1f}%) indicate uncertainty. "
                     f"Recommend caution.",
-                    10  # 10 минут cooldown
+                    self.SOFT_BLOCK_COOLDOWN_UNCERTAINTY
                 )
         
         # 3. Плохие результаты в recent_outcomes
@@ -265,7 +453,7 @@ class MetaDecisionBrain:
                 return (
                     f"SOFT BLOCK: Recent outcomes show {negative_count}/{len(recent_outcomes)} negative results "
                     f"(avg: {avg_outcome:.2f}). System may need recalibration.",
-                    20  # 20 минут cooldown
+                    self.SOFT_BLOCK_COOLDOWN_BAD_OUTCOMES
                 )
         
         # 4. Высокая экспозиция с низкой уверенностью
@@ -273,7 +461,7 @@ class MetaDecisionBrain:
             return (
                 f"SOFT BLOCK: High exposure ({portfolio_exposure * 100:.1f}%) with low confidence "
                 f"({confidence_score:.2f}). Recommend reducing exposure before new trades.",
-                15  # 15 минут cooldown
+                self.SOFT_BLOCK_COOLDOWN_HIGH_EXPOSURE
             )
         
         # 5. Контекст времени (например, конец сессии)
@@ -283,7 +471,7 @@ class MetaDecisionBrain:
                 return (
                     f"SOFT BLOCK: End of trading session with high entropy ({entropy_score:.2f}). "
                     f"Market conditions may be unstable.",
-                    5  # 5 минут cooldown
+                    self.SOFT_BLOCK_COOLDOWN_SESSION_END
                 )
         
         return (None, 0)

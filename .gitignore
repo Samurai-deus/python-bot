@@ -30,18 +30,3 @@ runner.log
 .DS_Store
 Thumbs.db
 
-*.log
-last_heartbeat.txt
-__pycache__/
-.env
-venv/
-# Python
-__pycache__/
-*.pyc
-
-# Runtime
-*.log
-*.pid
-
-# OS
-.DS_Store

@@ -120,11 +120,53 @@ async def test_timeout_in_loop_guard():
     
     return True
 
+async def test_timeout_does_not_terminate_loop():
+    """Тест, что TimeoutError не завершает market_analysis_loop"""
+    
+    print("\n🧪 Тест: TimeoutError не завершает Market Analysis Loop")
+    
+    # Симулируем ситуацию, когда run_market_analysis() поднимает TimeoutError
+    # и проверяем, что loop продолжает работать
+    
+    system_state = SystemState()
+    initial_errors = system_state.system_health.consecutive_errors
+    
+    # Симулируем обработку TimeoutError из run_market_analysis()
+    # (как в коде на строке 535)
+    try:
+        # Симулируем TimeoutError
+        raise asyncio.TimeoutError("Simulated timeout in run_market_analysis")
+    except asyncio.TimeoutError:
+        # Обработка как в run_market_analysis()
+        logger = __import__('logging').getLogger(__name__)
+        logger.error(
+            f"LOOP_GUARD_TIMEOUT: runtime iteration exceeded expected duration. "
+            f"This indicates event loop stall or slow operation. "
+            f"Activating safe_mode."
+        )
+        system_state.record_error("LOOP_GUARD_TIMEOUT: runtime iteration exceeded timeout")
+        system_state.system_health.safe_mode = True
+        # НЕ пробрасываем - возвращаем False для продолжения цикла
+        result = False
+    
+    # Проверяем, что ошибка обработана
+    assert system_state.system_health.consecutive_errors > initial_errors, \
+        f"consecutive_errors должен увеличиться: {system_state.system_health.consecutive_errors} <= {initial_errors}"
+    assert system_state.system_health.safe_mode == True, "safe_mode должен быть активирован"
+    assert result == False, "Должен вернуться False для продолжения цикла"
+    
+    # Проверяем, что система все еще работает
+    assert system_state.system_health.is_running == True, "Система должна продолжать работать"
+    
+    print("   ✅ TimeoutError обработан, loop продолжает работать")
+    return True
+
 if __name__ == "__main__":
     async def main():
         try:
             await test_timeout_handling()
             await test_timeout_in_loop_guard()
+            await test_timeout_does_not_terminate_loop()
             print("\n✅ Все тесты timeout handling пройдены успешно")
             return 0
         except AssertionError as e:

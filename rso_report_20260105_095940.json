@@ -1,0 +1,325 @@
+{
+  "rso_version": "1.0",
+  "timestamp": "2026-01-05T09:59:40.730840+00:00",
+  "observation_type": "read_only",
+  "fsm_state": {
+    "current_state": "RUNNING",
+    "duration_in_state": 4.4e-05,
+    "consecutive_errors": 0,
+    "recovery_cycles": 0,
+    "safe_mode_entered_at": null,
+    "last_heartbeat": null,
+    "transitions_count": 0,
+    "last_transition": null,
+    "all_transitions": []
+  },
+  "system_state": null,
+  "recent_logs": [
+    {
+      "raw": "timestamp=2026-01-05T09:56:59.294909+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:56:59.294909+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:57:09.345746+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:57:09.345746+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:57:19.396926+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:57:19.396926+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:57:29.446934+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:57:29.446934+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:57:39.497846+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:57:39.497846+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:57:49.549680+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:57:49.549680+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:57:59.600713+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:57:59.600713+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:07.851556+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=🚀 Начало анализа 23 символов",
+      "timestamp": "timestamp=2026-01-05T09:58:07.851556+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=🚀 Начало анализа 23 символов"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:07.851928+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=🧠 Инициализация экосистемы...",
+      "timestamp": "timestamp=2026-01-05T09:58:07.851928+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=🧠 Инициализация экосистемы..."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:07.852044+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=📥 Параллельная загрузка данных...",
+      "timestamp": "timestamp=2026-01-05T09:58:07.852044+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=📥 Параллельная загрузка данных..."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:09.674588+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:58:09.674588+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:11.538044+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MATICUSDT (5). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:11.538044+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MATICUSDT (5). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:11.626797+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MATICUSDT (30). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:11.626797+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MATICUSDT (30). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:11.668229+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MATICUSDT (15). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:11.668229+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MATICUSDT (15). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:11.694852+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MATICUSDT (60). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:11.694852+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MATICUSDT (60). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:12.210649+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MATICUSDT (240). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:12.210649+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MATICUSDT (240). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:12.453481+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MKRUSDT (30). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:12.453481+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MKRUSDT (30). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:12.529213+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MKRUSDT (60). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:12.529213+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MKRUSDT (60). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:12.536118+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MKRUSDT (240). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:12.536118+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MKRUSDT (240). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:12.492241+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MKRUSDT (15). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:12.492241+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MKRUSDT (15). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:12.588674+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для MKRUSDT (5). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:12.588674+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для MKRUSDT (5). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.099178+00:00 level=WARNING pid=307991 task=main component=runner message=API ошибка для SHIBUSDT (5): params error: Symbol Is Invalid (код: 10001)",
+      "timestamp": "timestamp=2026-01-05T09:58:14.099178+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=API ошибка для SHIBUSDT (5): params error: Symbol Is Invalid (код: 10001)"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.213137+00:00 level=WARNING pid=307991 task=main component=runner message=API ошибка для SHIBUSDT (240): params error: Symbol Is Invalid (код: 10001)",
+      "timestamp": "timestamp=2026-01-05T09:58:14.213137+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=API ошибка для SHIBUSDT (240): params error: Symbol Is Invalid (код: 10001)"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.241876+00:00 level=WARNING pid=307991 task=main component=runner message=API ошибка для SHIBUSDT (60): params error: Symbol Is Invalid (код: 10001)",
+      "timestamp": "timestamp=2026-01-05T09:58:14.241876+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=API ошибка для SHIBUSDT (60): params error: Symbol Is Invalid (код: 10001)"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.244651+00:00 level=WARNING pid=307991 task=main component=runner message=API ошибка для SHIBUSDT (30): params error: Symbol Is Invalid (код: 10001)",
+      "timestamp": "timestamp=2026-01-05T09:58:14.244651+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=API ошибка для SHIBUSDT (30): params error: Symbol Is Invalid (код: 10001)"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.378754+00:00 level=WARNING pid=307991 task=main component=runner message=API ошибка для SHIBUSDT (15): params error: Symbol Is Invalid (код: 10001)",
+      "timestamp": "timestamp=2026-01-05T09:58:14.378754+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=API ошибка для SHIBUSDT (15): params error: Symbol Is Invalid (код: 10001)"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.733459+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для FTMUSDT (5). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:14.733459+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для FTMUSDT (5). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.748803+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для FTMUSDT (15). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:14.748803+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для FTMUSDT (15). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.773697+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для FTMUSDT (30). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:14.773697+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для FTMUSDT (30). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.788904+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для FTMUSDT (240). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:14.788904+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для FTMUSDT (240). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:14.800929+00:00 level=WARNING pid=307991 task=main component=runner message=Пустой список свечей для FTMUSDT (60). Возможно, символ недоступен на Bybit или переименован.",
+      "timestamp": "timestamp=2026-01-05T09:58:14.800929+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Пустой список свечей для FTMUSDT (60). Возможно, символ недоступен на Bybit или переименован."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.058223+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=✅ Данные загружены за 7.21 секунд",
+      "timestamp": "timestamp=2026-01-05T09:58:15.058223+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=✅ Данные загружены за 7.21 секунд"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.063125+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=   Режим: TREND, Волатильность: LOW, Risk: NEUTRAL",
+      "timestamp": "timestamp=2026-01-05T09:58:15.063125+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=   Режим: TREND, Волатильность: LOW, Risk: NEUTRAL"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.064837+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=   Риск: 0.00%, Позиций: 0, Перегрузка: False",
+      "timestamp": "timestamp=2026-01-05T09:58:15.064837+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=   Риск: 0.00%, Позиций: 0, Перегрузка: False"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.066044+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=🔍 Проверка резких движений...",
+      "timestamp": "timestamp=2026-01-05T09:58:15.066044+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=🔍 Проверка резких движений..."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.066992+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=📊 Анализ корреляций между парами...",
+      "timestamp": "timestamp=2026-01-05T09:58:15.066992+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=📊 Анализ корреляций между парами..."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.068909+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=📊 Генерация сигналов...",
+      "timestamp": "timestamp=2026-01-05T09:58:15.068909+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=📊 Генерация сигналов..."
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.155380+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=📊 Статистика сигналов: обработано 23, отправлено 0, заблокировано 0, ошибок 0",
+      "timestamp": "timestamp=2026-01-05T09:58:15.155380+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=📊 Статистика сигналов: обработано 23, отправлено 0, заблокировано 0, ошибок 0"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.155573+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=✅ Анализ завершен за 7.30 секунд",
+      "timestamp": "timestamp=2026-01-05T09:58:15.155573+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=✅ Анализ завершен за 7.30 секунд"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.177014+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=Сохранён snapshot SystemState #1",
+      "timestamp": "timestamp=2026-01-05T09:58:15.177014+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=Сохранён snapshot SystemState #1"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:15.183986+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=📈 Metrics | runs=5 avg=6.98s max=7.55s uptime=2108s interval=525s mode=NORMAL trading=ACTIVE errors=0",
+      "timestamp": "timestamp=2026-01-05T09:58:15.183986+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=📈 Metrics | runs=5 avg=6.98s max=7.55s uptime=2108s interval=525s mode=NORMAL trading=ACTIVE errors=0"
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:19.758451+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:58:19.758451+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:29.808896+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:58:29.808896+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:39.858746+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:58:39.858746+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:49.907964+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:58:49.907964+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:58:59.961025+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:58:59.961025+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:59:10.067067+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:59:10.067067+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:59:20.128716+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:59:20.128716+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:59:30.178817+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:59:30.178817+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T09:59:40.230508+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T09:59:40.230508+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    }
+  ],
+  "fsm_transitions": [],
+  "metadata": {
+    "observer_mode": "external",
+    "read_only": true,
+    "no_verdict": true
+  }
+}

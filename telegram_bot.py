@@ -36,25 +36,43 @@ async def _send(text, parse_mode=None, retry_count=2):
     
     for attempt in range(retry_count + 1):
         try:
-            # Пытаемся отправить с parse_mode, если указан
-            if parse_mode:
-                try:
-                    result = await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=parse_mode)
-                    print(f"✅ Сообщение успешно отправлено в Telegram с {parse_mode} (message_id: {result.message_id})")
-                    return result
-                except Exception as parse_error:
-                    # Если ошибка парсинга, пробуем без parse_mode
-                    if "parse" in str(parse_error).lower() or "markdown" in str(parse_error).lower():
-                        print(f"⚠️ Ошибка парсинга {parse_mode}, пробуем без parse_mode: {parse_error}")
-                        result = await bot.send_message(chat_id=CHAT_ID, text=text)
-                        print(f"✅ Сообщение успешно отправлено в Telegram без parse_mode (message_id: {result.message_id})")
+            # КРИТИЧНО: Обёртываем сетевые вызовы в wait_for для предотвращения блокировки при network blackhole
+            # Таймаут 30s достаточен для нормальной работы, но ограничивает время при недоступности сети
+            try:
+                # Пытаемся отправить с parse_mode, если указан
+                if parse_mode:
+                    try:
+                        result = await asyncio.wait_for(
+                            bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=parse_mode),
+                            timeout=30.0
+                        )
+                        print(f"✅ Сообщение успешно отправлено в Telegram с {parse_mode} (message_id: {result.message_id})")
                         return result
-                    else:
-                        raise
-            else:
-                result = await bot.send_message(chat_id=CHAT_ID, text=text)
-                print(f"✅ Сообщение успешно отправлено в Telegram (message_id: {result.message_id})")
-                return result
+                    except asyncio.TimeoutError:
+                        # Timeout при network blackhole - пробрасываем как NetworkError для retry логики
+                        raise NetworkError("Request timeout - network may be unreachable")
+                    except Exception as parse_error:
+                        # Если ошибка парсинга, пробуем без parse_mode
+                        if "parse" in str(parse_error).lower() or "markdown" in str(parse_error).lower():
+                            print(f"⚠️ Ошибка парсинга {parse_mode}, пробуем без parse_mode: {parse_error}")
+                            result = await asyncio.wait_for(
+                                bot.send_message(chat_id=CHAT_ID, text=text),
+                                timeout=30.0
+                            )
+                            print(f"✅ Сообщение успешно отправлено в Telegram без parse_mode (message_id: {result.message_id})")
+                            return result
+                        else:
+                            raise
+                else:
+                    result = await asyncio.wait_for(
+                        bot.send_message(chat_id=CHAT_ID, text=text),
+                        timeout=30.0
+                    )
+                    print(f"✅ Сообщение успешно отправлено в Telegram (message_id: {result.message_id})")
+                    return result
+            except asyncio.TimeoutError:
+                # Timeout при network blackhole - пробрасываем как NetworkError для retry логики
+                raise NetworkError("Request timeout - network may be unreachable")
         except (TimedOut, NetworkError) as e:
             if attempt < retry_count:
                 wait_time = (attempt + 1) * 2  # Увеличиваем задержку с каждой попыткой
@@ -75,12 +93,19 @@ async def _send_chart(symbol):
         f"?symbol=BYBIT:{symbol}"
     )
     try:
-        result = await bot.send_message(
-            chat_id=CHAT_ID,
-            text=f"📈 {symbol} график\n{img_url}"
+        # КРИТИЧНО: Обёртываем сетевой вызов в wait_for для предотвращения блокировки при network blackhole
+        result = await asyncio.wait_for(
+            bot.send_message(
+                chat_id=CHAT_ID,
+                text=f"📈 {symbol} график\n{img_url}"
+            ),
+            timeout=30.0
         )
         print(f"✅ График успешно отправлен в Telegram для {symbol}")
         return result
+    except asyncio.TimeoutError:
+        print(f"❌ Timeout при отправке графика для {symbol} - network may be unreachable")
+        raise
     except Exception as e:
         print(f"❌ Ошибка при отправке графика для {symbol}: {type(e).__name__}: {e}")
         raise

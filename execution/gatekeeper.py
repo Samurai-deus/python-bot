@@ -11,9 +11,17 @@ from core.portfolio_brain import (
     PortfolioDecision, PortfolioState
 )
 from core.signal_snapshot import SignalSnapshot
+from core.system_guardian import get_system_guardian
+from core.risk_core import (
+    get_risk_core, TradingIntent, CapitalSnapshot, ExposureSnapshot,
+    PositionSnapshot, BehavioralCounters, SystemHealthFlags,
+    TradingPermission
+)
 from trade_manager import get_open_trades
 from capital import get_current_balance, INITIAL_BALANCE, RISK_PERCENT
 from telegram_bot import send_message, send_chart
+from datetime import datetime, UTC, timedelta
+from bot_statistics import get_trade_statistics
 import logging
 
 logger = logging.getLogger(__name__)
@@ -69,6 +77,8 @@ class Gatekeeper:
     def __init__(self):
         self.decision_core = get_decision_core()
         self.portfolio_brain = get_portfolio_brain()
+        # Risk Core - обязательный модуль (ADR-TRADING-RISK-CORE-001)
+        self.risk_core = get_risk_core()
         # MetaDecisionBrain - опционально (если доступен)
         self.meta_decision_brain = None
         if META_DECISION_AVAILABLE:
@@ -187,11 +197,157 @@ class Gatekeeper:
                 from system_state import get_system_state
                 system_state = get_system_state()
             
+            # ========== SYSTEM GUARDIAN - ОБЯЗАТЕЛЬНЫЙ ГЛОБАЛЬНЫЙ БАРЬЕР ==========
+            # АРХИТЕКТУРНЫЙ ИНВАРИАНТ: Невозможно отправить сигнал без прохождения SystemGuardian
+            # SystemGuardian - абсолютный системный барьер перед торговлей
+            # Проверяет все инварианты и здоровье CRITICAL модулей
+            # CRITICAL: любой сбой → блокировка торговли (fail-safe)
+            # 
+            # КОНТРАКТ:
+            # - Gatekeeper вызывает ТОЛЬКО синхронный метод can_trade_sync()
+            # - Вся async логика инкапсулирована внутри SystemGuardian
+            # - Gatekeeper не знает об async деталях (детерминированный, контекстно-независимый)
+            # 
+            # ЗАПРЕЩЕНО:
+            # - Обходить SystemGuardian
+            # - Вызывать async методы SystemGuardian напрямую
+            # - Отправлять сигналы без проверки SystemGuardian
+            system_guardian = get_system_guardian()
+            permission = system_guardian.can_trade_sync()
+            
+            # АРХИТЕКТУРНОЕ ПРИНУЖДЕНИЕ: Если SystemGuardian блокирует → немедленный выход
+            if not permission.allowed:
+                logger.warning(
+                    f"Signal blocked by SystemGuardian for {symbol}: {permission.reason} "
+                    f"(blocked_by: {permission.blocked_by})"
+                )
+                self.blocked_signals_count += 1
+                self._update_state()
+                return  # Early exit - fail-safe (архитектурно принудительно)
+            
             # ========== DECISION TRACE - ЛОКАЛЬНЫЙ СБОР РЕШЕНИЙ ==========
             # Создаём локальный trace для этого сигнала (не влияет на runtime)
             trace_entries = []  # Список решений для логирования
             
-            # ========== META DECISION BRAIN - ПЕРВЫЙ ФИЛЬТР ==========
+            # ========== RISK CORE - ОБЯЗАТЕЛЬНЫЙ ФИЛЬТР (VETO POWER) ==========
+            # ADR-TRADING-RISK-CORE-001: Risk Core имеет право вето
+            # ADR-TRADING-RISK-CORE-001 Section 6: If Risk Core fails → DENY
+            # Risk Core проверяется ПОСЛЕ SystemGuardian, но ПЕРЕД DecisionCore
+            # Risk Core всегда fail-closed - при неопределенности запрещает торговлю
+            # FAIL-CLOSED ENFORCEMENT: Risk Core evaluation is MANDATORY and AUTHORITATIVE
+            # Any failure (exception, None, malformed result) → DENY + HALTED immediately
+            try:
+                risk_core_result = self._check_risk_core(symbol, signal_data, system_state)
+                
+                # FAIL-CLOSED: If Risk Core returns None or malformed result → DENY + HALTED
+                if not risk_core_result:
+                    logger.critical(
+                        f"Risk Core evaluation failed for {symbol}: returned None. "
+                        f"ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED"
+                    )
+                    # Treat as DENY + HALTED (fail-closed)
+                    from core.risk_core import RiskState
+                    risk_reason = "Risk Core evaluation failed (returned None) → DENY + HALTED"
+                    block_level = TraceBlockLevel.HARD if TraceBlockLevel else None
+                    trace_entries.append(("RiskCore", False, risk_reason, block_level))
+                    logger.error(f"[TRACE] RiskCore → DENY → {risk_reason}")
+                    print(f"   🚫 Risk Core evaluation failed for {symbol}: enforcing DENY + HALTED")
+                    self.blocked_signals_count += 1
+                    self._update_state()
+                    self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
+                    return  # Early exit - fail-closed enforcement
+                
+                # Validate result structure (fail-closed)
+                if not isinstance(risk_core_result, tuple) or len(risk_core_result) != 3:
+                    logger.critical(
+                        f"Risk Core evaluation returned malformed result for {symbol}: {type(risk_core_result)}. "
+                        f"ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED"
+                    )
+                    # Treat as DENY + HALTED (fail-closed)
+                    from core.risk_core import RiskState
+                    risk_reason = f"Risk Core evaluation returned malformed result → DENY + HALTED"
+                    block_level = TraceBlockLevel.HARD if TraceBlockLevel else None
+                    trace_entries.append(("RiskCore", False, risk_reason, block_level))
+                    logger.error(f"[TRACE] RiskCore → DENY → {risk_reason}")
+                    print(f"   🚫 Risk Core evaluation malformed for {symbol}: enforcing DENY + HALTED")
+                    self.blocked_signals_count += 1
+                    self._update_state()
+                    self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
+                    return  # Early exit - fail-closed enforcement
+                
+                # Extract result (validated)
+                permission, risk_state, violation_report = risk_core_result
+                
+                # Validate result types (fail-closed)
+                from core.risk_core import RiskState
+                if not isinstance(permission, TradingPermission) or not isinstance(risk_state, RiskState):
+                    logger.critical(
+                        f"Risk Core evaluation returned invalid types for {symbol}: "
+                        f"permission={type(permission)}, risk_state={type(risk_state)}. "
+                        f"ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED"
+                    )
+                    # Treat as DENY + HALTED (fail-closed)
+                    risk_reason = f"Risk Core evaluation returned invalid types → DENY + HALTED"
+                    block_level = TraceBlockLevel.HARD if TraceBlockLevel else None
+                    trace_entries.append(("RiskCore", False, risk_reason, block_level))
+                    logger.error(f"[TRACE] RiskCore → DENY → {risk_reason}")
+                    print(f"   🚫 Risk Core evaluation invalid types for {symbol}: enforcing DENY + HALTED")
+                    self.blocked_signals_count += 1
+                    self._update_state()
+                    self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
+                    return  # Early exit - fail-closed enforcement
+                
+                # Логируем решение Risk Core
+                risk_allowed = permission != TradingPermission.DENY
+                risk_reason = f"Risk state: {risk_state.value}"
+                if violation_report and violation_report.violations:
+                    risk_reason += f", violations: {len(violation_report.violations)}"
+                block_level = TraceBlockLevel.HARD if (not risk_allowed and TraceBlockLevel) else (TraceBlockLevel.NONE if TraceBlockLevel else None)
+                trace_entries.append(("RiskCore", risk_allowed, risk_reason, block_level))
+                logger.info(f"[TRACE] RiskCore → {'ALLOW' if risk_allowed else 'DENY'} → {risk_reason}")
+                
+                if permission == TradingPermission.DENY:
+                    # Risk Core заблокировал торговлю (veto power)
+                    logger.warning(
+                        f"Signal blocked by Risk Core for {symbol}: {risk_state.value} "
+                        f"(violations: {len(violation_report.violations) if violation_report else 0})"
+                    )
+                    print(f"   🚫 Risk Core заблокировал сигнал для {symbol}: {risk_state.value}")
+                    self.blocked_signals_count += 1
+                    self._update_state()
+                    # Сохраняем trace ПОСЛЕ принятия решения
+                    self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
+                    return  # Early exit - Risk Core veto
+                
+                # Если ALLOW_LIMITED, ограничиваем размер позиции
+                if permission == TradingPermission.ALLOW_LIMITED:
+                    # Ограничиваем размер позиции до 50% от запрошенного
+                    original_size = signal_data.get("position_size", 0.0)
+                    if original_size > 0:
+                        signal_data["position_size"] = original_size * 0.5
+                        logger.info(f"Risk Core: Limited position size for {symbol} to 50%")
+            
+            except Exception as e:
+                # FAIL-CLOSED: Any exception during Risk Core evaluation → DENY + HALTED
+                # ADR-TRADING-RISK-CORE-001 Section 6: If Risk Core fails → DENY
+                logger.critical(
+                    f"Risk Core evaluation raised exception for {symbol}: {type(e).__name__}: {e}. "
+                    f"ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED",
+                    exc_info=True
+                )
+                # Treat as DENY + HALTED (fail-closed)
+                from core.risk_core import RiskState
+                risk_reason = f"Risk Core evaluation exception: {type(e).__name__} → DENY + HALTED"
+                block_level = TraceBlockLevel.HARD if TraceBlockLevel else None
+                trace_entries.append(("RiskCore", False, risk_reason, block_level))
+                logger.error(f"[TRACE] RiskCore → DENY → {risk_reason}")
+                print(f"   🚫 Risk Core evaluation exception for {symbol}: enforcing DENY + HALTED")
+                self.blocked_signals_count += 1
+                self._update_state()
+                self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
+                return  # Early exit - fail-closed enforcement
+            
+            # ========== META DECISION BRAIN - ВТОРОЙ ФИЛЬТР ==========
             # Проверяем через MetaDecisionBrain ДО всех остальных проверок
             if self.meta_decision_brain and snapshot:
                 meta_result = self._check_meta_decision(snapshot, system_state)
@@ -631,6 +787,149 @@ class Gatekeeper:
         except Exception as e:
             # Не выбрасываем исключение - trace не должен влиять на торговую логику
             logger.warning(f"Ошибка сохранения DecisionTrace для {symbol}: {type(e).__name__}: {e}")
+    
+    def _check_risk_core(
+        self,
+        symbol: str,
+        signal_data: Dict,
+        system_state
+    ) -> Optional[tuple]:
+        """
+        Проверяет сигнал через Risk Core.
+        
+        ADR-TRADING-RISK-CORE-001: Risk Core имеет право вето
+        
+        Args:
+            symbol: Торговая пара
+            signal_data: Данные сигнала
+            system_state: Состояние системы
+        
+        Returns:
+            Tuple (TradingPermission, RiskState, ViolationReport) или None (если ошибка)
+        """
+        try:
+            # Собираем Trading Intent (ADR-TRADING-RISK-CORE-001 Section 4: Inputs ONLY)
+            zone = signal_data.get("zone", {})
+            entry_price = zone.get("entry", 0.0)
+            stop_price = zone.get("stop", 0.0)
+            position_size_usd = signal_data.get("position_size", 0.0)
+            leverage = signal_data.get("leverage")
+            side = "LONG" if signal_data.get("side") == "LONG" else "SHORT"
+            
+            if entry_price <= 0 or stop_price <= 0 or position_size_usd <= 0:
+                # Недостаточно данных для Risk Core - fail-closed
+                logger.warning(f"Risk Core: Insufficient signal data for {symbol}")
+                return None
+            
+            intent = TradingIntent(
+                symbol=symbol,
+                side=side,
+                position_size_usd=position_size_usd,
+                entry_price=entry_price,
+                stop_price=stop_price,
+                leverage=leverage
+            )
+            
+            # Собираем Capital Snapshot
+            current_balance = get_current_balance()
+            
+            # Получаем статистику для расчета потерь
+            stats_24h = get_trade_statistics(days=1) or {}
+            stats_7d = get_trade_statistics(days=7) or {}
+            
+            total_loss_usd = max(0, INITIAL_BALANCE - current_balance)
+            loss_24h_usd = abs(stats_24h.get("total_pnl", 0.0)) if stats_24h.get("total_pnl", 0) < 0 else 0.0
+            loss_7d_usd = abs(stats_7d.get("total_pnl", 0.0)) if stats_7d.get("total_pnl", 0) < 0 else 0.0
+            
+            capital = CapitalSnapshot(
+                current_balance_usd=current_balance,
+                initial_balance_usd=INITIAL_BALANCE,
+                total_loss_usd=total_loss_usd,
+                loss_24h_usd=loss_24h_usd,
+                loss_7d_usd=loss_7d_usd
+            )
+            
+            # Собираем Exposure Snapshot
+            open_trades = get_open_trades()
+            open_positions = [
+                PositionSnapshot(
+                    symbol=trade.get("symbol", ""),
+                    side=trade.get("side", "LONG"),
+                    position_size_usd=float(trade.get("position_size", 0)),
+                    entry_price=float(trade.get("entry", 0)),
+                    stop_price=float(trade.get("stop", 0)),
+                    leverage=trade.get("leverage")
+                )
+                for trade in open_trades
+            ]
+            
+            total_exposure_usd = sum(pos.position_size_usd for pos in open_positions)
+            max_single_position_usd = max([pos.position_size_usd for pos in open_positions], default=0.0)
+            
+            # Correlation groups (strategy-blind) - упрощенная реализация
+            # В реальной системе это должно быть вычислено из корреляций
+            correlation_groups = {}  # Пусто по умолчанию
+            
+            exposure = ExposureSnapshot(
+                open_positions=open_positions,
+                total_exposure_usd=total_exposure_usd,
+                max_single_position_usd=max_single_position_usd,
+                correlation_groups=correlation_groups
+            )
+            
+            # Собираем Behavioral Counters
+            # Упрощенная реализация - в реальной системе это должно отслеживаться
+            recent_signals = getattr(system_state, 'recent_signals', []) if system_state else []
+            actions_last_hour = len([s for s in recent_signals if (datetime.now(UTC) - s.get('timestamp', datetime.now(UTC))).total_seconds() < 3600])
+            actions_last_24h = len([s for s in recent_signals if (datetime.now(UTC) - s.get('timestamp', datetime.now(UTC))).total_seconds() < 86400])
+            
+            # Получаем информацию о потерях из статистики
+            consecutive_losses = 0
+            last_loss_timestamp = None
+            if stats_24h:
+                losing_trades = stats_24h.get("losing_trades", 0)
+                if losing_trades > 0:
+                    consecutive_losses = losing_trades
+                    # Приблизительная временная метка последней потери
+                    last_loss_timestamp = datetime.now(UTC) - timedelta(hours=1)
+            
+            behavioral = BehavioralCounters(
+                actions_last_hour=actions_last_hour,
+                actions_last_24h=actions_last_24h,
+                consecutive_losses=consecutive_losses,
+                last_loss_timestamp=last_loss_timestamp,
+                last_action_timestamp=recent_signals[-1].get('timestamp') if recent_signals else None
+            )
+            
+            # Собираем System Health Flags
+            system_health = SystemHealthFlags(
+                is_safe_mode=getattr(system_state, 'system_health', None).safe_mode if (system_state and hasattr(system_state, 'system_health')) else False,
+                consecutive_errors=getattr(system_state, 'system_health', None).consecutive_errors if (system_state and hasattr(system_state, 'system_health')) else 0,
+                runtime_healthy=not (getattr(system_state, 'system_health', None).safe_mode if (system_state and hasattr(system_state, 'system_health')) else False),
+                critical_modules_available=True  # Упрощенно - в реальной системе проверять через SystemGuardian
+            )
+            
+            # Вызываем Risk Core
+            permission, risk_state, violation_report = self.risk_core.evaluate(
+                intent=intent,
+                capital=capital,
+                exposure=exposure,
+                behavioral=behavioral,
+                system_health=system_health
+            )
+            
+            return (permission, risk_state, violation_report)
+            
+        except Exception as e:
+            # FAIL-CLOSED: Any exception during Risk Core evaluation → propagate to caller
+            # Caller will enforce DENY + HALTED (ADR-TRADING-RISK-CORE-001 Section 6)
+            # Do NOT return None here - let exception propagate so caller can enforce fail-closed
+            logger.error(
+                f"Risk Core evaluation raised exception for {symbol}: {type(e).__name__}: {e}. "
+                f"Exception will propagate to caller for fail-closed enforcement.",
+                exc_info=True
+            )
+            raise  # Propagate exception - caller enforces DENY + HALTED
     
     def get_stats(self) -> Dict:
         """Получить статистику Gatekeeper"""

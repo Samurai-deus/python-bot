@@ -1,0 +1,40 @@
+[Unit]
+Description=Market Trading Bot (Controlled Architecture)
+After=network.target
+
+[Service]
+Type=notify
+User=root
+WorkingDirectory=/root/market_bot
+Environment="PATH=/root/market_bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/root/market_bot/venv/bin/python /root/market_bot/runner.py
+Restart=on-failure
+RestartSec=10
+
+# Watchdog configuration
+WatchdogSec=60
+NotifyAccess=all
+
+# Exit code policy
+# 0 = SUCCESS (graceful shutdown) - не рестартовать
+# 2 = RECOVERABLE - рестартовать
+# 10 = CRITICAL - рестартовать (deadlock detected)
+# 77 = CONFIG_ERROR - не рестартовать
+Restart=on-failure
+# systemd по умолчанию рестартует при exit code != 0, но мы хотим более точный контроль
+# Используем ExecStop для логирования exit code
+
+# Timeouts
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
