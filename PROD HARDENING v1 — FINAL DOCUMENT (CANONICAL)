@@ -1,0 +1,85 @@
+Title: PROD HARDENING v1 — Docker Swarm Python Background Bot
+Status: APPROVED
+Scope: Infrastructure & runtime hardening (no code changes)
+Environment: VPS, Ubuntu 24.04, Docker Swarm, Dokploy
+Date: ✅
+
+Objective
+
+Устранить эксплуатационные риски без изменения приложения:
+
+runaway CPU / memory
+
+disk exhaustion через Docker logs
+
+silent process death
+
+reboot instability
+
+Applied Measures
+1. Resource Limits (Swarm-level)
+
+Decision: enforce conservative limits with reserve
+
+Resource	Reserve	Limit
+CPU	0.10	0.25
+Memory	64 MB	128 MB
+
+Rationale:
+Runtime usage ≈ 12 MB RAM, 0.2% CPU → ×5–×8 safety margin.
+
+2. Docker Log Rotation
+
+Policy:
+
+driver: json-file
+
+max-size: 10 MB
+
+max-file: 3
+
+Effect:
+Prevents disk exhaustion regardless of log verbosity.
+
+3. Minimal Healthcheck
+
+Type: process-liveness
+Command: pgrep -f python
+
+Guarantee:
+
+detects crashed worker
+
+enables Swarm self-healing
+
+avoids false “business OK” claims
+
+4. Reboot Invariant
+
+After any reboot:
+
+NVMe auto-mounted
+
+Docker starts
+
+Swarm reconciles
+
+bot-service RUNNING
+
+Validated manually.
+
+Explicit Non-Goals (v1)
+
+❌ No application semantics check
+
+❌ No external monitoring
+
+❌ No alerting
+
+❌ No autoscaling
+
+Final Status
+
+PROD HARDENING v1: ✅ COMPLETE
+Operational Risk: LOW
+Rollback: single docker service update / daemon.json revert
