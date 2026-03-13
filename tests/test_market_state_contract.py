@@ -355,11 +355,10 @@ class TestInvariantProtection:
     
     def test_validate_state_rejects_strings(self):
         """validate_state() должна отклонять строки и логировать ошибку"""
-        with pytest.raises(AssertionError) if False else None:
-            # validate_state() не падает, но логирует ошибку
-            result = validate_state("D", context="test")
-            # Должна попытаться нормализовать
-            assert result == MarketState.D or result is None
+        # validate_state() не падает, но логирует ошибку и нормализует если возможно
+        result = validate_state("D", context="test")
+        # Должна попытаться нормализовать строку в enum
+        assert result == MarketState.D or result is None
     
     def test_validate_state_rejects_invalid_types(self):
         """validate_state() должна отклонять невалидные типы"""
