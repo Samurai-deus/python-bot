@@ -7,9 +7,10 @@ from datetime import datetime, UTC
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from telegram_bot import send_message
-from bot_statistics import get_trade_statistics, format_statistics_report, get_signals_statistics
+from bot_statistics import get_trade_statistics, format_statistics_report, get_signals_statistics, get_full_statistics
 from trade_manager import get_open_trades
 from capital import get_current_balance
+from database import get_open_positions, get_closed_trades
 from config import INITIAL_BALANCE
 from core.decision_core import get_decision_core
 from execution.gatekeeper import get_gatekeeper
@@ -47,7 +48,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Торговая статистика и отчеты:
 
 `/status` - Текущий статус бота
-`/stats [дни]` - Статистика сделок
+`/balance` - Текущий баланс
+`/positions` - Открытые позиции с P&L
+`/history` - Последние 10 закрытых сделок
+`/stats [дни]` - Метрики: Sharpe, Drawdown, Win Rate
 `/trades` - Открытые сделки
 `/signals [кол-во]` - Последние сигналы
 `/gatekeeper` - Статистика Gatekeeper
@@ -123,31 +127,158 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /stats"""
-    # Определяем, откуда пришел запрос
+    """Обработчик команды /stats — Sharpe, Max Drawdown, Win Rate, Profit Factor"""
     if hasattr(update, 'message') and update.message:
         reply_func = update.message.reply_text
     else:
         reply_func = update.callback_query.message.reply_text
-    
-    days = 1
+
+    days = 30
     if context.args and len(context.args) > 0:
         try:
             days = int(context.args[0])
-            days = max(1, min(30, days))  # От 1 до 30 дней
+            days = max(1, min(365, days))
         except ValueError:
-            days = 1
-    
-    stats = get_trade_statistics(days=days)
-    if stats:
-        report = format_statistics_report(stats)
-        # Улучшаем форматирование
-        header = f"📊 **СТАТИСТИКА ЗА {days} ДНЕЙ**\n\n"
-        header += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        footer = f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⏰ {datetime.now(UTC).strftime('%H:%M:%S UTC')}"
-        await reply_func(header + report + footer, parse_mode="Markdown")
+            days = 30
+
+    stats = get_full_statistics(days=days)
+    if not stats:
+        await reply_func(
+            "📊 **Статистика недоступна**\n\nНет данных о сделках за указанный период.",
+            parse_mode="Markdown",
+        )
+        return
+
+    pnl_emoji = "🟢" if stats['total_pnl'] >= 0 else "🔴"
+    wr_emoji = "🟢" if stats['win_rate'] >= 50 else "🟡" if stats['win_rate'] >= 30 else "🔴"
+
+    msg = f"📊 **СТАТИСТИКА ЗА {days} ДНЕЙ**\n\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    msg += f"💰 **Баланс:** `{stats['current_balance']:.2f}` / `{stats['initial_balance']:.2f}` USDT\n"
+    msg += f"{pnl_emoji} **P&L:** `{stats['total_pnl']:+.2f}` USDT (`{stats['total_pnl_pct']:+.2f}%`)\n\n"
+    msg += f"📈 **Сделки:** всего `{stats['total_trades']}`, открыто `{stats['open_trades']}`\n"
+    msg += f"{wr_emoji} **Win Rate:** `{stats['win_rate']:.1f}%` "
+    msg += f"(W:`{stats.get('wins', 0)}` / L:`{stats.get('losses', 0)}`)\n\n"
+
+    sharpe = stats.get('sharpe_ratio')
+    dd_pct = stats.get('max_drawdown_pct', 0.0)
+    pf = stats.get('profit_factor')
+    exp = stats.get('expectancy')
+
+    msg += "📐 **Метрики:**\n"
+    msg += f"• Sharpe Ratio: `{f'{sharpe:.2f}' if sharpe is not None else 'N/A'}`\n"
+    msg += f"• Max Drawdown: `{dd_pct * 100:.2f}%`\n"
+    msg += f"• Profit Factor: `{f'{pf:.2f}' if pf is not None else 'N/A'}`\n"
+    msg += f"• Expectancy: `{f'{exp:.2f} USDT' if exp is not None else 'N/A'}`\n"
+
+    msg += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    msg += f"\n⏰ {datetime.now(UTC).strftime('%H:%M:%S UTC')}"
+    await reply_func(msg, parse_mode="Markdown")
+
+
+async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /balance — текущий баланс из БД"""
+    if hasattr(update, 'message') and update.message:
+        reply_func = update.message.reply_text
     else:
-        await reply_func("📊 **Статистика недоступна**\n\nНет данных о сделках за указанный период.", parse_mode="Markdown")
+        reply_func = update.callback_query.message.reply_text
+
+    balance = get_current_balance()
+    pnl = balance - INITIAL_BALANCE
+    pnl_pct = (pnl / INITIAL_BALANCE * 100) if INITIAL_BALANCE else 0.0
+    pnl_sign = "+" if pnl >= 0 else ""
+    pnl_emoji = "🟢" if pnl >= 0 else "🔴"
+
+    msg = "💰 **БАЛАНС**\n\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    msg += f"• Начальный: `{INITIAL_BALANCE:.2f}` USDT\n"
+    msg += f"• Текущий:   `{balance:.2f}` USDT\n"
+    msg += f"• {pnl_emoji} P&L: `{pnl_sign}{pnl:.2f}` USDT (`{pnl_sign}{pnl_pct:.2f}%`)\n"
+    msg += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    msg += f"\n⏰ {datetime.now(UTC).strftime('%H:%M:%S UTC')}"
+    await reply_func(msg, parse_mode="Markdown")
+
+
+async def cmd_positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /positions — открытые позиции с unrealized P&L"""
+    if hasattr(update, 'message') and update.message:
+        reply_func = update.message.reply_text
+    else:
+        reply_func = update.callback_query.message.reply_text
+
+    positions = get_open_positions()
+    if not positions:
+        await reply_func(
+            "📊 **Нет открытых позиций**\n\nВсе позиции закрыты.",
+            parse_mode="Markdown",
+        )
+        return
+
+    msg = f"📊 **ОТКРЫТЫЕ ПОЗИЦИИ** (`{len(positions)}`)\n\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    for i, pos in enumerate(positions, 1):
+        symbol = pos.get('symbol', 'N/A')
+        side = pos.get('side', 'N/A')
+        entry = float(pos.get('entry_price', 0) or 0)
+        qty = float(pos.get('quantity', 0) or 0)
+        unrealized = float(pos.get('unrealized_pnl', 0) or 0)
+        side_emoji = "🟢" if side == "LONG" else "🔴"
+        upnl_emoji = "🟢" if unrealized >= 0 else "🔴"
+        upnl_sign = "+" if unrealized >= 0 else ""
+
+        msg += f"{i}. {side_emoji} **{symbol}** `{side}`\n"
+        msg += f"   Вход: `{entry:.4f}` | Кол-во: `{qty}`\n"
+        msg += f"   {upnl_emoji} Unrealized P&L: `{upnl_sign}{unrealized:.2f}` USDT\n\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    msg += f"\n⏰ {datetime.now(UTC).strftime('%H:%M:%S UTC')}"
+    await reply_func(msg, parse_mode="Markdown")
+
+
+async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /history — последние 10 закрытых сделок"""
+    if hasattr(update, 'message') and update.message:
+        reply_func = update.message.reply_text
+    else:
+        reply_func = update.callback_query.message.reply_text
+
+    trades = get_closed_trades(days=90)
+    trades = trades[-10:] if len(trades) > 10 else trades  # последние 10
+    trades = list(reversed(trades))  # новейшие первыми
+
+    if not trades:
+        await reply_func(
+            "📋 **Нет закрытых сделок**\n\nИстория пуста.",
+            parse_mode="Markdown",
+        )
+        return
+
+    msg = f"📋 **ИСТОРИЯ СДЕЛОК** (последние {len(trades)})\n\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    for i, trade in enumerate(trades, 1):
+        symbol = trade.get('symbol', 'N/A')
+        side = trade.get('side', 'N/A')
+        net_pnl = float(trade.get('net_pnl', trade.get('pnl', 0)) or 0)
+        closed_at = trade.get('closed_at', '')
+        side_emoji = "🟢" if side == "LONG" else "🔴"
+        pnl_emoji = "🟢" if net_pnl >= 0 else "🔴"
+        pnl_sign = "+" if net_pnl >= 0 else ""
+
+        # Сокращаем дату до ЧЧ:ММ ДД.ММ
+        try:
+            dt = datetime.fromisoformat(closed_at.replace('Z', '+00:00'))
+            time_str = dt.strftime("%H:%M %d.%m")
+        except Exception:
+            time_str = closed_at[:16] if closed_at else 'N/A'
+
+        msg += f"{i}. {side_emoji} **{symbol}** `{side}`\n"
+        msg += f"   {pnl_emoji} P&L: `{pnl_sign}{net_pnl:.2f}` USDT | {time_str}\n\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    msg += f"\n⏰ {datetime.now(UTC).strftime('%H:%M:%S UTC')}"
+    await reply_func(msg, parse_mode="Markdown")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -954,6 +1085,9 @@ def setup_commands(app):
     # Статистика
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("balance", cmd_balance))
+    app.add_handler(CommandHandler("positions", cmd_positions))
+    app.add_handler(CommandHandler("history", cmd_history))
     app.add_handler(CommandHandler("trades", cmd_trades))
     app.add_handler(CommandHandler("signals", cmd_signals))
     app.add_handler(CommandHandler("gatekeeper", cmd_gatekeeper))

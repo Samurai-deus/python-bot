@@ -33,7 +33,9 @@ runner.log
 
 # Test reports
 tests/rso_report_*.json
+tests/rso_report_*.md
 rso_report_*.json
+rso_report_*.md
 
 # OS
 .DS_Store

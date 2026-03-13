@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Optional
 
 
-class MarketState(str, Enum):
+class MarketState(Enum):
     """
     Состояния рынка (Market States).
     
