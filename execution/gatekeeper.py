@@ -4,6 +4,7 @@ Gatekeeper - между сигналами и пользователем
 Проверяет сигналы через Decision Core и Portfolio Brain перед отправкой пользователю.
 """
 from typing import Dict, Optional, List
+from trading_mode import get_trading_mode, TradingMode
 from core.decision_core import get_decision_core, TradingDecision
 from core.portfolio_brain import (
     get_portfolio_brain, PortfolioBrain, PortfolioAnalysis,
@@ -379,6 +380,7 @@ class Gatekeeper:
             # ========== POSITION SIZER - ОБЯЗАТЕЛЬНЫЙ ШАГ ПЕРЕД ОТПРАВКОЙ (ADR-004) ==========
             # Рассчитываем финальный размер позиции через PositionSizer
             # ADR-004: fail-closed — если модуль падает → BLOCK
+            sizing_result = None  # инициализируем до условного блока
             if snapshot:
                 sizing_result = self._calculate_position_size(snapshot, portfolio_analysis)
                 if sizing_result:
@@ -457,11 +459,11 @@ class Gatekeeper:
             extra += f"\n\nПричины:\n- " + "\n- ".join(reasons)
             
             # Отправляем
-            print(f"   📤 Отправка сигнала через Gatekeeper для {symbol}...")
+            logger.info(f"Отправка сигнала через Gatekeeper для {symbol}...")
             try:
                 send_message(msg + extra)
                 send_chart(symbol)
-                print(f"   ✅ Сигнал отправлен для {symbol}")
+                logger.info(f"Сигнал отправлен для {symbol}")
                 # Логируем финальное решение - SEND
                 logger.info(f"[TRACE] FINAL → SEND → signal sent to user")
                 # Сохраняем trace ПОСЛЕ принятия решения
@@ -473,6 +475,10 @@ class Gatekeeper:
                 # Сохраняем trace ПОСЛЕ принятия решения
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="ERROR")
                 # Не блокируем счетчик, так как проверка прошла успешно
+
+            # ========== EXECUTION (Phase 2) ==========
+            # Размещаем ордер если режим TESTNET/LIVE
+            self._execute_order(symbol, signal_data, sizing_result)
         except Exception as e:
             # Критическая ошибка
             logger.error(f"Критическая ошибка в Gatekeeper.send_signal для {symbol}: {type(e).__name__}: {e}", exc_info=True)
@@ -484,6 +490,140 @@ class Gatekeeper:
             self.blocked_signals_count += 1
             self._update_state()
     
+    def _execute_order(
+        self,
+        symbol: str,
+        signal_data: Dict,
+        sizing_result,
+    ) -> None:
+        """
+        Размещает ордер через OrderExecutor если режим TESTNET или LIVE.
+        DRY_RUN / PAPER_TRADING → только логирование, биржа не вызывается.
+
+        Принципы:
+        - Fail-closed: любая ошибка логируется и уведомляет в Telegram, но не крашит основной поток
+        - Qty рассчитывается из position_size_usd (уже проставлен PositionSizer в signal_data)
+        - Market-ордер с SL/TP выставленными на бирже
+        """
+        mode = get_trading_mode()
+        if mode in (TradingMode.DRY_RUN, TradingMode.PAPER_TRADING):
+            logger.info("[%s] Order not placed for %s (simulation mode)", mode.value, symbol)
+            return
+
+        if mode not in (TradingMode.TESTNET, TradingMode.LIVE):
+            logger.warning("Unknown trading mode %s, skipping execution for %s", mode, symbol)
+            return
+
+        entry_price = signal_data.get("entry")
+        stop_loss = signal_data.get("stop")
+        take_profit = signal_data.get("target")
+        side = signal_data.get("side")  # "LONG" | "SHORT"
+
+        if not all([entry_price, stop_loss, side]):
+            logger.error(
+                "[EXECUTOR] Missing required signal fields for %s: entry=%s stop=%s side=%s",
+                symbol, entry_price, stop_loss, side,
+            )
+            return
+
+        position_size_usd = signal_data.get("position_size") or 0.0
+        if position_size_usd <= 0:
+            logger.error("[EXECUTOR] Invalid position_size_usd=%.2f for %s", position_size_usd, symbol)
+            return
+
+        qty = round(position_size_usd / entry_price, 3)
+        if qty <= 0:
+            logger.error("[EXECUTOR] Calculated qty=%.4f invalid for %s", qty, symbol)
+            return
+
+        from execution.order_executor import get_order_executor, TradeRequest
+        from database import save_order, open_position
+        from execution.position_tracker import get_position_tracker, TrackedPosition
+
+        executor = get_order_executor()
+        client_order_id = f"mbot_{symbol}_{int(datetime.now(UTC).timestamp())}"
+        request = TradeRequest(
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            entry_price=None,  # Market ордер
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            client_order_id=client_order_id,
+        )
+
+        try:
+            result = executor.execute(request)
+        except Exception as e:
+            logger.error(
+                "[EXECUTOR] Unexpected error placing order for %s: %s: %s",
+                symbol, type(e).__name__, e, exc_info=True,
+            )
+            send_message(
+                f"❌ Ошибка размещения ордера {symbol} {side}: внутренняя ошибка исполнителя."
+            )
+            return
+
+        if result.success:
+            order_id = result.order_id
+            logger.info(
+                "[EXECUTOR] Order placed: %s %s qty=%.4f order_id=%s dry_run=%s",
+                symbol, side, qty, order_id, result.dry_run,
+            )
+            try:
+                save_order(
+                    order_id=order_id,
+                    symbol=symbol,
+                    side=side,
+                    order_type="Market",
+                    qty=qty,
+                    stop_loss=stop_loss,
+                    dry_run=result.dry_run,
+                    entry_price=entry_price,
+                    take_profit=take_profit,
+                    status="FILLED",
+                )
+                open_position(
+                    order_id=order_id,
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    entry_price=entry_price,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                )
+                tracker = get_position_tracker()
+                tracker.add(TrackedPosition(
+                    symbol=symbol,
+                    side=side,
+                    entry_price=entry_price,
+                    qty=qty,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    order_id=order_id,
+                ))
+            except Exception as e:
+                logger.error(
+                    "[EXECUTOR] DB/tracker error after order %s: %s: %s",
+                    order_id, type(e).__name__, e, exc_info=True,
+                )
+
+            tp_str = f"{take_profit:.4f}" if take_profit else "N/A"
+            send_message(
+                f"✅ Ордер размещён [{mode.value}]\n"
+                f"📈 {symbol} {side}\n"
+                f"💰 Qty: {qty} | Size: ${position_size_usd:.1f}\n"
+                f"🎯 Entry: {entry_price:.4f}\n"
+                f"🛡 SL: {stop_loss:.4f} | TP: {tp_str}\n"
+                f"🆔 {order_id}"
+            )
+        else:
+            logger.error("[EXECUTOR] Order failed for %s: %s", symbol, result.error)
+            send_message(
+                f"❌ Ордер не исполнен: {symbol} {side}\n"
+                f"Причина: {result.error or 'unknown'}"
+            )
+
     def _check_portfolio(self, snapshot: SignalSnapshot) -> Optional[PortfolioAnalysis]:
         """
         Проверяет сигнал через Portfolio Brain.
