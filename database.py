@@ -10,7 +10,7 @@ CSV остается для логов (signals_log.csv)
 """
 import sqlite3
 import os
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from typing import List, Dict, Optional
 from pathlib import Path
 import logging
@@ -200,19 +200,21 @@ def add_trade(symbol: str, side: str, entry: float, stop: float, target: float,
         int: ID созданной сделки
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    timestamp = datetime.now(UTC).isoformat()
-    
-    cursor.execute("""
-        INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage)
-        VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-    """, (timestamp, symbol, side, entry, stop, target, position_size, leverage))
-    
-    trade_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        timestamp = datetime.now(UTC).isoformat()
+
+        cursor.execute("""
+            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage)
+            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+        """, (timestamp, symbol, side, entry, stop, target, position_size, leverage))
+
+        trade_id = cursor.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
     logger.info(f"Добавлена сделка #{trade_id}: {symbol} {side} @ {entry}")
     return trade_id
 
@@ -225,15 +227,17 @@ def get_open_trades() -> List[Dict]:
         list: Список словарей с данными открытых сделок
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT * FROM trades WHERE status = 'OPEN' ORDER BY timestamp DESC
-    """)
-    
-    rows = cursor.fetchall()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM trades WHERE status = 'OPEN' ORDER BY timestamp DESC
+        """)
+
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
     trades = []
     for row in rows:
         trades.append({
@@ -248,7 +252,7 @@ def get_open_trades() -> List[Dict]:
             "position_size": row["position_size"],
             "leverage": row["leverage"],
         })
-    
+
     return trades
 
 
@@ -263,19 +267,21 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
         pnl: Прибыль/убыток
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    updated_at = datetime.now(UTC).isoformat()
-    
-    cursor.execute("""
-        UPDATE trades 
-        SET status = 'CLOSED', close_price = ?, close_reason = ?, pnl = ?, updated_at = ?
-        WHERE id = ?
-    """, (close_price, close_reason, pnl, updated_at, trade_id))
-    
-    conn.commit()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        updated_at = datetime.now(UTC).isoformat()
+
+        cursor.execute("""
+            UPDATE trades
+            SET status = 'CLOSED', close_price = ?, close_reason = ?, pnl = ?, updated_at = ?
+            WHERE id = ?
+        """, (close_price, close_reason, pnl, updated_at, trade_id))
+
+        conn.commit()
+    finally:
+        conn.close()
+
     logger.info(f"Закрыта сделка #{trade_id}: PnL={pnl:.2f} USDT, причина={close_reason}")
 
 
@@ -291,24 +297,26 @@ def get_trades_by_symbol(symbol: str, status: Optional[str] = None) -> List[Dict
         list: Список сделок
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    if status:
-        cursor.execute("""
-            SELECT * FROM trades WHERE symbol = ? AND status = ? ORDER BY timestamp DESC
-        """, (symbol, status))
-    else:
-        cursor.execute("""
-            SELECT * FROM trades WHERE symbol = ? ORDER BY timestamp DESC
-        """, (symbol,))
-    
-    rows = cursor.fetchall()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        if status:
+            cursor.execute("""
+                SELECT * FROM trades WHERE symbol = ? AND status = ? ORDER BY timestamp DESC
+            """, (symbol, status))
+        else:
+            cursor.execute("""
+                SELECT * FROM trades WHERE symbol = ? ORDER BY timestamp DESC
+            """, (symbol,))
+
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
     trades = []
     for row in rows:
         trades.append(dict(row))
-    
+
     return trades
 
 
@@ -323,70 +331,71 @@ def get_trades_statistics(days: int = 1) -> Dict:
         dict: Статистика по сделкам
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cutoff_time = (datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) - 
-                   __import__('datetime').timedelta(days=days)).isoformat()
-    
-    # Закрытые сделки за период
-    cursor.execute("""
-        SELECT 
-            COUNT(*) as total_trades,
-            SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
-            SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades,
-            SUM(pnl) as total_pnl,
-            AVG(pnl) as avg_pnl,
-            MAX(pnl) as best_pnl,
-            MIN(pnl) as worst_pnl
-        FROM trades
-        WHERE status = 'CLOSED' AND timestamp >= ?
-    """, (cutoff_time,))
-    
-    stats_row = cursor.fetchone()
-    
-    # Открытые сделки
-    cursor.execute("""
-        SELECT COUNT(*) as open_trades FROM trades WHERE status = 'OPEN'
-    """)
-    open_trades = cursor.fetchone()["open_trades"]
-    
-    # Статистика по символам
-    cursor.execute("""
-        SELECT 
-            symbol,
-            COUNT(*) as trades,
-            SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
-            SUM(pnl) as pnl
-        FROM trades
-        WHERE status = 'CLOSED' AND timestamp >= ?
-        GROUP BY symbol
-        ORDER BY pnl DESC
-    """, (cutoff_time,))
-    
-    symbol_stats = {}
-    for row in cursor.fetchall():
-        symbol_stats[row["symbol"]] = {
-            "trades": row["trades"],
-            "wins": row["wins"],
-            "pnl": row["pnl"]
-        }
-    
-    # Лучшая и худшая сделки
-    cursor.execute("""
-        SELECT symbol, side, pnl FROM trades
-        WHERE status = 'CLOSED' AND timestamp >= ?
-        ORDER BY pnl DESC LIMIT 1
-    """, (cutoff_time,))
-    best_trade_row = cursor.fetchone()
-    
-    cursor.execute("""
-        SELECT symbol, side, pnl FROM trades
-        WHERE status = 'CLOSED' AND timestamp >= ?
-        ORDER BY pnl ASC LIMIT 1
-    """, (cutoff_time,))
-    worst_trade_row = cursor.fetchone()
-    
-    conn.close()
+    try:
+        cursor = conn.cursor()
+
+        cutoff_time = (datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) -
+                       timedelta(days=days)).isoformat()
+
+        # Закрытые сделки за период
+        cursor.execute("""
+            SELECT
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
+                SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades,
+                SUM(pnl) as total_pnl,
+                AVG(pnl) as avg_pnl,
+                MAX(pnl) as best_pnl,
+                MIN(pnl) as worst_pnl
+            FROM trades
+            WHERE status = 'CLOSED' AND timestamp >= ?
+        """, (cutoff_time,))
+
+        stats_row = cursor.fetchone()
+
+        # Открытые сделки
+        cursor.execute("""
+            SELECT COUNT(*) as open_trades FROM trades WHERE status = 'OPEN'
+        """)
+        open_trades = cursor.fetchone()["open_trades"]
+
+        # Статистика по символам
+        cursor.execute("""
+            SELECT
+                symbol,
+                COUNT(*) as trades,
+                SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(pnl) as pnl
+            FROM trades
+            WHERE status = 'CLOSED' AND timestamp >= ?
+            GROUP BY symbol
+            ORDER BY pnl DESC
+        """, (cutoff_time,))
+
+        symbol_stats = {}
+        for row in cursor.fetchall():
+            symbol_stats[row["symbol"]] = {
+                "trades": row["trades"],
+                "wins": row["wins"],
+                "pnl": row["pnl"]
+            }
+
+        # Лучшая и худшая сделки
+        cursor.execute("""
+            SELECT symbol, side, pnl FROM trades
+            WHERE status = 'CLOSED' AND timestamp >= ?
+            ORDER BY pnl DESC LIMIT 1
+        """, (cutoff_time,))
+        best_trade_row = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT symbol, side, pnl FROM trades
+            WHERE status = 'CLOSED' AND timestamp >= ?
+            ORDER BY pnl ASC LIMIT 1
+        """, (cutoff_time,))
+        worst_trade_row = cursor.fetchone()
+    finally:
+        conn.close()
     
     total_trades = stats_row["total_trades"] or 0
     winning_trades = stats_row["winning_trades"] or 0
@@ -440,18 +449,20 @@ def get_current_balance_from_db(initial_balance: float = 10000.0) -> float:
         float: Текущий баланс
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT COALESCE(SUM(pnl), 0) as total_pnl
-        FROM trades
-        WHERE status = 'CLOSED'
-    """)
-    
-    row = cursor.fetchone()
-    total_pnl = row["total_pnl"] or 0.0
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(pnl), 0) as total_pnl
+            FROM trades
+            WHERE status = 'CLOSED'
+        """)
+
+        row = cursor.fetchone()
+        total_pnl = row["total_pnl"] or 0.0
+    finally:
+        conn.close()
+
     balance = initial_balance + total_pnl
     return max(balance, 10.0)  # Минимум 10 USDT
 
@@ -470,15 +481,15 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
     import csv
     
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
     migrated = 0
     errors = 0
-    
+
     try:
+        cursor = conn.cursor()
+
         with open(csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            
+
             # Пропускаем заголовок, если есть
             first_row = next(reader, None)
             if first_row and len(first_row) > 0:
@@ -489,11 +500,11 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
                     # Это не заголовок, возвращаемся к началу
                     f.seek(0)
                     reader = csv.reader(f)
-            
+
             for row in reader:
                 if len(row) < 7:
                     continue
-                
+
                 try:
                     timestamp = row[0]
                     symbol = row[1]
@@ -502,25 +513,25 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
                     stop = float(row[4])
                     target = float(row[5])
                     status = row[6] if len(row) > 6 else "OPEN"
-                    
+
                     position_size = None
                     if len(row) > 7 and row[7]:
                         try:
                             position_size = float(row[7])
                         except (ValueError, IndexError):
                             pass
-                    
+
                     leverage = None
                     if len(row) > 8 and row[8]:
                         try:
                             leverage = float(row[8])
                         except (ValueError, IndexError):
                             pass
-                    
+
                     close_price = None
                     close_reason = None
                     pnl = None
-                    
+
                     if status == "CLOSED" and len(row) >= 11:
                         try:
                             close_price = float(row[9]) if row[9] else None
@@ -528,16 +539,16 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
                             pnl = float(row[11]) if len(row) > 11 and row[11] else None
                         except (ValueError, IndexError):
                             pass
-                    
+
                     # Проверяем, не существует ли уже эта сделка
                     cursor.execute("""
                         SELECT id FROM trades WHERE timestamp = ? AND symbol = ? AND status = ?
                     """, (timestamp, symbol, status))
-                    
+
                     if cursor.fetchone():
                         # Сделка уже существует, пропускаем
                         continue
-                    
+
                     # Добавляем сделку
                     cursor.execute("""
                         INSERT INTO trades (
@@ -546,21 +557,20 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (timestamp, symbol, side, entry, stop, target, status,
                           position_size, leverage, close_price, close_reason, pnl))
-                    
+
                     migrated += 1
-                    
+
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Ошибка при миграции строки: {e}")
                     continue
-        
+
         conn.commit()
-        conn.close()
-        
         logger.info(f"Миграция завершена: {migrated} сделок мигрировано, {errors} ошибок")
-        
+
     except Exception as e:
         logger.error(f"Критическая ошибка при миграции: {e}", exc_info=True)
+    finally:
         conn.close()
 
 
@@ -585,20 +595,22 @@ def save_system_state_snapshot(snapshot_data: Dict) -> int:
     import json
     
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    timestamp = snapshot_data.get("timestamp", datetime.now(UTC).isoformat())
-    snapshot_json = json.dumps(snapshot_data)
-    
-    cursor.execute("""
-        INSERT INTO system_state_snapshots (timestamp, snapshot_data)
-        VALUES (?, ?)
-    """, (timestamp, snapshot_json))
-    
-    snapshot_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        timestamp = snapshot_data.get("timestamp", datetime.now(UTC).isoformat())
+        snapshot_json = json.dumps(snapshot_data)
+
+        cursor.execute("""
+            INSERT INTO system_state_snapshots (timestamp, snapshot_data)
+            VALUES (?, ?)
+        """, (timestamp, snapshot_json))
+
+        snapshot_id = cursor.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
     logger.info(f"Сохранён snapshot SystemState #{snapshot_id}")
     return snapshot_id
 
@@ -617,20 +629,22 @@ def get_latest_system_state_snapshot() -> Optional[Dict]:
     import json
     
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT snapshot_data FROM system_state_snapshots
-        ORDER BY timestamp DESC
-        LIMIT 1
-    """)
-    
-    row = cursor.fetchone()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT snapshot_data FROM system_state_snapshots
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """)
+
+        row = cursor.fetchone()
+    finally:
+        conn.close()
+
     if not row:
         return None
-    
+
     try:
         return json.loads(row["snapshot_data"])
     except (json.JSONDecodeError, KeyError) as e:
@@ -657,17 +671,19 @@ def save_order(
 ) -> int:
     """Сохранить ордер (реальный или DRY_RUN). Возвращает internal id."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO orders
-            (order_id, symbol, side, order_type, qty, entry_price,
-             stop_loss, take_profit, status, dry_run, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (order_id, symbol, side, order_type, qty, entry_price,
-          stop_loss, take_profit, status, int(dry_run), error))
-    row_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO orders
+                (order_id, symbol, side, order_type, qty, entry_price,
+                 stop_loss, take_profit, status, dry_run, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (order_id, symbol, side, order_type, qty, entry_price,
+              stop_loss, take_profit, status, int(dry_run), error))
+        row_id = cursor.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
     logger.info(f"Order saved #{row_id}: {symbol} {side} order_id={order_id} dry_run={dry_run}")
     return row_id
 
@@ -675,14 +691,16 @@ def save_order(
 def update_order_status(order_id: str, status: str, error: Optional[str] = None) -> None:
     """Обновить статус ордера."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    updated_at = datetime.now(UTC).isoformat()
-    cursor.execute("""
-        UPDATE orders SET status = ?, error = ?, updated_at = ?
-        WHERE order_id = ?
-    """, (status, error, updated_at, order_id))
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        updated_at = datetime.now(UTC).isoformat()
+        cursor.execute("""
+            UPDATE orders SET status = ?, error = ?, updated_at = ?
+            WHERE order_id = ?
+        """, (status, error, updated_at, order_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ============================================================================
@@ -700,16 +718,18 @@ def open_position(
 ) -> int:
     """Записать открытие позиции. Возвращает internal id."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    opened_at = datetime.now(UTC).isoformat()
-    cursor.execute("""
-        INSERT INTO positions
-            (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, status, opened_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
-    """, (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, opened_at))
-    row_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        opened_at = datetime.now(UTC).isoformat()
+        cursor.execute("""
+            INSERT INTO positions
+                (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, status, opened_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+        """, (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, opened_at))
+        row_id = cursor.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
     logger.info(f"Position opened #{row_id}: {symbol} {side} entry={entry_price}")
     return row_id
 
@@ -722,28 +742,32 @@ def close_position_by_order_id(
 ) -> None:
     """Закрыть позицию по order_id."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    closed_at = datetime.now(UTC).isoformat()
-    cursor.execute("""
-        UPDATE positions
-        SET status = 'CLOSED', close_price = ?, close_reason = ?,
-            realised_pnl = ?, closed_at = ?
-        WHERE order_id = ? AND status = 'OPEN'
-    """, (close_price, close_reason, realised_pnl, closed_at, order_id))
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        closed_at = datetime.now(UTC).isoformat()
+        cursor.execute("""
+            UPDATE positions
+            SET status = 'CLOSED', close_price = ?, close_reason = ?,
+                realised_pnl = ?, closed_at = ?
+            WHERE order_id = ? AND status = 'OPEN'
+        """, (close_price, close_reason, realised_pnl, closed_at, order_id))
+        conn.commit()
+    finally:
+        conn.close()
     logger.info(f"Position closed: order_id={order_id} pnl={realised_pnl:.2f} reason={close_reason}")
 
 
 def get_open_positions() -> List[Dict]:
     """Список всех открытых позиций."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at DESC
+        """)
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
     return [dict(row) for row in rows]
 
 
@@ -761,30 +785,34 @@ def upsert_daily_pnl(
 ) -> None:
     """Создать или обновить запись дневного P&L (upsert по date)."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO pnl_history (date, realised_pnl, trades_count, wins, losses, balance_end)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(date) DO UPDATE SET
-            realised_pnl = excluded.realised_pnl,
-            trades_count = excluded.trades_count,
-            wins = excluded.wins,
-            losses = excluded.losses,
-            balance_end = excluded.balance_end
-    """, (date, realised_pnl, trades_count, wins, losses, balance_end))
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO pnl_history (date, realised_pnl, trades_count, wins, losses, balance_end)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                realised_pnl = excluded.realised_pnl,
+                trades_count = excluded.trades_count,
+                wins = excluded.wins,
+                losses = excluded.losses,
+                balance_end = excluded.balance_end
+        """, (date, realised_pnl, trades_count, wins, losses, balance_end))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_pnl_history(days: int = 30) -> List[Dict]:
     """Получить историю P&L за последние N дней."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT * FROM pnl_history ORDER BY date DESC LIMIT ?
-    """, (days,))
-    rows = cursor.fetchall()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM pnl_history ORDER BY date DESC LIMIT ?
+        """, (days,))
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
     return [dict(row) for row in rows]
 
 
@@ -796,32 +824,34 @@ def cleanup_old_snapshots(keep_last_n: int = 10):
         keep_last_n: Количество последних снимков для сохранения
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Получаем ID последних N снимков
-    cursor.execute("""
-        SELECT id FROM system_state_snapshots
-        ORDER BY timestamp DESC
-        LIMIT ?
-    """, (keep_last_n,))
-    
-    keep_ids = [row["id"] for row in cursor.fetchall()]
-    
-    if keep_ids:
-        # Удаляем все остальные
-        placeholders = ",".join("?" * len(keep_ids))
-        cursor.execute(f"""
-            DELETE FROM system_state_snapshots
-            WHERE id NOT IN ({placeholders})
-        """, keep_ids)
-    else:
-        # Если нет снимков для сохранения, удаляем все
-        cursor.execute("DELETE FROM system_state_snapshots")
-    
-    deleted = cursor.rowcount
-    conn.commit()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        # Получаем ID последних N снимков
+        cursor.execute("""
+            SELECT id FROM system_state_snapshots
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (keep_last_n,))
+
+        keep_ids = [row["id"] for row in cursor.fetchall()]
+
+        if keep_ids:
+            # Удаляем все остальные
+            placeholders = ",".join("?" * len(keep_ids))
+            cursor.execute(f"""
+                DELETE FROM system_state_snapshots
+                WHERE id NOT IN ({placeholders})
+            """, keep_ids)
+        else:
+            # Если нет снимков для сохранения, удаляем все
+            cursor.execute("DELETE FROM system_state_snapshots")
+
+        deleted = cursor.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+
     if deleted > 0:
         logger.info(f"Удалено {deleted} старых snapshot'ов")
 
@@ -853,22 +883,24 @@ def insert_pnl_record(
     """
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        closed_at = datetime.now(UTC).isoformat()
-        cursor.execute("""
-            INSERT INTO pnl_records (
+        try:
+            cursor = conn.cursor()
+            closed_at = datetime.now(UTC).isoformat()
+            cursor.execute("""
+                INSERT INTO pnl_records (
+                    closed_at, symbol, side, entry_price, exit_price, quantity,
+                    gross_pnl, commission, net_pnl, market_regime,
+                    hold_duration_seconds, signal_confidence, signal_entropy, balance_after
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
                 closed_at, symbol, side, entry_price, exit_price, quantity,
                 gross_pnl, commission, net_pnl, market_regime,
-                hold_duration_seconds, signal_confidence, signal_entropy, balance_after
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            closed_at, symbol, side, entry_price, exit_price, quantity,
-            gross_pnl, commission, net_pnl, market_regime,
-            hold_duration_seconds, signal_confidence, signal_entropy, balance_after,
-        ))
-        conn.commit()
-        record_id = cursor.lastrowid
-        conn.close()
+                hold_duration_seconds, signal_confidence, signal_entropy, balance_after,
+            ))
+            conn.commit()
+            record_id = cursor.lastrowid
+        finally:
+            conn.close()
         return record_id
     except Exception as e:
         logger.error(f"insert_pnl_record error: {e}")
@@ -890,15 +922,17 @@ def get_closed_trades(days: int = 30) -> List[Dict]:
     """
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT *
-            FROM pnl_records
-            WHERE closed_at >= datetime('now', ? || ' days')
-            ORDER BY closed_at ASC
-        """, (f'-{days}',))
-        rows = cursor.fetchall()
-        conn.close()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT *
+                FROM pnl_records
+                WHERE closed_at >= datetime('now', ? || ' days')
+                ORDER BY closed_at ASC
+            """, (f'-{days}',))
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
         result = []
         for row in rows:
             d = dict(row)
@@ -919,16 +953,18 @@ def get_equity_curve_points(days: int = 30) -> List[Dict]:
     """
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT closed_at AS timestamp, balance_after AS balance
-            FROM pnl_records
-            WHERE closed_at >= datetime('now', ? || ' days')
-              AND balance_after IS NOT NULL
-            ORDER BY closed_at ASC
-        """, (f'-{days}',))
-        rows = cursor.fetchall()
-        conn.close()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT closed_at AS timestamp, balance_after AS balance
+                FROM pnl_records
+                WHERE closed_at >= datetime('now', ? || ' days')
+                  AND balance_after IS NOT NULL
+                ORDER BY closed_at ASC
+            """, (f'-{days}',))
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
         return [dict(row) for row in rows]
     except Exception as e:
         logger.error(f"get_equity_curve_points error: {e}")
