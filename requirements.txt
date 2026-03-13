@@ -12,12 +12,4 @@ requests>=2.31.0
 httpx>=0.25.2
 aiohttp>=3.9.0
 
-# System Monitoring (optional - для расширенного мониторинга)
-psutil>=5.9.0; sys_platform != "win32"
-
-# Development tools (установить отдельно: pip install -r requirements-dev.txt)
-# black>=24.3.0
-# isort>=5.13.2
-# flake8>=7.0.0
-# pre-commit>=3.7.0
 

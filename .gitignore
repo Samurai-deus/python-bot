@@ -18,6 +18,11 @@ ENV/
 *.log
 runner.log
 
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
 # Database
 *.db
 *.sqlite
