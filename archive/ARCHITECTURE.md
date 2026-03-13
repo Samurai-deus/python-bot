@@ -1,0 +1,300 @@
+# 🧠 Архитектура экосистемы торговых ботов
+
+**⚠️ ВАЖНО:** Этот документ описывает общую концепцию архитектуры.  
+**Единственный источник истины:** [SYSTEM_ARCHITECTURE_CANONICAL.md](SYSTEM_ARCHITECTURE_CANONICAL.md)  
+**Архитектурная заморозка:** [ARCHITECTURE_FREEZE_v1.0.md](ARCHITECTURE_FREEZE_v1.0.md)
+
+---
+
+## 📋 Общая концепция
+
+Экосистема = единый "мозг" + специализированные боты-органы
+
+**Принципы:**
+1. ✅ **Разделение ответственности** - Мышление ≠ Сигналы ≠ Исполнение
+2. ✅ **Decision First** - сначала "можно ли", потом "что именно"
+3. ✅ **Асинхронность** - боты не ждут друг друга
+
+---
+
+## 🏗️ Структура
+
+```
+market_bot/
+├── core/                    # Decision Core - сердце системы
+│   └── decision_core.py    # Единая точка принятия решений
+│
+├── brains/                  # Боты "Преимущества мышления" (НЕ дают сигналов)
+│   ├── meta_decision_brain.py     # Meta Decision Brain - WHEN NOT TO TRADE (верхний уровень)
+│   ├── market_regime_brain.py      # Режим рынка (trend/range, volatility, risk-on/off)
+│   ├── risk_exposure_brain.py      # Риск и экспозиция
+│   ├── cognitive_filter.py         # Фильтр человеческих ошибок
+│   └── opportunity_awareness.py    # Отслеживание возможностей
+│
+├── signals/                 # Трейдинг-боты (исполнители)
+│   └── (существующий код генерации сигналов)
+│
+├── execution/               # Execution Layer
+│   └── gatekeeper.py       # Проверка сигналов перед отправкой
+│
+└── utils/                   # Утилиты
+```
+
+---
+
+## 🧠 Decision Core
+
+**Единая точка принятия решений**
+
+### Команды:
+- `/should_i_trade [symbol]` - Можно ли торговать?
+- `/risk_status` - Статус риска и экспозиции
+- `/invest [сумма]` - Анализ инвестирования
+
+### Что делает:
+1. Собирает состояния всех "мозгов"
+2. Нормализует данные
+3. Выдаёт решение, а не мнение
+
+### Выход:
+- `can_trade: bool` - Можно ли торговать
+- `reason: str` - Причина решения
+- `risk_level: str` - Уровень риска
+- `max_position_size: float` - Максимальный размер позиции
+- `max_leverage: float` - Максимальное плечо
+- `recommendations: List[str]` - Рекомендации
+
+---
+
+## 🧠 Боты "Преимущества мышления"
+
+### 0. Meta Decision Brain ⭐
+
+**Верхнеуровневый модуль для решения WHEN NOT TO TRADE**
+
+**Принцип:** Работает ТОЛЬКО с агрегированными метриками системы, НЕ работает с рынком напрямую.
+
+**Анализирует:**
+- `confidence_score`: Средняя уверенность системы (0.0 - 1.0)
+- `entropy_score`: Средняя энтропия системы (0.0 - 1.0)
+- `portfolio_exposure`: Экспозиция портфеля (0.0 - 1.0)
+- `signals_count_recent`: Количество сигналов за период
+- `system_health`: Состояние здоровья системы (OK/DEGRADED)
+- `time_context`: Контекст времени (SESSION_START/MID/END, etc.)
+
+**Решения:**
+- `HARD BLOCK`: Жёсткая блокировка торговли (30 мин cooldown)
+  - Высокая энтропия + низкая уверенность
+  - Экспозиция > 80%
+  - Система в состоянии DEGRADED
+- `SOFT BLOCK`: Мягкая блокировка торговли (5-20 мин cooldown)
+  - Слишком много сигналов (>10)
+  - Средние значения confidence/entropy с высокой экспозицией
+  - Плохие результаты (>60% отрицательных)
+  - Высокая экспозиция + низкая уверенность
+  - Конец сессии + высокая энтропия
+- `ALLOW`: Торговля разрешена
+
+**Интеграция:**
+- Используется в `Gatekeeper` как **первый фильтр** (проверяется ДО DecisionCore)
+- Опциональный модуль (fail-safe: если недоступен, система продолжает работу)
+
+**Документация:** См. `META_DECISION_BRAIN_ARCHITECTURE.md`
+
+---
+
+### 1. Market Regime Brain
+
+**Вопрос:** В каком рынке мы сейчас живём?
+
+**Анализирует:**
+- `trend_type`: "TREND" | "RANGE"
+- `volatility_level`: "HIGH" | "MEDIUM" | "LOW"
+- `risk_sentiment`: "RISK_ON" | "RISK_OFF" | "NEUTRAL"
+- `macro_pressure`: макро-давление (пока None)
+
+**НЕ даёт сигналов**, только анализирует контекст.
+
+---
+
+### 2. Risk & Exposure Brain
+
+**Самый важный модуль**
+
+**Отслеживает:**
+- `total_risk_pct`: Суммарный риск в %
+- `max_correlation`: Максимальная корреляция между позициями
+- `total_leverage`: Суммарное плечо
+- `active_positions`: Количество активных позиций
+- `exposure_pct`: Экспозиция в % от депозита
+- `is_overloaded`: Перегрузка портфеля
+
+**Лимиты:**
+- Максимальный риск: 10%
+- Максимальная экспозиция: 50%
+- Максимальная корреляция: 0.8
+- Максимум позиций: 10
+
+---
+
+### 3. Cognitive Filter Bot
+
+**Фильтр человеческих ошибок**
+
+**Отслеживает:**
+- `overtrading_score`: Пере-торговля (0.0 - 1.0)
+- `emotional_entries`: Эмоциональные входы
+- `fomo_patterns`: FOMO паттерны
+- `recent_trades_count`: Количество сделок за период
+- `should_pause`: Нужна ли пауза
+
+**Лимиты:**
+- Максимум сделок в час: 3
+- Максимум сделок в день: 10
+
+---
+
+### 4. Opportunity Awareness Bot
+
+**Готовит возможности, не толкает**
+
+**Отслеживает:**
+- `volatility_squeeze`: Сжатие волатильности
+- `accumulation`: Накопление
+- `divergence`: Расхождение ожидание/реакция
+- `suspicious_silence`: Подозрительная тишина
+- `readiness_score`: Готовность рынка (0.0 - 1.0)
+
+---
+
+## 🚪 Gatekeeper
+
+**Между сигналами и пользователем**
+
+**Что делает:**
+1. **MetaDecisionBrain** (первый фильтр) - проверяет агрегированные метрики системы
+2. Проверяет сигнал через Decision Core
+3. Проверяет через Portfolio Brain (портфельный анализ)
+4. Рассчитывает размер позиции через Position Sizer
+5. Отправляет только одобренные сигналы
+
+**Статистика:**
+- Количество заблокированных сигналов
+- Количество одобренных сигналов
+
+---
+
+## 📊 Поток данных
+
+```
+1. Загрузка данных (candles)
+   ↓
+2. Market Regime Brain → Decision Core
+   ↓
+3. Risk & Exposure Brain → Decision Core
+   ↓
+4. Cognitive Filter → Decision Core
+   ↓
+5. Opportunity Awareness (для каждого символа) → Decision Core
+   ↓
+6. Decision Core: should_i_trade() → решение
+   ↓
+7. Signal Bot генерирует сигналы (создаёт SignalSnapshot)
+   ↓
+8. Gatekeeper.send_signal():
+   ├─ 8.1. MetaDecisionBrain (ПЕРВЫЙ ФИЛЬТР) - проверяет агрегированные метрики
+   │   └─ Если HARD/SOFT BLOCK → блокировка, early exit
+   ├─ 8.2. DecisionCore.check_signal() - проверяет через Decision Core
+   ├─ 8.3. PortfolioBrain - портфельный анализ
+   └─ 8.4. PositionSizer - расчёт размера позиции
+   ↓
+9. Отправка пользователю (только одобренные)
+```
+
+---
+
+## 🎯 Использование
+
+### Запуск экосистемы:
+```python
+from ecosystem_main import run_ecosystem_cycle
+run_ecosystem_cycle()
+```
+
+### Использование Decision Core:
+```python
+from core.decision_core import get_decision_core
+
+decision_core = get_decision_core()
+decision = decision_core.should_i_trade(symbol="BTCUSDT")
+
+if decision.can_trade:
+    print(f"Можно торговать: {decision.reason}")
+else:
+    print(f"Нельзя торговать: {decision.reason}")
+```
+
+### Использование Gatekeeper:
+```python
+from execution.gatekeeper import get_gatekeeper
+
+gatekeeper = get_gatekeeper()
+if gatekeeper.check_signal("BTCUSDT", signal_data):
+    gatekeeper.send_signal(...)
+```
+
+---
+
+## 🔄 Интеграция с существующим кодом
+
+Существующий `main.py` будет интегрирован в экосистему:
+
+1. **Signal Bot** - остаётся как есть, но сигналы проходят через Gatekeeper
+2. **Post-Signal Watcher** - становится частью Execution Layer
+3. **Trade Manager** - используется Risk & Exposure Brain
+
+---
+
+## 📝 TODO
+
+- [x] MetaDecisionBrain создан и интегрирован в Gatekeeper
+- [ ] Интегрировать существующий Signal Bot в экосистему
+- [ ] Добавить систему событий для асинхронной работы
+- [ ] Расширить Opportunity Awareness (дивергенции)
+- [ ] Добавить макро-данные в Market Regime Brain
+- [ ] Улучшить Cognitive Filter (анализ эмоций)
+- [ ] Создать Strategy Switcher
+
+## 📚 Дополнительная документация
+
+Для детального понимания каждого модуля см. специализированные документы:
+
+- **MetaDecisionBrain:** `META_DECISION_BRAIN_ARCHITECTURE.md`
+- **MarketState:** `MARKET_STATE_ARCHITECTURE.md`
+- **PortfolioBrain:** `PORTFOLIO_BRAIN_ARCHITECTURE.md`
+- **PositionSizer:** `POSITION_SIZER_ARCHITECTURE.md`
+- **DecisionTrace:** `DECISION_TRACE_ARCHITECTURE.md`
+- **SignalSnapshot:** `SIGNAL_SNAPSHOT_ARCHITECTURE.md`
+- **ReplayEngine:** `REPLAY_ENGINE_ARCHITECTURE.md`
+- **DriftDetector:** `DRIFT_DETECTOR_ARCHITECTURE.md`
+- **CognitiveEngine:** `COGNITIVE_ENGINE_ARCHITECTURE.md`
+
+---
+
+## 🎨 UX
+
+**Принципы:**
+- ❌ Не 10 ботов в чате
+- ✅ Один чат + роли ботов
+- ✅ Приоритет сообщений
+- ✅ Silence-режим
+- ✅ Объяснения "почему"
+
+**Роли ботов в сообщениях:**
+- 🧠 Decision Core - решения
+- 🎯 Meta Decision Brain - мета-решения (WHEN NOT TO TRADE)
+- 📊 Market Regime - режим рынка
+- ⚠️ Risk & Exposure - предупреждения
+- 🚪 Gatekeeper - блокировки
+- 📈 Signal Bot - сигналы
+
