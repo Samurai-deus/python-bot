@@ -1,3 +1,4 @@
+import logging
 import os
 import warnings
 import asyncio
@@ -13,8 +14,17 @@ from telegram import Bot
 from telegram.ext import ApplicationBuilder  # Только для создания Application (polling)
 from telegram.request import HTTPXRequest
 
-TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+logger = logging.getLogger(__name__)
+
+_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+if not _token:
+    raise ValueError("TELEGRAM_BOT_TOKEN is not set. Add it to your .env file.")
+if not _chat_id:
+    raise ValueError("TELEGRAM_CHAT_ID is not set. Add it to your .env file.")
+
+TOKEN = _token
+CHAT_ID = _chat_id
 
 # Создаем Bot с увеличенным connection pool и таймаутом
 # Это решает проблему "Pool timeout: All connections in the connection pool are occupied"
@@ -50,7 +60,7 @@ async def _send(text, parse_mode=None, retry_count=2):
                             bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=parse_mode),
                             timeout=30.0
                         )
-                        print(f"✅ Сообщение успешно отправлено в Telegram с {parse_mode} (message_id: {result.message_id})")
+                        logger.debug("Сообщение отправлено в Telegram с %s (message_id: %d)", parse_mode, result.message_id)
                         return result
                     except asyncio.TimeoutError:
                         # Timeout при network blackhole - пробрасываем как NetworkError для retry логики
@@ -58,12 +68,12 @@ async def _send(text, parse_mode=None, retry_count=2):
                     except Exception as parse_error:
                         # Если ошибка парсинга, пробуем без parse_mode
                         if "parse" in str(parse_error).lower() or "markdown" in str(parse_error).lower():
-                            print(f"⚠️ Ошибка парсинга {parse_mode}, пробуем без parse_mode: {parse_error}")
+                            logger.warning("Ошибка парсинга %s, пробуем без parse_mode: %s", parse_mode, parse_error)
                             result = await asyncio.wait_for(
                                 bot.send_message(chat_id=CHAT_ID, text=text),
                                 timeout=30.0
                             )
-                            print(f"✅ Сообщение успешно отправлено в Telegram без parse_mode (message_id: {result.message_id})")
+                            logger.debug("Сообщение отправлено в Telegram без parse_mode (message_id: %d)", result.message_id)
                             return result
                         else:
                             raise
@@ -72,7 +82,7 @@ async def _send(text, parse_mode=None, retry_count=2):
                         bot.send_message(chat_id=CHAT_ID, text=text),
                         timeout=30.0
                     )
-                    print(f"✅ Сообщение успешно отправлено в Telegram (message_id: {result.message_id})")
+                    logger.debug("Сообщение отправлено в Telegram (message_id: %d)", result.message_id)
                     return result
             except asyncio.TimeoutError:
                 # Timeout при network blackhole - пробрасываем как NetworkError для retry логики
@@ -80,15 +90,23 @@ async def _send(text, parse_mode=None, retry_count=2):
         except (TimedOut, NetworkError) as e:
             if attempt < retry_count:
                 wait_time = (attempt + 1) * 2  # Увеличиваем задержку с каждой попыткой
-                print(f"⚠️ Ошибка соединения (попытка {attempt + 1}/{retry_count + 1}): {e}. Повтор через {wait_time} сек...")
+                logger.warning(
+                    "Ошибка соединения (попытка %d/%d): %s. Повтор через %d сек...",
+                    attempt + 1, retry_count + 1, e, wait_time,
+                )
                 await asyncio.sleep(wait_time)
                 continue
             else:
-                print(f"❌ Ошибка при отправке сообщения в Telegram после {retry_count + 1} попыток: {type(e).__name__}: {e}")
+                logger.error(
+                    "Ошибка при отправке сообщения в Telegram после %d попыток: %s: %s",
+                    retry_count + 1, type(e).__name__, e,
+                )
                 raise
         except Exception as e:
             # Для других ошибок не повторяем
-            print(f"❌ Ошибка при отправке сообщения в Telegram: {type(e).__name__}: {e}")
+            logger.error(
+                "Ошибка при отправке сообщения в Telegram: %s: %s", type(e).__name__, e,
+            )
             raise
 
 async def _send_chart(symbol):
@@ -105,13 +123,13 @@ async def _send_chart(symbol):
             ),
             timeout=30.0
         )
-        print(f"✅ График успешно отправлен в Telegram для {symbol}")
+        logger.debug("График отправлен в Telegram для %s", symbol)
         return result
     except asyncio.TimeoutError:
-        print(f"❌ Timeout при отправке графика для {symbol} - network may be unreachable")
+        logger.error("Timeout при отправке графика для %s - network may be unreachable", symbol)
         raise
     except Exception as e:
-        print(f"❌ Ошибка при отправке графика для {symbol}: {type(e).__name__}: {e}")
+        logger.error("Ошибка при отправке графика для %s: %s: %s", symbol, type(e).__name__, e)
         raise
 
 
@@ -158,13 +176,30 @@ async def send_chart_async(symbol):
 # ===============================
 # Эти функции используются из синхронного кода через asyncio.to_thread()
 
+def _cleanup_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Отменяет незавершённые задачи и закрывает event loop."""
+    try:
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+    except Exception:
+        pass
+    try:
+        if not loop.is_closed():
+            loop.close()
+    except Exception:
+        pass
+
+
 def _send_message_sync(text):
     """
     Синхронная обертка для send_message_async.
     Используется через asyncio.to_thread() из async контекста.
     """
-    print(f"📤 Попытка отправить сообщение в Telegram (длина: {len(text)} символов)")
-    
+    logger.debug("Попытка отправить сообщение в Telegram (длина: %d символов)", len(text))
+
     # Создаем новый event loop в текущем потоке (вызывается из asyncio.to_thread)
     # Это безопасно, так как вызывается из отдельного потока
     try:
@@ -174,42 +209,25 @@ def _send_message_sync(text):
             # Пытаемся отправить с Markdown, если не получится - без него
             try:
                 result = loop.run_until_complete(send_message_async(text, parse_mode="Markdown"))
-                print(f"✅ Сообщение отправлено успешно")
                 return result
             except Exception:
                 # Если не получилось с Markdown, пробуем без него
                 result = loop.run_until_complete(send_message_async(text, parse_mode=None))
-                print(f"✅ Сообщение отправлено успешно")
                 return result
         finally:
-            # Cleanup
-            try:
-                pending = asyncio.all_tasks(loop)
-                for task in pending:
-                    task.cancel()
-                if pending:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            except Exception:
-                pass
-            try:
-                if not loop.is_closed():
-                    loop.close()
-            except Exception:
-                pass
+            _cleanup_loop(loop)
     except Exception as e:
-        error_type = type(e).__name__
         if "Event loop is closed" not in str(e):
-            print(f"❌ Ошибка при отправке сообщения: {error_type}: {e}")
-            import traceback
-            print(f"Трассировка:\n{traceback.format_exc()}")
+            logger.error("Ошибка при отправке сообщения: %s: %s", type(e).__name__, e, exc_info=True)
+
 
 def _send_chart_sync(symbol):
     """
     Синхронная обертка для send_chart_async.
     Используется через asyncio.to_thread() из async контекста.
     """
-    print(f"📤 Попытка отправить график для {symbol}")
-    
+    logger.debug("Попытка отправить график для %s", symbol)
+
     # Создаем новый event loop в текущем потоке (вызывается из asyncio.to_thread)
     # Это безопасно, так как вызывается из отдельного потока
     try:
@@ -217,29 +235,12 @@ def _send_chart_sync(symbol):
         asyncio.set_event_loop(loop)
         try:
             result = loop.run_until_complete(send_chart_async(symbol))
-            print(f"✅ График отправлен успешно для {symbol}")
             return result
         finally:
-            # Cleanup
-            try:
-                pending = asyncio.all_tasks(loop)
-                for task in pending:
-                    task.cancel()
-                if pending:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            except Exception:
-                pass
-            try:
-                if not loop.is_closed():
-                    loop.close()
-            except Exception:
-                pass
+            _cleanup_loop(loop)
     except Exception as e:
-        error_type = type(e).__name__
         if "Event loop is closed" not in str(e):
-            print(f"❌ Ошибка при отправке графика для {symbol}: {error_type}: {e}")
-            import traceback
-            print(f"Трассировка:\n{traceback.format_exc()}")
+            logger.error("Ошибка при отправке графика для %s: %s: %s", symbol, type(e).__name__, e, exc_info=True)
 
 def send_message(text):
     """

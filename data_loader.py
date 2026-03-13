@@ -1,7 +1,7 @@
 import requests  # type: ignore[import-untyped]  # noqa: F401
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, List, Optional
 
 BASE_URL = "https://api.bybit.com/v5/market/kline"
 INSTRUMENTS_URL = "https://api.bybit.com/v5/market/instruments-info"
@@ -101,7 +101,7 @@ def get_candles_parallel(symbols: List[str], timeframes: Dict[str, str],
                 candles = future.result()
                 result[symbol][tf_name] = candles
             except Exception as e:
-                logging.warning("Ошибка при загрузке свечей для %s %s: %s", symbol, tf_name, e)
+                logging.error("Ошибка при загрузке свечей для %s %s: %s", symbol, tf_name, e)
                 result[symbol][tf_name] = []
     
     return result

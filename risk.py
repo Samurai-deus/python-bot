@@ -1,5 +1,8 @@
+import logging
 from typing import Optional, Dict
 from core.market_state import MarketState, normalize_states_dict
+
+logger = logging.getLogger(__name__)
 
 def risk_level(states: Dict[str, Optional[MarketState]], directions=None) -> str:
     """
@@ -205,9 +208,9 @@ def enhanced_risk_level(states: Dict[str, Optional[MarketState]], stop_info=None
             elif atr_pct > 3.0:
                 risk_score += 1
                 risk_reasons.append(f"Высокая волатильность ({atr_pct:.2f}%)")
-        except Exception:
-            pass
-    
+        except Exception as e:
+            logger.warning("Ошибка при расчёте волатильности ATR: %s", e, exc_info=True)
+
     # Итоговая оценка
     if base_risk == "LOW" and risk_score == 0:
         return "LOW"

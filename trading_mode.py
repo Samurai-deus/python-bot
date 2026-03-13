@@ -26,7 +26,7 @@ def get_trading_mode() -> TradingMode:
     4. иначе              → DRY_RUN (безопасный дефолт)
     """
     def _flag(name: str) -> bool:
-        return os.environ.get(name, "false").lower() == "true"
+        return os.environ.get(name, "false").lower() in ("true", "1", "yes", "on")
 
     if _flag("LIVE_TRADING"):
         return TradingMode.LIVE

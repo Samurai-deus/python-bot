@@ -2,8 +2,11 @@
 Модуль для обработки Telegram команд
 """
 import csv
+import logging
 import os
 from datetime import datetime, UTC
+
+logger = logging.getLogger(__name__)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from telegram_bot import send_message
@@ -123,7 +126,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "help":
             await cmd_start(fake_update, context)
     except Exception as e:
-        await query.message.reply_text(f"❌ Ошибка: {e}")
+        logger.error("Ошибка в обработчике callback_query: %s", e, exc_info=True)
+        await query.message.reply_text("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -577,8 +581,9 @@ async def cmd_should_i_trade(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         await reply_func(msg, parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_risk_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -662,8 +667,9 @@ async def cmd_risk_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await reply_func(msg, parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_invest(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -725,8 +731,9 @@ async def cmd_invest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await reply_func(msg, parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_market_regime(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -797,8 +804,9 @@ async def cmd_market_regime(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await reply_func(msg, parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_risk_exposure(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -869,8 +877,9 @@ async def cmd_risk_exposure(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await reply_func(msg, parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_cognitive(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -915,8 +924,9 @@ async def cmd_cognitive(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await reply_func(msg, parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_opportunities(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -977,8 +987,9 @@ async def cmd_opportunities(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await reply_func(msg, parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_gatekeeper(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1011,8 +1022,9 @@ async def cmd_gatekeeper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await reply_func(msg, parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1032,8 +1044,9 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await reply_func("⏸ **Trading is already paused**\n\nТорговля уже приостановлена.", parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1056,8 +1069,9 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await reply_func(f"✅ **{message}**\n\nТорговля уже активна.", parse_mode="Markdown")
     except Exception as e:
+        logger.error("Ошибка в команде: %s", e, exc_info=True)
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка: {e}")
+        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 def setup_commands(app):
