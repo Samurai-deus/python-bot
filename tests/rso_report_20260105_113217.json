@@ -1,0 +1,325 @@
+{
+  "rso_version": "1.0",
+  "timestamp": "2026-01-05T11:32:17.263763+00:00",
+  "observation_type": "read_only",
+  "fsm_state": {
+    "current_state": "RUNNING",
+    "duration_in_state": 4.8e-05,
+    "consecutive_errors": 0,
+    "recovery_cycles": 0,
+    "safe_mode_entered_at": null,
+    "last_heartbeat": null,
+    "transitions_count": 0,
+    "last_transition": null,
+    "all_transitions": []
+  },
+  "system_state": null,
+  "recent_logs": [
+    {
+      "raw": "timestamp=2026-01-05T11:24:11.820078+00:00 level=INFO pid=307991 task=MarketAnalysis component=runner message=📈 Metrics | runs=15 avg=26.31s max=60.00s uptime=7265s interval=900s mode=NORMAL trading=ACTIVE errors=0",
+      "timestamp": "timestamp=2026-01-05T11:24:11.820078+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=MarketAnalysis component=runner message=📈 Metrics | runs=15 avg=26.31s max=60.00s uptime=7265s interval=900s mode=NORMAL trading=ACTIVE errors=0"
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:24:13.848502+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:24:13.848502+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:24:23.899283+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:24:23.899283+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:24:33.949662+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:24:33.949662+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:24:44.000652+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:24:44.000652+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:24:54.049845+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:24:54.049845+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:25:04.099839+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:25:04.099839+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:25:14.148738+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:25:14.148738+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:25:24.198421+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:25:24.198421+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:25:34.253632+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:25:34.253632+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:25:44.304291+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:25:44.304291+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:25:54.358442+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:25:54.358442+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:26:04.417438+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:26:04.417438+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:26:14.471053+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:26:14.471053+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:26:24.521014+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:26:24.521014+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:26:34.571347+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:26:34.571347+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:26:44.620522+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:26:44.620522+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:26:54.669616+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:26:54.669616+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:27:04.723247+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:27:04.723247+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:27:14.775173+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:27:14.775173+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:27:24.835832+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:27:24.835832+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:27:34.886467+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:27:34.886467+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:27:44.940002+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:27:44.940002+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:27:54.988949+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:27:54.988949+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:28:05.038688+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:28:05.038688+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:28:15.088898+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:28:15.088898+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:28:25.142388+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:28:25.142388+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:28:35.191766+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:28:35.191766+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:28:45.241424+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:28:45.241424+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:28:55.291660+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:28:55.291660+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:29:05.341144+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:29:05.341144+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:29:15.400284+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:29:15.400284+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:29:25.449073+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:29:25.449073+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:29:35.510810+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:29:35.510810+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:29:45.566922+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:29:45.566922+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:29:55.624193+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:29:55.624193+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:30:05.673954+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:30:05.673954+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:30:15.724476+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:30:15.724476+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:30:25.774824+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:30:25.774824+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:30:35.824945+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:30:35.824945+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:30:45.920334+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:30:45.920334+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:30:55.972780+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:30:55.972780+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:31:06.022092+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:31:06.022092+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:31:16.074918+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:31:16.074918+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:31:26.125729+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:31:26.125729+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:31:36.176620+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:31:36.176620+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:31:46.226280+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:31:46.226280+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:31:56.282490+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:31:56.282490+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:32:06.331473+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:32:06.331473+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    },
+    {
+      "raw": "timestamp=2026-01-05T11:32:16.382179+00:00 level=INFO pid=307991 task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\"",
+      "timestamp": "timestamp=2026-01-05T11:32:16.382179+00:00 level=INFO",
+      "level": "INFO",
+      "message": "task=Updater:start_polling:polling_task component=runner message=HTTP Request: POST https://api.telegram.org/bot8358679673:AAFhBTR9gumcN98cfSLOwV9OvPolAiTOqw8/getUpdates \"HTTP/1.1 200 OK\""
+    }
+  ],
+  "fsm_transitions": [],
+  "metadata": {
+    "observer_mode": "external",
+    "read_only": true,
+    "no_verdict": true
+  }
+}

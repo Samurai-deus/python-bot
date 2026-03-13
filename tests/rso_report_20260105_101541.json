@@ -1,0 +1,325 @@
+{
+  "rso_version": "1.0",
+  "timestamp": "2026-01-05T10:15:41.217533+00:00",
+  "observation_type": "read_only",
+  "fsm_state": {
+    "current_state": "RUNNING",
+    "duration_in_state": 4.1e-05,
+    "consecutive_errors": 0,
+    "recovery_cycles": 0,
+    "safe_mode_entered_at": null,
+    "last_heartbeat": null,
+    "transitions_count": 0,
+    "last_transition": null,
+    "all_transitions": []
+  },
+  "system_state": null,
+  "recent_logs": [
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.223772+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для MATICUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MATICUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921146a20>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.223772+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для MATICUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MATICUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921146a20>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.224129+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для DOTUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=DOTUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292062ef00>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.224129+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для DOTUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=DOTUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292062ef00>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.224275+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для LINKUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=LINKUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921bdc1a0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.224275+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для LINKUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=LINKUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921bdc1a0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.224465+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для DOTUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=DOTUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292259df70>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.224465+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для DOTUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=DOTUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292259df70>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.224686+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для DOTUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=DOTUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b26c60>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.224686+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для DOTUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=DOTUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b26c60>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.224800+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для MATICUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MATICUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921178830>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.224800+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для MATICUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MATICUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921178830>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.224908+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для DOTUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=DOTUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921145ca0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.224908+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для DOTUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=DOTUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921145ca0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.223975+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для LINKUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=LINKUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921bde2a0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.223975+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для LINKUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=LINKUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921bde2a0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.248599+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для UNIUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292062ea20>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.248599+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для UNIUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292062ea20>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.251872+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для UNIUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e6e40>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.251872+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для UNIUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e6e40>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.249291+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для LINKUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=LINKUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920772930>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.249291+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для LINKUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=LINKUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920772930>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.249624+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для UNIUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920771970>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.249624+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для UNIUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920771970>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.250714+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для UNIUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225ea9f0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.250714+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для UNIUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225ea9f0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.249066+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для UNIUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225f3b30>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.249066+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для UNIUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=UNIUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225f3b30>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:14:53.253021+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для LINKUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=LINKUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225eaba0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:14:53.253021+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для LINKUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=LINKUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225eaba0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.537065+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b960c0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.537065+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b960c0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.537572+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для NEARUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e61e0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.537572+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для NEARUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e61e0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.538631+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для FTMUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e7680>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.538631+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для FTMUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e7680>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.539168+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для NEARUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e6cf0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.539168+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для NEARUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e6cf0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.539515+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для FTMUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921145220>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.539515+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для FTMUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921145220>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.539747+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292113c3b0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.539747+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292113c3b0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.539948+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для NEARUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920798350>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.539948+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для NEARUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920798350>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.540181+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для NEARUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e7890>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.540181+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для NEARUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e7890>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.540420+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для FTMUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e7d70>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.540420+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для FTMUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29206e7d70>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.540831+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для FTMUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211475c0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.540831+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для FTMUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211475c0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.541095+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292117a690>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.541095+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d292117a690>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.541873+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для NEARUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921144bc0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.541873+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для NEARUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=NEARUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921144bc0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.542056+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для FTMUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b45ee0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.542056+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для FTMUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=FTMUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b45ee0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.542221+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b96e70>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.542221+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b96e70>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:23.542433+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921179c40>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:23.542433+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ALGOUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ALGOUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921179c40>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.296461+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922554410>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.296461+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922554410>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.299409+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для MKRUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211c6e40>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.299409+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для MKRUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211c6e40>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.299757+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921bdf170>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.299757+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921bdf170>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.299896+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225545f0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.299896+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225545f0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.301130+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922557830>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.301130+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922557830>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.301362+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для MKRUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211c77d0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.301362+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для MKRUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211c77d0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.309021+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ARBUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922ffda00>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.309021+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ARBUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922ffda00>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.309978+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922555940>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.309978+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для AAVEUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=AAVEUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922555940>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.312571+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для MKRUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920799cd0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.312571+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для MKRUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920799cd0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.312820+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для MKRUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921bdc2c0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.312820+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для MKRUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921bdc2c0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.313150+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ARBUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922fa22a0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.313150+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ARBUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2922fa22a0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.313814+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для MKRUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211c75c0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.313814+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для MKRUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=MKRUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211c75c0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.312993+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ARBUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225eb8f0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.312993+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ARBUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225eb8f0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.335913+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для OPUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b25c10>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.335913+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для OPUSDT (5): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=5&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b25c10>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.336650+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для OPUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225fa510>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.336650+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для OPUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29225fa510>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.338398+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ARBUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920772e10>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.338398+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ARBUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920772e10>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.338656+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для ARBUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b27a70>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.338656+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для ARBUSDT (60): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=ARBUSDT&interval=60&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b27a70>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.338809+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для OPUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920770380>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.338809+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для OPUSDT (30): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=30&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2920770380>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.338953+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для OPUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211c41a0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.338953+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для OPUSDT (240): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=240&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d29211c41a0>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "raw": "timestamp=2026-01-05T10:15:33.339104+00:00 level=WARNING pid=307991 task=main component=runner message=Ошибка при получении свечей для OPUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b27590>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))",
+      "timestamp": "timestamp=2026-01-05T10:15:33.339104+00:00 level=WARNING",
+      "level": "WARNING",
+      "message": "task=main component=runner message=Ошибка при получении свечей для OPUSDT (15): HTTPSConnectionPool(host='api.bybit.com', port=443): Max retries exceeded with url: /v5/market/kline?category=linear&symbol=OPUSDT&interval=15&limit=120 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7d2921b27590>, 'Connection to api.bybit.com timed out. (connect timeout=10)'))"
+    }
+  ],
+  "fsm_transitions": [],
+  "metadata": {
+    "observer_mode": "external",
+    "read_only": true,
+    "no_verdict": true
+  }
+}
