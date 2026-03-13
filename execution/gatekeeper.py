@@ -27,20 +27,13 @@ import logging
 logger = logging.getLogger(__name__)
 from signals import build_signal
 
-# MetaDecisionBrain - опциональный импорт (если модуль недоступен, система продолжит работать)
-try:
-    from brains.meta_decision_brain import (
-        MetaDecisionBrain, MetaDecisionResult, SystemHealthStatus, TimeContext
-    )
-    META_DECISION_AVAILABLE = True
-except ImportError:
-    META_DECISION_AVAILABLE = False
-    MetaDecisionBrain = None
-    MetaDecisionResult = None
-    SystemHealthStatus = None
-    TimeContext = None
+# MetaDecisionBrain - обязательный импорт (ADR-004: fail-closed, INV-5)
+from brains.meta_decision_brain import (
+    MetaDecisionBrain, MetaDecisionResult, BlockLevel as MetaBlockLevel,
+    SystemHealthStatus, TimeContext
+)
 
-# DecisionTrace - опциональный импорт (для объяснимости решений)
+# DecisionTrace - опциональный импорт (для объяснимости решений, не влияет на решение)
 try:
     from core.decision_trace import DecisionTrace, BlockLevel as TraceBlockLevel
     DECISION_TRACE_AVAILABLE = True
@@ -49,14 +42,8 @@ except ImportError:
     DecisionTrace = None
     TraceBlockLevel = None
 
-# PositionSizer - опциональный импорт
-try:
-    from core.position_sizer import PositionSizer, PortfolioStateAdapter
-    POSITION_SIZER_AVAILABLE = True
-except ImportError:
-    POSITION_SIZER_AVAILABLE = False
-    PositionSizer = None
-    PortfolioStateAdapter = None
+# PositionSizer - обязательный импорт (ADR-004: fail-closed, INV-5)
+from core.position_sizer import PositionSizer, PortfolioStateAdapter
 
 
 class Gatekeeper:
@@ -71,15 +58,9 @@ class Gatekeeper:
         self.portfolio_brain = get_portfolio_brain()
         # Risk Core - обязательный модуль (ADR-TRADING-RISK-CORE-001)
         self.risk_core = get_risk_core()
-        # MetaDecisionBrain - опционально (если доступен)
-        self.meta_decision_brain = None
-        if META_DECISION_AVAILABLE:
-            try:
-                self.meta_decision_brain = MetaDecisionBrain()
-            except Exception as e:
-                logger.warning(f"MetaDecisionBrain недоступен: {type(e).__name__}: {e}")
-                self.meta_decision_brain = None
-        # DecisionTrace - опционально (для объяснимости решений)
+        # MetaDecisionBrain - обязательный модуль (ADR-004: fail-closed, INV-5)
+        self.meta_decision_brain = MetaDecisionBrain()
+        # DecisionTrace - опционально (для объяснимости решений, не влияет на решение)
         self.decision_trace = None
         self.trace_enabled = False
         if DECISION_TRACE_AVAILABLE:
@@ -90,14 +71,8 @@ class Gatekeeper:
                 logger.warning(f"DecisionTrace недоступен: {type(e).__name__}: {e}")
                 self.decision_trace = None
                 self.trace_enabled = False
-        # PositionSizer - опционально (для расчёта размера позиции)
-        self.position_sizer = None
-        if POSITION_SIZER_AVAILABLE:
-            try:
-                self.position_sizer = PositionSizer()
-            except Exception as e:
-                logger.warning(f"PositionSizer недоступен: {type(e).__name__}: {e}")
-                self.position_sizer = None
+        # PositionSizer - обязательный модуль (ADR-004: fail-closed, INV-5)
+        self.position_sizer = PositionSizer()
         self.blocked_signals_count = 0
         self.approved_signals_count = 0
         # Явное состояние (статистика)
@@ -339,9 +314,10 @@ class Gatekeeper:
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
                 return  # Early exit - fail-closed enforcement
             
-            # ========== META DECISION BRAIN - ВТОРОЙ ФИЛЬТР ==========
+            # ========== META DECISION BRAIN - ОБЯЗАТЕЛЬНЫЙ ФИЛЬТР (ADR-004) ==========
             # Проверяем через MetaDecisionBrain ДО всех остальных проверок
-            if self.meta_decision_brain and snapshot:
+            # ADR-004: fail-closed — если модуль недоступен или падает → BLOCK
+            if snapshot:
                 meta_result = self._check_meta_decision(snapshot, system_state)
                 if meta_result:
                     # Логируем решение MetaDecisionBrain
@@ -400,9 +376,10 @@ class Gatekeeper:
                         signal_data["position_size"] = original_size * portfolio_analysis.recommended_size_multiplier
                         print(f"   📉 Portfolio Brain уменьшил размер позиции для {symbol}: {portfolio_analysis.reason}")
             
-            # ========== POSITION SIZER - ПОСЛЕДНИЙ ШАГ ПЕРЕД ОТПРАВКОЙ ==========
+            # ========== POSITION SIZER - ОБЯЗАТЕЛЬНЫЙ ШАГ ПЕРЕД ОТПРАВКОЙ (ADR-004) ==========
             # Рассчитываем финальный размер позиции через PositionSizer
-            if self.position_sizer and snapshot:
+            # ADR-004: fail-closed — если модуль падает → BLOCK
+            if snapshot:
                 sizing_result = self._calculate_position_size(snapshot, portfolio_analysis)
                 if sizing_result:
                     # Логируем решение PositionSizer
@@ -600,9 +577,6 @@ class Gatekeeper:
         Returns:
             MetaDecisionResult или None (если MetaDecisionBrain недоступен)
         """
-        if not self.meta_decision_brain or not META_DECISION_AVAILABLE:
-            return None
-        
         try:
             # Извлекаем данные из snapshot и system_state
             market_regime = snapshot.market_regime
@@ -645,9 +619,22 @@ class Gatekeeper:
             
             return meta_result
         except Exception as e:
-            # В случае ошибки не блокируем сигнал (fail-safe)
-            logger.warning(f"Ошибка в MetaDecisionBrain для {snapshot.symbol}: {type(e).__name__}: {e}")
-            return None
+            # ADR-004: fail-closed — runtime exception → HARD_BLOCK
+            logger.critical(
+                f"MetaDecisionBrain exception for {snapshot.symbol}: {type(e).__name__}: {e}. "
+                f"ADR-004: fail-closed → HARD_BLOCK",
+                exc_info=True
+            )
+            get_system_guardian().report_module_failure_sync(
+                "MetaDecisionBrain", "runtime_error",
+                {"error": type(e).__name__, "message": str(e), "symbol": snapshot.symbol}
+            )
+            return MetaDecisionResult(
+                allow_trading=False,
+                reason=f"MetaDecisionBrain exception: {type(e).__name__} → fail-closed HARD_BLOCK",
+                block_level=MetaBlockLevel.HARD,
+                cooldown_minutes=MetaDecisionBrain.HARD_BLOCK_COOLDOWN_MINUTES
+            )
     
     def _calculate_position_size(
         self,
@@ -667,9 +654,6 @@ class Gatekeeper:
         Примечание:
             Вызывается ПОСЛЕ всех проверок, но ДО отправки сигнала.
         """
-        if not self.position_sizer or not POSITION_SIZER_AVAILABLE:
-            return None
-        
         try:
             # Вычисляем portfolio_state (используем ту же логику, что и в _check_portfolio)
             open_trades = get_open_trades()
@@ -713,9 +697,26 @@ class Gatekeeper:
             
             return sizing_result
         except Exception as e:
-            # В случае ошибки не блокируем сигнал (fail-safe)
-            logger.warning(f"Ошибка в PositionSizer для {snapshot.symbol}: {type(e).__name__}: {e}")
-            return None
+            # ADR-004: fail-closed — runtime exception → position blocked
+            logger.critical(
+                f"PositionSizer exception for {snapshot.symbol}: {type(e).__name__}: {e}. "
+                f"ADR-004: fail-closed → position blocked",
+                exc_info=True
+            )
+            get_system_guardian().report_module_failure_sync(
+                "PositionSizer", "runtime_error",
+                {"error": type(e).__name__, "message": str(e), "symbol": snapshot.symbol}
+            )
+            from core.position_sizer import PositionSizingResult
+            return PositionSizingResult(
+                position_allowed=False,
+                final_risk=0.0,
+                base_risk=0.0,
+                confidence_factor=0.0,
+                entropy_factor=0.0,
+                portfolio_factor=0.0,
+                reason=f"PositionSizer exception: {type(e).__name__} → fail-closed block"
+            )
     
     def _save_decision_trace(
         self,

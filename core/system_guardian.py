@@ -652,7 +652,30 @@ class SystemGuardian:
         )
         
         return permission
-    
+
+    def report_module_failure_sync(
+        self,
+        module_name: str,
+        failure_type: str,
+        details: dict
+    ) -> None:
+        """
+        Sync-обёртка для enforce_fail_safe_policy (NON_CRITICAL → DEGRADED).
+        Использует AsyncToSyncAdapter — тот же паттерн что can_trade_sync().
+
+        Args:
+            module_name: Имя модуля (напр. "MetaDecisionBrain")
+            failure_type: Тип сбоя ("init_failure" или "runtime_error")
+            details: Детали сбоя {"error": ..., "message": ..., ...}
+        """
+        AsyncToSyncAdapter.call_async(
+            self.policy_enforcer.enforce_fail_safe_policy(
+                module_name, failure_type, details
+            ),
+            timeout=1.0,
+            fail_safe_result=None
+        )
+
     async def handle_violations(self, violations: List[InvariantViolation]):
         """
         Обрабатывает нарушения инвариантов.
