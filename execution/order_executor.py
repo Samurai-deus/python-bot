@@ -136,13 +136,9 @@ class OrderExecutor:
     def _dry_run_execute(self, request: TradeRequest) -> TradeResult:
         order_type = "Limit" if request.entry_price else "Market"
         logger.info(
-            f"[DRY_RUN] Would place {order_type} {request.side} order: "
-            f"{request.symbol} qty={request.qty} "
-            f"entry={request.entry_price} sl={request.stop_loss} tp={request.take_profit}"
-        )
-        print(
-            f"   💸 [DRY_RUN] {request.side} {request.symbol}: "
-            f"qty={request.qty}, SL={request.stop_loss}, TP={request.take_profit}"
+            "[DRY_RUN] Would place %s %s order: %s qty=%s entry=%s sl=%s tp=%s",
+            order_type, request.side, request.symbol, request.qty,
+            request.entry_price, request.stop_loss, request.take_profit,
         )
         fake_order_id = f"dry_{request.symbol}_{int(time.time())}"
         return TradeResult(

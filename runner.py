@@ -1988,7 +1988,38 @@ async def market_analysis_loop():
             
             # Выполняем анализ
             success = await run_market_analysis()
-            
+
+            # ========== POSITION TRACKER POLLING (Phase 2) ==========
+            # Опрашиваем открытые позиции на бирже (только TESTNET/LIVE)
+            try:
+                from trading_mode import get_trading_mode, TradingMode
+                _mode = get_trading_mode()
+                if _mode in (TradingMode.TESTNET, TradingMode.LIVE):
+                    from execution.position_tracker import get_position_tracker
+                    from database import close_position_by_order_id, insert_pnl_record
+                    from telegram_bot import send_message_async
+                    _tracker = get_position_tracker()
+                    if _tracker.active_count() > 0:
+                        _poll = await asyncio.to_thread(_tracker.poll)
+                        for _closed in _poll.just_closed:
+                            _pnl = _closed.unrealised_pnl
+                            close_position_by_order_id(
+                                order_id=_closed.order_id,
+                                close_price=_closed.current_price or _closed.entry_price,
+                                close_reason="SL_OR_TP",
+                                realised_pnl=_pnl,
+                            )
+                            logger.info(
+                                "[TRACKER] Position closed: %s %s pnl=%.2f",
+                                _closed.symbol, _closed.side, _pnl,
+                            )
+                            await send_message_async(
+                                f"📉 Позиция закрыта: {_closed.symbol} {_closed.side}\n"
+                                f"💰 PnL: {_pnl:+.2f} USDT"
+                            )
+            except Exception as _e:
+                logger.warning("Position tracker poll error: %s: %s", type(_e).__name__, _e)
+
             # Вычисляем длительность анализа
             duration = time.monotonic() - start
             
