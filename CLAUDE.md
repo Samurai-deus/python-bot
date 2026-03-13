@@ -1,0 +1,345 @@
+# Market Bot — Контекст проекта для Claude
+
+## Что это за проект
+
+Автоматизированный бот для торговли криптовалютой на бирже **Bybit**.
+Написан на **Python 3.12+**, использует AsyncIO, SQLite, Telegram Bot API.
+
+**Конечная цель:** Профессиональный торговый бот с UI в виде Telegram Mini App (React + TypeScript).
+
+---
+
+## Текущая стадия (на 12.03.2026)
+
+**Статус: Signal Generator — НЕ торговый бот**
+
+Бот генерирует торговые сигналы и отправляет уведомления в Telegram.
+Реального исполнения сделок НЕТ. Только чтение рыночных данных с Bybit (read-only API).
+
+---
+
+## Расположение
+
+```
+C:/Users/Дмитрий/Documents/market_bot/   ← основной проект (184 МБ)
+C:/Users/Дмитрий/Projects/MyTelegramBot/  ← заброшенный проект, не трогать
+```
+
+---
+
+## Технологический стек
+
+| Компонент | Технология |
+|-----------|-----------|
+| Язык | Python 3.12+ |
+| Async | asyncio |
+| HTTP | httpx, aiohttp, requests |
+| Telegram | python-telegram-bot >= 20.7 |
+| База данных | SQLite (database.py) |
+| Биржа | Bybit (только чтение, `/v5/market/kline`) |
+| Деплой | systemd (Linux), batch (Windows) |
+
+---
+
+## Структура проекта
+
+```
+market_bot/
+├── core/                   # Ядро принятия решений
+│   ├── decision_core.py    # ГЛАВНЫЙ — единственный источник решений о торговле
+│   ├── system_guardian.py  # Контролёр инвариантов системы
+│   ├── risk_core.py        # Политики риска (FSM: SAFE/LIMITED/LOCKED/HALTED)
+│   ├── market_state.py     # Состояние рынка (enum A/B/C/D)
+│   ├── portfolio_brain.py  # Анализ портфеля
+│   ├── position_sizer.py   # Расчёт размера позиции
+│   ├── cognitive_engine.py # Уверенность/энтропия решений
+│   ├── drift_detector.py   # Обнаружение деградации стратегии
+│   ├── replay_engine.py    # Бэктест / воспроизведение сигналов
+│   ├── signal_snapshot.py  # Иммутабельный снимок сигнала
+│   ├── signal_snapshot_store.py  # Хранение снимков в SQLite
+│   ├── decision_trace.py   # Объяснение принятых решений
+│   ├── system_state_machine.py  # FSM: RUNNING/DEGRADED/SAFE_HALT/RECOVERY/FATAL
+│   ├── timeout_guard.py    # Таймауты для критичных модулей
+│   └── data_validator.py
+│
+├── brains/                 # Специализированные аналитические модули
+│   ├── meta_decision_brain.py    # Когда НЕ торговать (HARD_BLOCK/SOFT_BLOCK/ALLOW)
+│   ├── market_regime_brain.py    # Режим рынка (тренд/флет)
+│   ├── risk_exposure_brain.py    # Расчёт допустимой экспозиции
+│   ├── cognitive_filter.py       # Защита от когнитивных искажений
+│   └── opportunity_awareness.py  # Обнаружение паттернов
+│
+├── execution/
+│   └── gatekeeper.py       # Валидация сигналов перед отправкой (52KB)
+│
+├── docs/adr/               # Architecture Decision Records
+│   └── ADR-002-fastapi-dependency-lifecycle.md
+│
+├── runner.py               # Главный цикл бота (точка входа, 6000+ строк)
+├── signal_generator.py     # Генерация торговых сигналов
+├── data_loader.py          # Загрузка свечей с Bybit API
+├── database.py             # SQLite операции
+├── telegram_bot.py         # Telegram соединение (! токен hardcoded — баг)
+├── telegram_commands.py    # Обработчики команд
+├── config.py               # Конфигурация: 24 символа, таймфреймы, риск
+├── indicators.py           # Технические индикаторы
+├── signal_generator.py     # Генерация сигналов
+├── risk.py                 # Расчёты риска
+├── scoring.py              # Скоринг сигналов
+└── requirements.txt
+```
+
+---
+
+## Архитектурные принципы (FROZEN v1.0, с 19.12.2024)
+
+1. **Fail-Safe First** — блокировка торговли при любой неопределённости
+2. **Single Source of Truth** — DecisionCore — единственный авторитет
+3. **No Bypass** — нельзя обойти DecisionCore или SystemGuardian
+4. **Architecture == Runtime** — документация должна соответствовать коду
+5. Любые изменения архитектуры требуют ADR (Architecture Decision Record)
+
+### Системные инварианты
+
+| ID | Инвариант | Нарушение → |
+|----|-----------|-------------|
+| INV-1 | Критичные модули должны быть доступны | SAFE_HALT |
+| INV-2 | Все сделки через DecisionCore | SAFE_HALT |
+| INV-3 | Консистентность StateМachine | SAFE_HALT |
+| INV-4 | SystemGuardian проверяется первым | SAFE_HALT |
+| INV-5 | Критичные модули не fail-open | SAFE_HALT |
+
+### Состояния системы
+
+```
+RUNNING   → нормальная работа, торговля включена
+DEGRADED  → некритичные модули недоступны, торговля продолжается
+SAFE_HALT → торговля заблокирована (TTL 600с), авто-восстановление
+RECOVERY  → восстановление, торговля отключена
+FATAL     → терминальное состояние, процесс завершается
+```
+
+### Таймауты модулей
+
+| Модуль | Таймаут | Тип |
+|--------|---------|-----|
+| DecisionCore | 5с | CRITICAL |
+| SystemStateMachine | 0.1с | CRITICAL |
+| SystemGuardian | 0.1с | CRITICAL |
+| Gatekeeper | 5с | CRITICAL |
+| RiskExposureBrain | 3с | CRITICAL |
+| MetaDecisionBrain | 3с | NON_CRITICAL |
+| MarketRegimeBrain | 5с | NON_CRITICAL |
+| PortfolioBrain | 5с | NON_CRITICAL |
+| PositionSizer | 3с | NON_CRITICAL |
+| TelegramBot | 10с | NON_CRITICAL |
+
+---
+
+## Конфигурация торговли (config.py)
+
+- **Начальный баланс:** $10,000 USDT
+- **Риск на сделку:** 2%
+- **Мин. размер позиции:** $10 USDT
+- **Макс. размер позиции:** $1,000 USDT
+- **24 символа:** BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, DOT, MATIC, LINK, UNI, AAVE, MKR, ARB, OP, SUI, APT, SHIB, ATOM, NEAR, FTM, ALGO + USDT пары
+- **Таймфреймы:** 5m, 15m, 30m, 1h, 4h
+- **Интервал анализа:** 300с (5 минут)
+- **Bybit API:** `https://api.bybit.com/v5/market/kline` (только чтение)
+
+---
+
+## Известные баги и технический долг
+
+| Проблема | Файл | Приоритет |
+|----------|------|-----------|
+| Telegram токен hardcoded | telegram_bot.py:12-13 | 🔴 CRITICAL |
+| MetaDecisionBrain не подключён в pipeline | gatekeeper.py | 🔴 HIGH |
+| SystemGuardian не в runtime flow | gatekeeper.py | 🔴 HIGH |
+| PositionSizer не используется | gatekeeper.py | 🟡 MEDIUM |
+| 50+ незакоммиченных файлов в git | — | 🟡 MEDIUM |
+| Дублирующиеся markdown документы | docs/ | 🟢 LOW |
+
+---
+
+## Pipeline прохождения сигнала (текущий vs целевой)
+
+### Сейчас (с пробелами):
+```
+Bybit API → data_loader → signal_generator → indicators
+→ Gatekeeper:
+    [ПРОПУЩЕН] SystemGuardian.can_trade()
+    [ПРОПУЩЕН] MetaDecisionBrain.evaluate()
+    ✓ DecisionCore.should_i_trade()
+    ✓ PortfolioBrain.evaluate()
+    [ПРОПУЩЕН] PositionSizer.calculate()
+→ Telegram уведомление (нет исполнения)
+```
+
+### Целевой (полный):
+```
+Bybit API → data_loader → signal_generator → indicators
+→ Gatekeeper:
+    ✓ SystemGuardian.can_trade()       → SAFE_HALT если нет
+    ✓ MetaDecisionBrain.evaluate()     → стоп если HARD_BLOCK
+    ✓ DecisionCore.should_i_trade()    → стоп если нет
+    ✓ RiskExposureBrain.evaluate()     → стоп если LOCKED
+    ✓ PortfolioBrain.evaluate()        → стоп если лимиты
+    ✓ PositionSizer.calculate()        → размер позиции
+→ OrderExecutor → Bybit Trading API → позиция открыта
+→ PositionTracker → мониторинг SL/TP
+→ Telegram уведомление с деталями
+```
+
+---
+
+## Полный план развития (дорожная карта)
+
+### Фаза 0: Стабилизация (1–2 дня)
+- [ ] Вынести Telegram токен и ключи в `.env` (python-dotenv)
+- [ ] Закоммитить все текущие изменения по смысловым группам
+- [ ] Создать ветку `develop`, `main` — только стабильный код
+- [ ] Настроить `.gitignore` для `venv/`, `*.log`, `.env`
+- [ ] Удалить дублирующиеся markdown-документы
+- [ ] Добавить `pre-commit` хуки (black, isort, flake8)
+
+### Фаза 1: Завершение ядра (1–2 недели)
+- [ ] Интегрировать SystemGuardian в gatekeeper.py (первая проверка)
+- [ ] Интегрировать MetaDecisionBrain в gatekeeper.py (после Guardian)
+- [ ] Интегрировать PositionSizer вместо упрощённого расчёта
+- [ ] Настроить pytest + pytest-asyncio + pytest-cov
+- [ ] Покрыть тестами: DecisionCore, RiskCore, PositionSizer, MetaDecisionBrain
+- [ ] GitHub Actions CI: тесты на каждый push
+- [ ] Цель покрытия: >80%
+
+### Фаза 2: Реальное исполнение сделок (2–3 недели)
+- [ ] Добавить `pybit` (официальная библиотека Bybit)
+- [ ] Создать `exchange/bybit_client.py` (аутентификация, ордера, позиции)
+- [ ] Начать с **Bybit Testnet** (не реальные деньги)
+- [ ] Создать `execution/order_executor.py` (размещение ордеров с SL/TP)
+- [ ] Создать `execution/position_tracker.py` (мониторинг открытых позиций)
+- [ ] Создать `trade_lifecycle.py` (PENDING→OPEN→PARTIAL→CLOSED)
+- [ ] Обновить database.py: таблицы orders, positions, trade_history, pnl_history
+- [ ] Режимы: `DRY_RUN` / `PAPER_TRADING` / `LIVE_TRADING` через .env
+
+### Фаза 3: Аналитика и бэктест (2–3 недели)
+- [ ] Доработать ReplayEngine: slippage, комиссии Bybit, полная статистика
+- [ ] Sharpe ratio, Max Drawdown, Win Rate, Profit Factor
+- [ ] `analytics/performance_tracker.py`: P&L breakdown по символу/режиму/времени
+- [ ] Адаптивные параметры через DriftDetector (снижение риска при деградации)
+
+### Фаза 4: Профессиональный Telegram Bot (1 неделя)
+- [ ] Расширенные команды: /status, /balance, /positions, /history, /stats, /settings, /pause, /resume, /close_all, /report
+- [ ] Inline кнопки для управления позициями
+- [ ] Умные уведомления: открытие/закрытие сделки, ежедневный/еженедельный отчёт
+- [ ] Алерты при аномалиях (просадка, ошибка API)
+
+### Фаза 5: Telegram Mini App (3–4 недели)
+
+**Стек:**
+- Frontend: React + TypeScript + Vite
+- UI Kit: `@telegram-apps/sdk-react` (официальный SDK)
+- Стили: Tailwind CSS
+- Графики: Lightweight Charts (TradingView, бесплатная)
+- Backend: FastAPI (новый `api/` модуль)
+- State: Zustand + TanStack Query
+- Real-time: WebSocket
+
+**Backend API (`api/`):**
+- [ ] `api/main.py` — FastAPI приложение
+- [ ] `api/routers/positions.py`
+- [ ] `api/routers/signals.py`
+- [ ] `api/routers/analytics.py`
+- [ ] `api/routers/settings.py`
+- [ ] `api/routers/ws.py` — WebSocket real-time
+- [ ] Аутентификация через Telegram InitData
+
+**Экраны Mini App:**
+- [ ] **Dashboard** — баланс, P&L сегодня/неделя, открытые позиции, статус системы
+- [ ] **Positions** — список позиций с real-time P&L, кнопки закрыть/изменить SL
+- [ ] **Signals** — лента сигналов, фильтрация, одобрение/отклонение вручную
+- [ ] **Analytics** — график P&L, win rate, best/worst символы, drawdown
+- [ ] **Risk Monitor** — состояние RiskCore, экспозиция vs лимиты, история блокировок
+- [ ] **Settings** — режим торговли, риск (слайдер), символы, временные фильтры
+- [ ] **System Health** — статус каждого модуля, uptime, последние ошибки
+
+**Деплой Mini App:**
+- [ ] Сборка React → статика, хостинг на Cloudflare Pages или nginx
+- [ ] HTTPS обязателен (Let's Encrypt)
+- [ ] Регистрация в @BotFather
+
+### Фаза 6: Production (2 недели)
+- [ ] VPS: Ubuntu 22.04 LTS (2 CPU, 4 GB RAM минимум)
+- [ ] Docker Compose: market-bot, api-server, nginx, postgres, redis
+- [ ] Prometheus + Grafana (метрики)
+- [ ] Sentry (трекинг ошибок)
+- [ ] Ежедневный бэкап БД
+- [ ] Rate limiting, IP whitelist, шифрование API ключей в БД
+- [ ] 2FA для критических команд
+
+### Фаза 7: Продвинутые функции (ongoing)
+- [ ] Grid trading стратегия
+- [ ] DCA (Dollar Cost Averaging) режим
+- [ ] ML скоринг сигналов (sklearn/lightgbm)
+- [ ] Walk-forward optimization
+- [ ] Мультибиржевая поддержка (OKX адаптер)
+- [ ] Арбитраж между биржами
+
+---
+
+## Приоритет — следующие шаги (в порядке выполнения)
+
+1. **Безопасность:** вынести токен Telegram и ключи из кода в `.env`
+2. **Git:** закоммитить весь текущий код, создать ветку `develop`
+3. **Замкнуть pipeline:** подключить MetaDecisionBrain + SystemGuardian + PositionSizer в Gatekeeper
+4. **Bybit Testnet:** первые реальные ордера в тестовой среде
+5. **FastAPI backend:** начать `api/` модуль параллельно с Testnet
+6. **Mini App:** React scaffolding после стабилизации API
+
+---
+
+## Справочная информация
+
+### Запуск бота
+```bash
+cd C:/Users/Дмитрий/Documents/market_bot
+source venv/bin/activate  # или venv\Scripts\activate на Windows
+python runner.py
+```
+
+### Ключевые переменные окружения (будущие, после рефакторинга)
+```env
+TELEGRAM_BOT_TOKEN=...
+BYBIT_API_KEY=...
+BYBIT_API_SECRET=...
+BYBIT_TESTNET=true
+BOT_INTERVAL=300
+DRY_RUN=true
+PAPER_TRADING=false
+LIVE_TRADING=false
+MAX_CONSECUTIVE_ERRORS=5
+ERROR_PAUSE=600
+LOG_FILE=monitor.log
+```
+
+### Bybit API endpoints (текущие)
+- Свечи: `https://api.bybit.com/v5/market/kline`
+- Инструменты: `https://api.bybit.com/v5/market/instruments-info`
+- Testnet: `https://api-testnet.bybit.com`
+
+### Документация (главный документ)
+- `SYSTEM_ARCHITECTURE_CANONICAL.md` — авторитетный источник архитектуры
+- `PRODUCTION_DEBUG_REPORT.md` — честный статус реализации
+- `docs/adr/` — Architecture Decision Records
+
+---
+
+## Правила работы с проектом
+
+1. **Не менять архитектуру** без создания ADR в `docs/adr/`
+2. **Не обходить** DecisionCore или SystemGuardian — это нарушение INV-2 и INV-4
+3. **Все новые модули** должны иметь таймауты через `TimeoutGuard`
+4. **Критичные модули** (список выше) — только fail-closed, никогда fail-open
+5. **Тесты обязательны** для любого нового кода в `core/` и `brains/`
+6. **Secrets никогда** не коммитить в git (`.env` в `.gitignore`)
+7. **Bybit Testnet** — обязательный этап перед любым live кодом
