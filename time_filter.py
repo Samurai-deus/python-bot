@@ -1,5 +1,8 @@
-from datetime import datetime
+from datetime import datetime, UTC
 
 def is_good_time():
-    hour = datetime.utcnow().hour
-    return 7 <= hour <= 20
+    """
+    Проверяет, подходящее ли время для торговли.
+    Теперь всегда возвращает True - бот работает круглосуточно.
+    """
+    return True  # Круглосуточная работа
