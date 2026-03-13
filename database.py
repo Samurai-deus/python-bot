@@ -88,7 +88,69 @@ def _init_database(conn: sqlite3.Connection):
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON system_state_snapshots(timestamp DESC)
     """)
-    
+
+    # ========== Phase 2: Exchange order/position tables ==========
+
+    # Ордера — запись каждого ордера размещённого на бирже (или DRY_RUN)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT NOT NULL,           -- Bybit order ID (или "dry_*")
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,               -- "LONG" | "SHORT"
+            order_type TEXT NOT NULL,         -- "Market" | "Limit"
+            qty REAL NOT NULL,
+            entry_price REAL,                 -- NULL для Market ордеров
+            stop_loss REAL NOT NULL,
+            take_profit REAL,
+            status TEXT NOT NULL DEFAULT 'CREATED',  -- CREATED | FILLED | CANCELLED | FAILED
+            dry_run INTEGER NOT NULL DEFAULT 1,       -- 1 = симуляция, 0 = реальный
+            error TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+
+    # Позиции — жизненный цикл позиции от открытия до закрытия
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT NOT NULL,           -- Ссылка на orders.order_id
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,               -- "LONG" | "SHORT"
+            qty REAL NOT NULL,
+            entry_price REAL NOT NULL,
+            stop_loss REAL NOT NULL,
+            take_profit REAL,
+            status TEXT NOT NULL DEFAULT 'OPEN',  -- OPEN | CLOSED
+            close_price REAL,
+            close_reason TEXT,                -- "SL" | "TP" | "MANUAL" | "EXPIRED"
+            realised_pnl REAL,
+            opened_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            closed_at TEXT
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status)")
+
+    # Ежедневные P&L снимки для аналитики (Phase 3)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pnl_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL UNIQUE,        -- "2026-03-13"
+            realised_pnl REAL NOT NULL DEFAULT 0.0,
+            trades_count INTEGER NOT NULL DEFAULT 0,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            balance_end REAL NOT NULL DEFAULT 0.0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_history_date ON pnl_history(date)")
+
     conn.commit()
 
 
@@ -550,6 +612,156 @@ def get_latest_system_state_snapshot() -> Optional[Dict]:
     except (json.JSONDecodeError, KeyError) as e:
         logger.warning(f"Ошибка парсинга snapshot: {e}")
         return None
+
+
+# ============================================================================
+# ORDERS (Phase 2)
+# ============================================================================
+
+def save_order(
+    order_id: str,
+    symbol: str,
+    side: str,
+    order_type: str,
+    qty: float,
+    stop_loss: float,
+    dry_run: bool,
+    entry_price: Optional[float] = None,
+    take_profit: Optional[float] = None,
+    status: str = "CREATED",
+    error: Optional[str] = None,
+) -> int:
+    """Сохранить ордер (реальный или DRY_RUN). Возвращает internal id."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO orders
+            (order_id, symbol, side, order_type, qty, entry_price,
+             stop_loss, take_profit, status, dry_run, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (order_id, symbol, side, order_type, qty, entry_price,
+          stop_loss, take_profit, status, int(dry_run), error))
+    row_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    logger.info(f"Order saved #{row_id}: {symbol} {side} order_id={order_id} dry_run={dry_run}")
+    return row_id
+
+
+def update_order_status(order_id: str, status: str, error: Optional[str] = None) -> None:
+    """Обновить статус ордера."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    updated_at = datetime.now(UTC).isoformat()
+    cursor.execute("""
+        UPDATE orders SET status = ?, error = ?, updated_at = ?
+        WHERE order_id = ?
+    """, (status, error, updated_at, order_id))
+    conn.commit()
+    conn.close()
+
+
+# ============================================================================
+# POSITIONS (Phase 2)
+# ============================================================================
+
+def open_position(
+    order_id: str,
+    symbol: str,
+    side: str,
+    qty: float,
+    entry_price: float,
+    stop_loss: float,
+    take_profit: Optional[float] = None,
+) -> int:
+    """Записать открытие позиции. Возвращает internal id."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    opened_at = datetime.now(UTC).isoformat()
+    cursor.execute("""
+        INSERT INTO positions
+            (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, status, opened_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+    """, (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, opened_at))
+    row_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    logger.info(f"Position opened #{row_id}: {symbol} {side} entry={entry_price}")
+    return row_id
+
+
+def close_position_by_order_id(
+    order_id: str,
+    close_price: float,
+    close_reason: str,
+    realised_pnl: float,
+) -> None:
+    """Закрыть позицию по order_id."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    closed_at = datetime.now(UTC).isoformat()
+    cursor.execute("""
+        UPDATE positions
+        SET status = 'CLOSED', close_price = ?, close_reason = ?,
+            realised_pnl = ?, closed_at = ?
+        WHERE order_id = ? AND status = 'OPEN'
+    """, (close_price, close_reason, realised_pnl, closed_at, order_id))
+    conn.commit()
+    conn.close()
+    logger.info(f"Position closed: order_id={order_id} pnl={realised_pnl:.2f} reason={close_reason}")
+
+
+def get_open_positions() -> List[Dict]:
+    """Список всех открытых позиций."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+# ============================================================================
+# PNL HISTORY (Phase 2)
+# ============================================================================
+
+def upsert_daily_pnl(
+    date: str,
+    realised_pnl: float,
+    trades_count: int,
+    wins: int,
+    losses: int,
+    balance_end: float,
+) -> None:
+    """Создать или обновить запись дневного P&L (upsert по date)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO pnl_history (date, realised_pnl, trades_count, wins, losses, balance_end)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(date) DO UPDATE SET
+            realised_pnl = excluded.realised_pnl,
+            trades_count = excluded.trades_count,
+            wins = excluded.wins,
+            losses = excluded.losses,
+            balance_end = excluded.balance_end
+    """, (date, realised_pnl, trades_count, wins, losses, balance_end))
+    conn.commit()
+    conn.close()
+
+
+def get_pnl_history(days: int = 30) -> List[Dict]:
+    """Получить историю P&L за последние N дней."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM pnl_history ORDER BY date DESC LIMIT ?
+    """, (days,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 
 def cleanup_old_snapshots(keep_last_n: int = 10):
