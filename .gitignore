@@ -31,6 +31,10 @@ runner.log
 *.swp
 *.swo
 
+# Test reports
+tests/rso_report_*.json
+rso_report_*.json
+
 # OS
 .DS_Store
 Thumbs.db

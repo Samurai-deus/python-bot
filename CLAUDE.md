@@ -9,12 +9,23 @@
 
 ---
 
-## Текущая стадия (на 12.03.2026)
+## Текущая стадия (на 13.03.2026)
 
 **Статус: Signal Generator — НЕ торговый бот**
+**Фаза 0 завершена. Текущая активная ветка: develop**
 
 Бот генерирует торговые сигналы и отправляет уведомления в Telegram.
 Реального исполнения сделок НЕТ. Только чтение рыночных данных с Bybit (read-only API).
+
+---
+
+## История фаз
+
+| Фаза | Статус | Дата |
+|------|--------|------|
+| Фаза 0: Стабилизация | ✅ ЗАВЕРШЕНА | 13.03.2026 |
+| Фаза 1: Завершение ядра | 🔄 В РАБОТЕ | — |
+| Фаза 2–7 | ⏳ Запланировано | — |
 
 ---
 
@@ -75,18 +86,29 @@ market_bot/
 ├── docs/adr/               # Architecture Decision Records
 │   └── ADR-002-fastapi-dependency-lifecycle.md
 │
+├── contracts/              # Контракты модулей (интерфейсы и инварианты)
+│   └── ...                 # MarketState, SignalSnapshot и др.
+│
+├── operations/             # Операционные документы
+│   └── ...                 # SERVER_SETUP, SERVICE_SETUP, START_BOT
+│
+├── archive/                # Исторические документы
+│   └── PRODUCTION_DEBUG_REPORT.md
+│
 ├── runner.py               # Главный цикл бота (точка входа, 6000+ строк)
 ├── signal_generator.py     # Генерация торговых сигналов
 ├── data_loader.py          # Загрузка свечей с Bybit API
 ├── database.py             # SQLite операции
-├── telegram_bot.py         # Telegram соединение (! токен hardcoded — баг)
+├── telegram_bot.py         # Telegram соединение (токен загружается из .env)
 ├── telegram_commands.py    # Обработчики команд
 ├── config.py               # Конфигурация: 24 символа, таймфреймы, риск
 ├── indicators.py           # Технические индикаторы
-├── signal_generator.py     # Генерация сигналов
 ├── risk.py                 # Расчёты риска
 ├── scoring.py              # Скоринг сигналов
-└── requirements.txt
+├── .env.example            # Шаблон переменных окружения
+├── .pre-commit-config.yaml # Хуки pre-commit (black, isort, flake8)
+├── requirements.txt
+└── requirements-dev.txt    # Зависимости для разработки
 ```
 
 ---
@@ -153,26 +175,23 @@ FATAL     → терминальное состояние, процесс зав
 
 | Проблема | Файл | Приоритет |
 |----------|------|-----------|
-| Telegram токен hardcoded | telegram_bot.py:12-13 | 🔴 CRITICAL |
-| MetaDecisionBrain не подключён в pipeline | gatekeeper.py | 🔴 HIGH |
-| SystemGuardian не в runtime flow | gatekeeper.py | 🔴 HIGH |
-| PositionSizer не используется | gatekeeper.py | 🟡 MEDIUM |
-| 50+ незакоммиченных файлов в git | — | 🟡 MEDIUM |
-| Дублирующиеся markdown документы | docs/ | 🟢 LOW |
+| ⚠️ НЕМЕДЛЕННО: Старый токен в git history — нужно отозвать в BotFather | — | 🔴 CRITICAL |
+| MetaDecisionBrain/PositionSizer импортируются через try/except — fail-open, нарушает INV-5 | gatekeeper.py | 🟡 MEDIUM |
+| tests/rso_report_*.json попали в git — нужно добавить в .gitignore | tests/ | 🟢 LOW |
 
 ---
 
 ## Pipeline прохождения сигнала (текущий vs целевой)
 
-### Сейчас (с пробелами):
+### Сейчас (реальное состояние):
 ```
 Bybit API → data_loader → signal_generator → indicators
 → Gatekeeper:
-    [ПРОПУЩЕН] SystemGuardian.can_trade()
-    [ПРОПУЩЕН] MetaDecisionBrain.evaluate()
+    ✓ SystemGuardian.can_trade()           → первая проверка
+    ✓ (optional) MetaDecisionBrain.evaluate() → try/except, fail-open если недоступен
     ✓ DecisionCore.should_i_trade()
     ✓ PortfolioBrain.evaluate()
-    [ПРОПУЩЕН] PositionSizer.calculate()
+    ✓ (optional) PositionSizer.calculate() → try/except, fail-open если недоступен
 → Telegram уведомление (нет исполнения)
 ```
 
@@ -195,18 +214,19 @@ Bybit API → data_loader → signal_generator → indicators
 
 ## Полный план развития (дорожная карта)
 
-### Фаза 0: Стабилизация (1–2 дня)
-- [ ] Вынести Telegram токен и ключи в `.env` (python-dotenv)
-- [ ] Закоммитить все текущие изменения по смысловым группам
-- [ ] Создать ветку `develop`, `main` — только стабильный код
-- [ ] Настроить `.gitignore` для `venv/`, `*.log`, `.env`
-- [ ] Удалить дублирующиеся markdown-документы
-- [ ] Добавить `pre-commit` хуки (black, isort, flake8)
+### Фаза 0: Стабилизация ✅ Завершена 13.03.2026
+- [~] Вынести Telegram токен и ключи в `.env` (python-dotenv) — код исправлен, нужно вручную `pip install python-dotenv`
+- [x] Закоммитить все текущие изменения по смысловым группам
+- [x] Создать ветку `develop`, `main` — только стабильный код
+- [x] Настроить `.gitignore` для `venv/`, `*.log`, `.env`
+- [x] Удалить дублирующиеся markdown-документы
+- [x] Добавить `pre-commit` хуки (black, isort, flake8)
 
 ### Фаза 1: Завершение ядра (1–2 недели)
-- [ ] Интегрировать SystemGuardian в gatekeeper.py (первая проверка)
-- [ ] Интегрировать MetaDecisionBrain в gatekeeper.py (после Guardian)
-- [ ] Интегрировать PositionSizer вместо упрощённого расчёта
+- [x] Интегрировать SystemGuardian в gatekeeper.py (первая проверка)
+- [x] Интегрировать MetaDecisionBrain в gatekeeper.py (после Guardian)
+- [x] Интегрировать PositionSizer вместо упрощённого расчёта
+- [ ] Перевести MetaDecisionBrain/PositionSizer с optional (fail-open) на required (fail-closed, INV-5) — требует ADR
 - [ ] Настроить pytest + pytest-asyncio + pytest-cov
 - [ ] Покрыть тестами: DecisionCore, RiskCore, PositionSizer, MetaDecisionBrain
 - [ ] GitHub Actions CI: тесты на каждый push
@@ -289,12 +309,18 @@ Bybit API → data_loader → signal_generator → indicators
 
 ## Приоритет — следующие шаги (в порядке выполнения)
 
-1. **Безопасность:** вынести токен Telegram и ключи из кода в `.env`
-2. **Git:** закоммитить весь текущий код, создать ветку `develop`
-3. **Замкнуть pipeline:** подключить MetaDecisionBrain + SystemGuardian + PositionSizer в Gatekeeper
-4. **Bybit Testnet:** первые реальные ордера в тестовой среде
-5. **FastAPI backend:** начать `api/` модуль параллельно с Testnet
-6. **Mini App:** React scaffolding после стабилизации API
+### Ручные действия (pending, требуют выполнить вручную)
+
+1. **СРОЧНО: Отозвать старый токен** — зайти в @BotFather → /mybots → выбрать бота → API Token → Revoke, затем обновить `.env`
+2. **Активировать git хуки:** `pre-commit install` (один раз в venv)
+3. **Установить зависимости:** `pip install python-dotenv` (или `pip install -r requirements.txt`)
+
+### Фаза 1 (текущий приоритет)
+
+1. **Hardening pipeline:** перевести MetaDecisionBrain/PositionSizer с fail-open на fail-closed (INV-5), с ADR
+2. **Bybit Testnet:** первые реальные ордера в тестовой среде
+3. **FastAPI backend:** начать `api/` модуль параллельно с Testnet
+4. **Mini App:** React scaffolding после стабилизации API
 
 ---
 
@@ -307,7 +333,7 @@ source venv/bin/activate  # или venv\Scripts\activate на Windows
 python runner.py
 ```
 
-### Ключевые переменные окружения (будущие, после рефакторинга)
+### Переменные окружения (файл `.env`)
 ```env
 TELEGRAM_BOT_TOKEN=...
 BYBIT_API_KEY=...
@@ -329,7 +355,7 @@ LOG_FILE=monitor.log
 
 ### Документация (главный документ)
 - `SYSTEM_ARCHITECTURE_CANONICAL.md` — авторитетный источник архитектуры
-- `PRODUCTION_DEBUG_REPORT.md` — честный статус реализации
+- `archive/PRODUCTION_DEBUG_REPORT.md` — честный статус реализации (перемещён в archive/)
 - `docs/adr/` — Architecture Decision Records
 
 ---

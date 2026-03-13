@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 from signals import build_signal
 
 # MetaDecisionBrain - опциональный импорт (если модуль недоступен, система продолжит работать)
-# MetaDecisionBrain - опциональный импорт (если модуль недоступен, система продолжит работать)
 try:
     from brains.meta_decision_brain import (
         MetaDecisionBrain, MetaDecisionResult, SystemHealthStatus, TimeContext
@@ -58,13 +57,6 @@ except ImportError:
     POSITION_SIZER_AVAILABLE = False
     PositionSizer = None
     PortfolioStateAdapter = None
-try:
-    from core.decision_trace import DecisionTrace, BlockLevel as TraceBlockLevel
-    DECISION_TRACE_AVAILABLE = True
-except ImportError:
-    DECISION_TRACE_AVAILABLE = False
-    DecisionTrace = None
-    TraceBlockLevel = None
 
 
 class Gatekeeper:
