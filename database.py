@@ -151,6 +151,30 @@ def _init_database(conn: sqlite3.Connection):
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_history_date ON pnl_history(date)")
 
+    # Детальные записи P&L по каждой закрытой сделке (Phase 3)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pnl_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            closed_at TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            exit_price REAL NOT NULL,
+            quantity REAL NOT NULL,
+            gross_pnl REAL NOT NULL,
+            commission REAL NOT NULL DEFAULT 0.0,
+            net_pnl REAL NOT NULL,
+            market_regime TEXT,
+            hold_duration_seconds INTEGER,
+            signal_confidence REAL,
+            signal_entropy REAL,
+            balance_after REAL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_records_closed_at ON pnl_records(closed_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_records_symbol ON pnl_records(symbol)")
+
     conn.commit()
 
 
@@ -801,3 +825,111 @@ def cleanup_old_snapshots(keep_last_n: int = 10):
     if deleted > 0:
         logger.info(f"Удалено {deleted} старых snapshot'ов")
 
+
+# ============================================================================
+# PNL RECORDS (Phase 3)
+# ============================================================================
+
+def insert_pnl_record(
+    symbol: str,
+    side: str,
+    entry_price: float,
+    exit_price: float,
+    quantity: float,
+    gross_pnl: float,
+    net_pnl: float,
+    commission: float = 0.0,
+    market_regime: Optional[str] = None,
+    hold_duration_seconds: Optional[int] = None,
+    signal_confidence: Optional[float] = None,
+    signal_entropy: Optional[float] = None,
+    balance_after: Optional[float] = None,
+) -> Optional[int]:
+    """
+    Записывает детальные данные по закрытой сделке в pnl_records.
+
+    Returns:
+        ID новой записи или None при ошибке.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        closed_at = datetime.now(UTC).isoformat()
+        cursor.execute("""
+            INSERT INTO pnl_records (
+                closed_at, symbol, side, entry_price, exit_price, quantity,
+                gross_pnl, commission, net_pnl, market_regime,
+                hold_duration_seconds, signal_confidence, signal_entropy, balance_after
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            closed_at, symbol, side, entry_price, exit_price, quantity,
+            gross_pnl, commission, net_pnl, market_regime,
+            hold_duration_seconds, signal_confidence, signal_entropy, balance_after,
+        ))
+        conn.commit()
+        record_id = cursor.lastrowid
+        conn.close()
+        return record_id
+    except Exception as e:
+        logger.error(f"insert_pnl_record error: {e}")
+        return None
+
+
+def get_closed_trades(days: int = 30) -> List[Dict]:
+    """
+    Возвращает закрытые сделки из pnl_records за последние N дней.
+
+    Каждая запись содержит:
+        symbol, side, entry_price, exit_price, quantity,
+        gross_pnl, commission, net_pnl, market_regime,
+        hold_duration_seconds, signal_confidence, signal_entropy,
+        balance_after, closed_at.
+
+    Ключ 'pnl' является алиасом net_pnl для совместимости с
+    функциями финансовых метрик в bot_statistics.py.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT *
+            FROM pnl_records
+            WHERE closed_at >= datetime('now', ? || ' days')
+            ORDER BY closed_at ASC
+        """, (f'-{days}',))
+        rows = cursor.fetchall()
+        conn.close()
+        result = []
+        for row in rows:
+            d = dict(row)
+            d['pnl'] = d['net_pnl']  # алиас для calculate_profit_factor и др.
+            result.append(d)
+        return result
+    except Exception as e:
+        logger.error(f"get_closed_trades error: {e}")
+        return []
+
+
+def get_equity_curve_points(days: int = 30) -> List[Dict]:
+    """
+    Возвращает точки equity curve из pnl_records за последние N дней.
+
+    Каждая точка: {'timestamp': str, 'balance': float}.
+    Используется для расчёта Sharpe Ratio и Max Drawdown.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT closed_at AS timestamp, balance_after AS balance
+            FROM pnl_records
+            WHERE closed_at >= datetime('now', ? || ' days')
+              AND balance_after IS NOT NULL
+            ORDER BY closed_at ASC
+        """, (f'-{days}',))
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"get_equity_curve_points error: {e}")
+        return []

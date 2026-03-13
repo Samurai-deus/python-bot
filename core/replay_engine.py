@@ -18,7 +18,7 @@ ReplayEngine повторно прогоняет сохранённые SignalSn
 - Replay не торгует, только анализирует решения
 """
 from dataclasses import dataclass, field
-from typing import List, Iterator, Optional, TYPE_CHECKING
+from typing import List, Iterator, Optional, TYPE_CHECKING, Dict
 from core.signal_snapshot import SignalSnapshot
 from core.portfolio_brain import (
     PortfolioBrain, PortfolioAnalysis, PortfolioDecision,

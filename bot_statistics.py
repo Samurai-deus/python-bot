@@ -1,6 +1,15 @@
 """
-Модуль для расчета статистики работы бота
+Модуль для расчета статистики работы бота.
+
+Включает базовую статистику по сделкам и финансовые метрики:
+    - Sharpe Ratio
+    - Max Drawdown
+    - Profit Factor
+    - Recovery Factor
+    - Expectancy
 """
+import math
+from typing import List, Optional, Tuple
 from datetime import datetime, UTC, timedelta
 from capital import get_current_balance
 from config import INITIAL_BALANCE
@@ -229,8 +238,201 @@ def format_statistics_report(stats):
         report += "📊 **Топ-3 символа по P&L:**\n"
         for symbol, data in sorted_symbols:
             win_rate_symbol = (data['wins'] / data['trades'] * 100) if data['trades'] > 0 else 0
-            pnl_sign = "+" if data['pnl'] >= 0 else ""
-            report += f"• `{symbol}`: `{pnl_sign}{data['pnl']:.2f}` USDT ({data['trades']} сделок, WR: {win_rate_symbol:.1f}%)\n"
-    
     return report
 
+
+# ---------------------------------------------------------------------------
+# Финансовые метрики (Фаза 3)
+# ---------------------------------------------------------------------------
+
+def calculate_sharpe_ratio(
+    equity_curve: List[float],
+    risk_free: float = 0.0,
+    periods_per_year: int = 252,
+) -> Optional[float]:
+    """
+    Sharpe Ratio на основе дневных доходностей equity curve.
+
+    Args:
+        equity_curve: Список балансов во времени (минимум 2 точки).
+        risk_free:    Годовая безрисковая ставка (дробь, например 0.05 = 5%).
+        periods_per_year: Число периодов в году (252 для дневных данных).
+
+    Returns:
+        Sharpe Ratio или None при недостаточном количестве данных.
+    """
+    if len(equity_curve) < 2:
+        return None
+
+    # Дневные доходности
+    returns = [
+        (equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1]
+        for i in range(1, len(equity_curve))
+        if equity_curve[i - 1] != 0
+    ]
+    if not returns:
+        return None
+
+    n = len(returns)
+    mean_r = sum(returns) / n
+    risk_free_per_period = risk_free / periods_per_year
+
+    variance = sum((r - mean_r) ** 2 for r in returns) / n
+    std_r = math.sqrt(variance)
+
+    if std_r == 0:
+        return None
+
+    sharpe = (mean_r - risk_free_per_period) / std_r * math.sqrt(periods_per_year)
+    return round(sharpe, 4)
+
+
+def calculate_max_drawdown(equity_curve: List[float]) -> Tuple[float, float]:
+    """
+    Максимальная просадка по equity curve.
+
+    Args:
+        equity_curve: Список балансов во времени.
+
+    Returns:
+        Tuple (абсолютная просадка в USDT, процентная просадка 0–1).
+        (0.0, 0.0) при недостаточных данных.
+    """
+    if len(equity_curve) < 2:
+        return 0.0, 0.0
+
+    peak = equity_curve[0]
+    max_dd_abs = 0.0
+    max_dd_pct = 0.0
+
+    for value in equity_curve[1:]:
+        if value > peak:
+            peak = value
+        drawdown_abs = peak - value
+        drawdown_pct = drawdown_abs / peak if peak > 0 else 0.0
+        if drawdown_pct > max_dd_pct:
+            max_dd_abs = drawdown_abs
+            max_dd_pct = drawdown_pct
+
+    return round(max_dd_abs, 4), round(max_dd_pct, 6)
+
+
+def calculate_profit_factor(trades: List[dict]) -> Optional[float]:
+    """
+    Profit Factor = валовая прибыль / валовый убыток.
+
+    Args:
+        trades: Список сделок. Каждая сделка должна содержать ключ 'pnl' (float).
+
+    Returns:
+        Profit Factor или None при отсутствии убыточных сделок.
+    """
+    gross_profit = sum(t['pnl'] for t in trades if t.get('pnl', 0) > 0)
+    gross_loss = abs(sum(t['pnl'] for t in trades if t.get('pnl', 0) < 0))
+
+    if gross_loss == 0:
+        return None  # Нет убыточных сделок — метрика не применима
+
+    return round(gross_profit / gross_loss, 4)
+
+
+def calculate_recovery_factor(
+    trades: List[dict],
+    equity_curve: List[float],
+) -> Optional[float]:
+    """
+    Recovery Factor = чистая прибыль / Max Drawdown (абс.).
+
+    Args:
+        trades:       Список закрытых сделок с ключом 'pnl'.
+        equity_curve: Список балансов.
+
+    Returns:
+        Recovery Factor или None при нулевой просадке.
+    """
+    total_net_profit = sum(t.get('pnl', 0) for t in trades)
+    max_dd_abs, _ = calculate_max_drawdown(equity_curve)
+
+    if max_dd_abs == 0:
+        return None
+
+    return round(total_net_profit / max_dd_abs, 4)
+
+
+def calculate_expectancy(trades: List[dict]) -> Optional[float]:
+    """
+    Математическое ожидание за сделку.
+
+    Expectancy = (Win Rate × Avg Win) − (Loss Rate × Avg Loss)
+
+    Args:
+        trades: Список закрытых сделок с ключом 'pnl'.
+
+    Returns:
+        Expectancy в USDT или None при отсутствии сделок.
+    """
+    if not trades:
+        return None
+
+    wins = [t['pnl'] for t in trades if t.get('pnl', 0) > 0]
+    losses = [t['pnl'] for t in trades if t.get('pnl', 0) < 0]
+    total = len(trades)
+
+    win_rate = len(wins) / total
+    loss_rate = len(losses) / total
+
+    avg_win = sum(wins) / len(wins) if wins else 0.0
+    avg_loss = abs(sum(losses) / len(losses)) if losses else 0.0
+
+    expectancy = (win_rate * avg_win) - (loss_rate * avg_loss)
+    return round(expectancy, 4)
+
+
+def get_full_statistics(days: int = 30) -> dict:
+    """
+    Расширенная статистика: базовые поля + все финансовые метрики.
+
+    Args:
+        days: Период анализа в днях.
+
+    Returns:
+        dict с полями базовой статистики плюс:
+            sharpe_ratio, max_drawdown_abs, max_drawdown_pct,
+            profit_factor, recovery_factor, expectancy.
+        None при отсутствии данных.
+    """
+    from database import get_closed_trades, get_equity_curve_points
+
+    base = get_trade_statistics(days)
+    if base is None:
+        return None
+
+    # Загружаем закрытые сделки и equity curve из БД
+    try:
+        closed_trades = get_closed_trades(days) or []
+    except Exception:
+        closed_trades = []
+
+    try:
+        equity_points = get_equity_curve_points(days) or []
+        equity_curve = [p['balance'] for p in equity_points]
+    except Exception:
+        equity_curve = []
+
+    # Вычисляем метрики
+    sharpe = calculate_sharpe_ratio(equity_curve) if len(equity_curve) >= 2 else None
+    max_dd_abs, max_dd_pct = calculate_max_drawdown(equity_curve) if equity_curve else (0.0, 0.0)
+    pf = calculate_profit_factor(closed_trades) if closed_trades else None
+    rf = calculate_recovery_factor(closed_trades, equity_curve) if closed_trades and equity_curve else None
+    exp = calculate_expectancy(closed_trades) if closed_trades else None
+
+    return {
+        **base,
+        'sharpe_ratio': sharpe,
+        'max_drawdown_abs': max_dd_abs,
+        'max_drawdown_pct': max_dd_pct,
+        'profit_factor': pf,
+        'recovery_factor': rf,
+        'expectancy': exp,
+        'period_days': days,
+    }
