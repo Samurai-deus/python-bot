@@ -207,6 +207,7 @@ FATAL     → терминальное состояние, процесс зав
 | python-dotenv не установлен на сервере → сервис падал | venv (сервер) | ✅ Исправлен (14.03.2026) |
 | venv/bin/python без прав execute на сервере | venv (сервер) | ✅ Исправлен chmod +x (14.03.2026) |
 | uvicorn не добавляет CWD в sys.path → ModuleNotFoundError api | run_api.py | ✅ Исправлен launcher'ом (14.03.2026) |
+| last_heartbeat восстанавливался из snapshot → ложный "Scheduler stall" при рестарте | system_state.py | ✅ Исправлен (14.03.2026) |
 
 ---
 

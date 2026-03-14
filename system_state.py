@@ -257,11 +257,8 @@ class SystemState:
                 self.system_health.is_running = sh.get("is_running", True)
                 self.system_health.safe_mode = sh.get("safe_mode", False)
                 self.system_health.trading_paused = sh.get("trading_paused", False)
-                if sh.get("last_heartbeat"):
-                    try:
-                        self.system_health.last_heartbeat = datetime.fromisoformat(sh["last_heartbeat"])
-                    except (ValueError, TypeError):
-                        pass
+                # last_heartbeat is intentionally NOT restored from snapshot:
+                # restoring a stale timestamp causes false stall alerts on startup.
                 self.system_health.consecutive_errors = sh.get("consecutive_errors", 0)
             
             # Восстанавливаем последние сигналы
