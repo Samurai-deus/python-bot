@@ -103,6 +103,8 @@ class BybitClient:
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
 
+        self._qty_step_cache: Dict[str, float] = {}
+
         mode = "TESTNET" if testnet else "MAINNET"
         logger.info(f"BybitClient initialized [{mode}]: {self._base_url}")
 
@@ -126,6 +128,24 @@ class BybitClient:
         """Получить параметры инструмента (min qty, step, tick size и т.д.)."""
         params = {"category": "linear", "symbol": symbol}
         return self._get("/v5/market/instruments-info", params=params, signed=False)
+
+    def get_qty_step(self, symbol: str) -> float:
+        """
+        Получить qtyStep для символа (с кэшированием).
+
+        qtyStep — минимальный шаг количества контрактов на Bybit.
+        Ордер с qty не кратным qtyStep будет отклонён биржей.
+        """
+        if symbol not in self._qty_step_cache:
+            data = self.get_instruments_info(symbol)
+            instruments = data.get("list", [])
+            if instruments:
+                lot_filter = instruments[0].get("lotSizeFilter", {})
+                self._qty_step_cache[symbol] = float(lot_filter.get("qtyStep", "0.001"))
+            else:
+                logger.warning("No instruments info for %s, using default qtyStep=0.001", symbol)
+                self._qty_step_cache[symbol] = 0.001
+        return self._qty_step_cache[symbol]
 
     # ------------------------------------------------------------------ #
     #  Account data (требуют подписи)                                     #
