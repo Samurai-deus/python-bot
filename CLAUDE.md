@@ -9,13 +9,14 @@
 
 ---
 
-## Текущая стадия (на 13.03.2026)
+## Текущая стадия (на 14.03.2026)
 
-**Статус: Signal Generator — НЕ торговый бот**
-**Фаза 0 завершена. Текущая активная ветка: develop**
+**Статус: Signal Generator + FastAPI Backend**
+**Фазы 0–4 завершены. Фаза 5 начата (backend готов). Ветка: main**
 
 Бот генерирует торговые сигналы и отправляет уведомления в Telegram.
 Реального исполнения сделок НЕТ. Только чтение рыночных данных с Bybit (read-only API).
+FastAPI backend (`api/`) запущен на сервере на порту 8000.
 
 ---
 
@@ -24,8 +25,13 @@
 | Фаза | Статус | Дата |
 |------|--------|------|
 | Фаза 0: Стабилизация | ✅ ЗАВЕРШЕНА | 13.03.2026 |
-| Фаза 1: Завершение ядра | 🔄 В РАБОТЕ | — |
-| Фаза 2–7 | ⏳ Запланировано | — |
+| Фаза 1: Завершение ядра | ✅ ЗАВЕРШЕНА | 13.03.2026 |
+| Фаза 2: Реальное исполнение сделок | ✅ ЗАВЕРШЕНА | 13.03.2026 |
+| Фаза 3: Аналитика и бэктест | ✅ ЗАВЕРШЕНА | 13.03.2026 |
+| Фаза 4: Профессиональный Telegram Bot | ✅ ЗАВЕРШЕНА | 13.03.2026 |
+| Фаза 5: Telegram Mini App — Backend | ✅ ЗАВЕРШЕНА | 14.03.2026 |
+| Фаза 5: Telegram Mini App — Frontend | 🔄 В РАБОТЕ | — |
+| Фаза 6–7 | ⏳ Запланировано | — |
 
 ---
 
@@ -48,6 +54,7 @@ C:/Users/Дмитрий/Projects/MyTelegramBot/  ← заброшенный пр
 | Telegram | python-telegram-bot >= 20.7 |
 | База данных | SQLite (database.py) |
 | Биржа | Bybit (только чтение, `/v5/market/kline`) |
+| API Backend | FastAPI + uvicorn (порт 8000) |
 | Деплой | systemd (Linux), batch (Windows) |
 
 ---
@@ -82,6 +89,19 @@ market_bot/
 │
 ├── execution/
 │   └── gatekeeper.py       # Валидация сигналов перед отправкой (52KB)
+│
+├── api/                    # FastAPI backend (Phase 5)
+│   ├── main.py             # FastAPI app, CORS, lifespan, load_dotenv
+│   ├── deps.py             # run_sync helper, Telegram InitData HMAC auth
+│   ├── models.py           # Pydantic v2 response schemas
+│   └── routers/
+│       ├── system.py       # GET /api/system/health, /balance
+│       ├── positions.py    # GET /api/positions/open, /history
+│       ├── signals.py      # GET /api/signals/latest, /history
+│       ├── analytics.py    # GET /api/analytics/summary, /equity-curve, /by-symbol, /pnl-history
+│       └── ws.py           # WS /api/ws (5s push loop)
+│
+├── run_api.py              # Launcher: python run_api.py (fixes sys.path для uvicorn)
 │
 ├── docs/adr/               # Architecture Decision Records
 │   └── ADR-002-fastapi-dependency-lifecycle.md
@@ -173,7 +193,7 @@ FATAL     → терминальное состояние, процесс зав
 
 ## Известные баги и технический долг
 
-Все известные баги закрыты. Технический долг перед Фазой 5 отсутствует.
+Все известные баги закрыты.
 
 | Проблема | Файл | Статус |
 |----------|------|--------|
@@ -184,6 +204,9 @@ FATAL     → терминальное состояние, процесс зав
 | GET-подпись Bybit: sorted() vs requests insertion order | exchange/bybit_client.py | ✅ Исправлен (14.03.2026) |
 | asyncio.wait_for поверх HTTPXRequest — порча пула соединений | telegram_bot.py | ✅ Исправлен (14.03.2026) |
 | data_loader.py: нет Session и retry для Bybit API | data_loader.py | ✅ Исправлен (14.03.2026) |
+| python-dotenv не установлен на сервере → сервис падал | venv (сервер) | ✅ Исправлен (14.03.2026) |
+| venv/bin/python без прав execute на сервере | venv (сервер) | ✅ Исправлен chmod +x (14.03.2026) |
+| uvicorn не добавляет CWD в sys.path → ModuleNotFoundError api | run_api.py | ✅ Исправлен launcher'ом (14.03.2026) |
 
 ---
 
@@ -272,13 +295,16 @@ Bybit API → data_loader → signal_generator → indicators
 - Real-time: WebSocket
 
 **Backend API (`api/`):**
-- [ ] `api/main.py` — FastAPI приложение
-- [ ] `api/routers/positions.py`
-- [ ] `api/routers/signals.py`
-- [ ] `api/routers/analytics.py`
-- [ ] `api/routers/settings.py`
-- [ ] `api/routers/ws.py` — WebSocket real-time
-- [ ] Аутентификация через Telegram InitData
+- [x] `api/main.py` — FastAPI приложение ✅ 14.03.2026
+- [x] `api/deps.py` — run_sync, Telegram InitData auth ✅ 14.03.2026
+- [x] `api/models.py` — Pydantic v2 schemas ✅ 14.03.2026
+- [x] `api/routers/system.py` — /health, /balance ✅ 14.03.2026
+- [x] `api/routers/positions.py` — /open, /history ✅ 14.03.2026
+- [x] `api/routers/signals.py` — /latest, /history ✅ 14.03.2026
+- [x] `api/routers/analytics.py` — /summary, /equity-curve, /by-symbol, /pnl-history ✅ 14.03.2026
+- [x] `api/routers/ws.py` — WebSocket real-time (5s push) ✅ 14.03.2026
+- [x] Аутентификация через Telegram InitData (HMAC-SHA256) ✅ 14.03.2026
+- [ ] `api/routers/settings.py` — управление настройками
 
 **Экраны Mini App:**
 - [ ] **Dashboard** — баланс, P&L сегодня/неделя, открытые позиции, статус системы
@@ -315,18 +341,13 @@ Bybit API → data_loader → signal_generator → indicators
 
 ## Приоритет — следующие шаги (в порядке выполнения)
 
-### Ручные действия (pending, требуют выполнить вручную)
+### Фаза 5 (текущий приоритет) — React frontend
 
-1. **СРОЧНО: Отозвать старый токен** — зайти в @BotFather → /mybots → выбрать бота → API Token → Revoke, затем обновить `.env`
-2. **Активировать git хуки:** `pre-commit install` (один раз в venv)
-3. **Установить зависимости:** `pip install python-dotenv` (или `pip install -r requirements.txt`)
-
-### Фаза 1 (текущий приоритет)
-
-1. **Hardening pipeline:** перевести MetaDecisionBrain/PositionSizer с fail-open на fail-closed (INV-5), с ADR
-2. **Bybit Testnet:** первые реальные ордера в тестовой среде
-3. **FastAPI backend:** начать `api/` модуль параллельно с Testnet
-4. **Mini App:** React scaffolding после стабилизации API
+1. **React scaffold** — `miniapp/` (Vite + React + TypeScript)
+2. **Подключить SDK** — `@telegram-apps/sdk-react`, Tailwind CSS, Lightweight Charts
+3. **State management** — Zustand + TanStack Query
+4. **Экраны** — Dashboard → Positions → Signals → Analytics → Settings
+5. **Деплой** — Cloudflare Pages (фронт) + домен/ngrok для API
 
 ---
 
@@ -337,6 +358,14 @@ Bybit API → data_loader → signal_generator → indicators
 cd C:/Users/Дмитрий/Documents/market_bot
 source venv/bin/activate  # или venv\Scripts\activate на Windows
 python runner.py
+```
+
+### Запуск FastAPI backend
+```bash
+# На сервере (systemd не настроен — запускать вручную или добавить сервис)
+python run_api.py
+# Swagger UI: http://<IP>:8000/docs
+# Health:     http://<IP>:8000/api/system/health
 ```
 
 ### Переменные окружения (файл `.env`)
@@ -352,6 +381,10 @@ LIVE_TRADING=false
 MAX_CONSECUTIVE_ERRORS=5
 ERROR_PAUSE=600
 LOG_FILE=monitor.log
+
+# FastAPI backend
+DISABLE_AUTH=true
+CORS_ORIGINS=https://telegram.org,https://web.telegram.org,http://localhost:5173
 ```
 
 ### Bybit API endpoints (текущие)
