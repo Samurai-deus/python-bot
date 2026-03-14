@@ -169,9 +169,12 @@ class BybitClient:
             raise RuntimeError(f"Coin {coin} not found in wallet-balance response")
         # Bybit может вернуть "" для числовых полей (пустой счёт / testnet).
         # `val or 0` превращает "" и None в 0 перед float().
+        # available_balance = walletBalance (баланс для торговли).
+        # availableToWithdraw — это другое: сколько можно вывести с биржи,
+        # может быть 0 даже при наличии средств (margin requirements).
         return BalanceInfo(
             total_equity=float(entry.get("equity") or 0),
-            available_balance=float(entry.get("availableToWithdraw") or 0),
+            available_balance=float(entry.get("walletBalance") or 0),
             wallet_balance=float(entry.get("walletBalance") or 0),
             coin=coin,
         )
