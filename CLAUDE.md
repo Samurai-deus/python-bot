@@ -181,6 +181,9 @@ FATAL     → терминальное состояние, процесс зав
 | MetaDecisionBrain/PositionSizer fail-open, нарушает INV-5 | gatekeeper.py | ✅ Закрыт (ADR-004, fail-closed) |
 | tests/rso_report_*.json в git | tests/ | ✅ Добавлен в .gitignore |
 | qty рассчитывался без учёта qtyStep биржи | gatekeeper.py | ✅ Исправлен (Decimal + floor) |
+| GET-подпись Bybit: sorted() vs requests insertion order | exchange/bybit_client.py | ✅ Исправлен (14.03.2026) |
+| asyncio.wait_for поверх HTTPXRequest — порча пула соединений | telegram_bot.py | ✅ Исправлен (14.03.2026) |
+| data_loader.py: нет Session и retry для Bybit API | data_loader.py | ✅ Исправлен (14.03.2026) |
 
 ---
 
