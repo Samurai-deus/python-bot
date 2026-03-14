@@ -173,11 +173,14 @@ FATAL     → терминальное состояние, процесс зав
 
 ## Известные баги и технический долг
 
-| Проблема | Файл | Приоритет |
-|----------|------|-----------|
-| ⚠️ НЕМЕДЛЕННО: Старый токен в git history — нужно отозвать в BotFather | — | 🔴 CRITICAL |
-| MetaDecisionBrain/PositionSizer импортируются через try/except — fail-open, нарушает INV-5 | gatekeeper.py | 🟡 MEDIUM |
-| tests/rso_report_*.json попали в git — нужно добавить в .gitignore | tests/ | 🟢 LOW |
+Все известные баги закрыты. Технический долг перед Фазой 5 отсутствует.
+
+| Проблема | Файл | Статус |
+|----------|------|--------|
+| Старый токен в git history | — | ✅ Отозван в BotFather |
+| MetaDecisionBrain/PositionSizer fail-open, нарушает INV-5 | gatekeeper.py | ✅ Закрыт (ADR-004, fail-closed) |
+| tests/rso_report_*.json в git | tests/ | ✅ Добавлен в .gitignore |
+| qty рассчитывался без учёта qtyStep биржи | gatekeeper.py | ✅ Исправлен (Decimal + floor) |
 
 ---
 

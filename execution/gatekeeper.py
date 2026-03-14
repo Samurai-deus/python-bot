@@ -531,7 +531,15 @@ class Gatekeeper:
             logger.error("[EXECUTOR] Invalid position_size_usd=%.2f for %s", position_size_usd, symbol)
             return
 
-        qty = round(position_size_usd / entry_price, 3)
+        from exchange.bybit_client import get_bybit_client
+        from decimal import Decimal, ROUND_DOWN
+        try:
+            qty_step = get_bybit_client().get_qty_step(symbol)
+        except Exception:
+            qty_step = 0.001  # conservative fallback
+        qty_step_d = Decimal(str(qty_step))
+        raw_qty = position_size_usd / entry_price
+        qty = float((Decimal(str(raw_qty)) / qty_step_d).to_integral_value(ROUND_DOWN) * qty_step_d)
         if qty <= 0:
             logger.error("[EXECUTOR] Calculated qty=%.4f invalid for %s", qty, symbol)
             return
