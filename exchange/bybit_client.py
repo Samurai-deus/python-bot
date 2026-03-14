@@ -13,11 +13,13 @@ Bybit REST API client — Phase 2.
 """
 import hashlib
 import hmac
+import json
 import time
 import logging
 import os
 from dataclasses import dataclass
 from typing import Dict, Optional, Any
+from urllib.parse import urlencode
 
 import requests
 
@@ -301,7 +303,7 @@ class BybitClient:
     def _get(self, path: str, params: Dict, signed: bool) -> Dict:
         url = self._base_url + path
         if signed:
-            query_string = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+            query_string = urlencode(sorted(params.items()))
             headers = self._build_auth_headers(query_string)
         else:
             headers = {}
@@ -316,15 +318,16 @@ class BybitClient:
                 time.sleep(delay)
 
     def _post(self, path: str, body: Dict, signed: bool) -> Dict:
-        import json
         url = self._base_url + path
         if signed:
-            headers = self._build_auth_headers(json.dumps(body))
+            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+            headers = self._build_auth_headers(body_str)
         else:
+            body_str = json.dumps(body)
             headers = {}
         for attempt, delay in enumerate((*self._RETRY_DELAYS, None), start=1):
             try:
-                resp = self._session.post(url, json=body, headers=headers, timeout=10)
+                resp = self._session.post(url, data=body_str, headers=headers, timeout=10)
                 return self._parse_response(resp, path)
             except _RetryableError as e:
                 if delay is None:
@@ -332,11 +335,11 @@ class BybitClient:
                 logger.warning(f"POST {path} attempt {attempt} failed: {e}. Retrying in {delay}s...")
                 time.sleep(delay)
 
-    def _build_auth_headers(self, body_str: str) -> Dict:
-        """Построить auth-заголовки для POST запроса."""
+    def _build_auth_headers(self, payload_str: str) -> Dict:
+        """Построить auth-заголовки для Bybit V5."""
         ts = str(int(time.time() * 1000))
         recv_window = str(self._RECV_WINDOW)
-        sign_payload = ts + self._api_key + recv_window + body_str
+        sign_payload = ts + self._api_key + recv_window + payload_str
         signature = hmac.new(
             self._api_secret.encode("utf-8"),
             sign_payload.encode("utf-8"),
@@ -347,6 +350,7 @@ class BybitClient:
             "X-BAPI-TIMESTAMP": ts,
             "X-BAPI-RECV-WINDOW": recv_window,
             "X-BAPI-SIGN": signature,
+            "X-BAPI-SIGN-TYPE": "2",
         }
 
     @staticmethod
