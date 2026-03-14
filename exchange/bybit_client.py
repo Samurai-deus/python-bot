@@ -301,10 +301,13 @@ class BybitClient:
     def _get(self, path: str, params: Dict, signed: bool) -> Dict:
         url = self._base_url + path
         if signed:
-            params = self._add_auth_params(params)
+            query_string = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+            headers = self._build_auth_headers(query_string)
+        else:
+            headers = {}
         for attempt, delay in enumerate((*self._RETRY_DELAYS, None), start=1):
             try:
-                resp = self._session.get(url, params=params, timeout=10)
+                resp = self._session.get(url, params=params, headers=headers, timeout=10)
                 return self._parse_response(resp, path)
             except _RetryableError as e:
                 if delay is None:
@@ -328,25 +331,6 @@ class BybitClient:
                     raise RuntimeError(f"POST {path} failed after {self._MAX_RETRIES} retries: {e}") from e
                 logger.warning(f"POST {path} attempt {attempt} failed: {e}. Retrying in {delay}s...")
                 time.sleep(delay)
-
-    def _add_auth_params(self, params: Dict) -> Dict:
-        """Добавить auth-параметры для GET запроса."""
-        ts = str(int(time.time() * 1000))
-        recv_window = str(self._RECV_WINDOW)
-        query_string = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
-        sign_payload = ts + self._api_key + recv_window + query_string
-        signature = hmac.new(
-            self._api_secret.encode("utf-8"),
-            sign_payload.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-        return {
-            **params,
-            "api_key": self._api_key,
-            "timestamp": ts,
-            "recv_window": recv_window,
-            "sign": signature,
-        }
 
     def _build_auth_headers(self, body_str: str) -> Dict:
         """Построить auth-заголовки для POST запроса."""
