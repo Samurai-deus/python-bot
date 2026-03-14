@@ -9,7 +9,7 @@ Testnet Smoke Test — запускать вручную перед Phase 5.
 
 Запуск:
     cd market_bot
-    source venv/bin/activate   # или venv\Scripts\activate на Windows
+    source venv/bin/activate   # или venv\\Scripts\\activate на Windows
     python smoke_test.py
 """
 import os
