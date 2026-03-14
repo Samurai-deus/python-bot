@@ -255,6 +255,8 @@ class BybitClient:
             body["orderLinkId"] = client_order_id
 
         data = self._post("/v5/order/create", body=body, signed=True)
+        # Bybit V5 /v5/order/create возвращает только orderId и orderLinkId.
+        # orderStatus отсутствует в ответе — для актуального статуса нужен /v5/order/realtime.
         return OrderResult(
             order_id=data.get("orderId", ""),
             symbol=symbol,
@@ -262,7 +264,7 @@ class BybitClient:
             order_type=order_type,
             qty=qty,
             price=price,
-            status=data.get("orderStatus", "Created"),
+            status="Created",
             time_in_force=time_in_force,
         )
 
@@ -366,7 +368,11 @@ class BybitClient:
             resp.raise_for_status()
         except requests.HTTPError as e:
             body = resp.text[:500]
-            raise _RetryableError(f"HTTP {resp.status_code} for {path}: {body}") from e
+            # 5xx — временная ошибка сервера, имеет смысл повторить.
+            # 4xx — ошибка клиента (плохой запрос, неверная авторизация): повтор бессмысленен.
+            if resp.status_code >= 500:
+                raise _RetryableError(f"HTTP {resp.status_code} for {path}: {body}") from e
+            raise BybitAPIError(resp.status_code, body, path) from e
 
         try:
             data = resp.json()
