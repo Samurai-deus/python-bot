@@ -255,9 +255,9 @@ class SystemState:
             if "system_health" in snapshot:
                 sh = snapshot["system_health"]
                 self.system_health.is_running = sh.get("is_running", True)
-                self.system_health.safe_mode = sh.get("safe_mode", False)
-                self.system_health.trading_paused = sh.get("trading_paused", False)
-                # last_heartbeat is intentionally NOT restored from snapshot:
+                # safe_mode and trading_paused are intentionally NOT restored:
+                # a restart is an explicit recovery — bot always comes up ready to trade.
+                # last_heartbeat is intentionally NOT restored:
                 # restoring a stale timestamp causes false stall alerts on startup.
                 self.system_health.consecutive_errors = sh.get("consecutive_errors", 0)
             

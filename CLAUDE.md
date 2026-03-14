@@ -208,6 +208,8 @@ FATAL     → терминальное состояние, процесс зав
 | venv/bin/python без прав execute на сервере | venv (сервер) | ✅ Исправлен chmod +x (14.03.2026) |
 | uvicorn не добавляет CWD в sys.path → ModuleNotFoundError api | run_api.py | ✅ Исправлен launcher'ом (14.03.2026) |
 | last_heartbeat восстанавливался из snapshot → ложный "Scheduler stall" при рестарте | system_state.py | ✅ Исправлен (14.03.2026) |
+| trading_paused/safe_mode восстанавливались из snapshot → бот стартовал с заморозкой торговли | system_state.py | ✅ Исправлен (14.03.2026) |
+| Нет grace period при старте → stall check мог сработать до первого heartbeat | runner.py | ✅ Исправлен STARTUP_GRACE_SECONDS=60 (14.03.2026) |
 
 ---
 
