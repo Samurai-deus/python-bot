@@ -1,10 +1,18 @@
 import requests  # type: ignore[import-untyped]  # noqa: F401
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
 BASE_URL = "https://api.bybit.com/v5/market/kline"
 INSTRUMENTS_URL = "https://api.bybit.com/v5/market/instruments-info"
+
+# Переиспользуем одну Session для всех запросов — избегаем создания нового
+# TCP-соединения на каждый вызов (ThreadPoolExecutor безопасен с requests.Session).
+_session = requests.Session()
+_session.headers.update({"Accept": "application/json"})
+
+_RETRY_DELAYS = (1, 2, 4)  # секунды между попытками
 
 def get_candles(symbol, interval, limit=120):
     """
@@ -22,44 +30,55 @@ def get_candles(symbol, interval, limit=120):
         "category": "linear",
         "symbol": symbol,
         "interval": interval,
-        "limit": limit
+        "limit": limit,
     }
 
-    try:
-        r = requests.get(BASE_URL, params=params, timeout=10)
-        r.raise_for_status()
+    for attempt, delay in enumerate((*_RETRY_DELAYS, None), start=1):
+        try:
+            r = _session.get(BASE_URL, params=params, timeout=10)
+            r.raise_for_status()
 
-        data = r.json()
-        
-        # Проверяем наличие ошибок в ответе API
-        if "retCode" in data and data["retCode"] != 0:
-            error_msg = data.get("retMsg", "Неизвестная ошибка API")
-            logging.warning("API ошибка для %s (%s): %s (код: %s)", symbol, interval, error_msg, data['retCode'])
-            return []
-        
-        if "result" not in data:
-            logging.warning("Отсутствует 'result' в ответе API для %s (%s). Ответ: %s", symbol, interval, data)
-            return []
-        
-        if "list" not in data["result"]:
-            logging.warning(f"Отсутствует 'list' в ответе API для {symbol} ({interval}). Result: {data.get('result', {})}")
-            return []
-        
-        candles = data["result"]["list"]
-        if not candles:
-            # Проверяем, может быть символ недоступен или переименован
-            logging.warning("Пустой список свечей для %s (%s). Возможно, символ недоступен на Bybit или переименован.", symbol, interval)
+            data = r.json()
+
+            # Проверяем наличие ошибок в ответе API
+            if "retCode" in data and data["retCode"] != 0:
+                ret_code = data["retCode"]
+                error_msg = data.get("retMsg", "Неизвестная ошибка API")
+                # 10006 = rate limit — имеет смысл повторить
+                if ret_code == 10006 and delay is not None:
+                    logging.warning("Rate limit для %s (%s), повтор через %ds...", symbol, interval, delay)
+                    time.sleep(delay)
+                    continue
+                logging.warning("API ошибка для %s (%s): %s (код: %s)", symbol, interval, error_msg, ret_code)
+                return []
+
+            if "result" not in data:
+                logging.warning("Отсутствует 'result' в ответе API для %s (%s). Ответ: %s", symbol, interval, data)
+                return []
+
+            if "list" not in data["result"]:
+                logging.warning("Отсутствует 'list' в ответе API для %s (%s). Result: %s", symbol, interval, data.get("result", {}))
+                return []
+
+            candles = data["result"]["list"]
+            if not candles:
+                logging.warning("Пустой список свечей для %s (%s). Возможно, символ недоступен на Bybit или переименован.", symbol, interval)
+                return []
+
+            # Bybit отдаёт от новых к старым → разворачиваем
+            return list(reversed(candles))
+
+        except requests.exceptions.RequestException as e:
+            if delay is None:
+                logging.warning("Ошибка при получении свечей для %s (%s) после %d попыток: %s", symbol, interval, len(_RETRY_DELAYS) + 1, e)
+                return []
+            logging.warning("Ошибка при получении свечей для %s (%s), попытка %d: %s. Повтор через %ds...", symbol, interval, attempt, e, delay)
+            time.sleep(delay)
+        except (KeyError, ValueError) as e:
+            logging.warning("Ошибка парсинга данных для %s (%s): %s", symbol, interval, e)
             return []
 
-        # Bybit отдаёт от новых к старым → разворачиваем
-        return list(reversed(candles))
-    
-    except requests.exceptions.RequestException as e:
-        logging.warning("Ошибка при получении свечей для %s (%s): %s", symbol, interval, e)
-        return []
-    except (KeyError, ValueError) as e:
-        logging.warning("Ошибка парсинга данных для %s (%s): %s", symbol, interval, e)
-        return []
+    return []  # недостижимо, но для mypy
 
 
 def get_candles_parallel(symbols: List[str], timeframes: Dict[str, str], 
