@@ -303,13 +303,19 @@ class BybitClient:
     def _get(self, path: str, params: Dict, signed: bool) -> Dict:
         url = self._base_url + path
         if signed:
+            # Строим query string один раз и используем его в URL напрямую,
+            # чтобы подпись совпадала с тем, что реально отправляет requests.
             query_string = urlencode(sorted(params.items()))
             headers = self._build_auth_headers(query_string)
+            request_url = f"{url}?{query_string}"
+            request_params = None
         else:
             headers = {}
+            request_url = url
+            request_params = params
         for attempt, delay in enumerate((*self._RETRY_DELAYS, None), start=1):
             try:
-                resp = self._session.get(url, params=params, headers=headers, timeout=10)
+                resp = self._session.get(request_url, params=request_params, headers=headers, timeout=10)
                 return self._parse_response(resp, path)
             except _RetryableError as e:
                 if delay is None:
