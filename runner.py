@@ -114,6 +114,7 @@ ENABLE_SYNTHETIC_DECISION_TICK = os.environ.get("ENABLE_SYNTHETIC_DECISION_TICK"
 FAULT_INJECT_LOOP_STALL = os.environ.get("FAULT_INJECT_LOOP_STALL", "false").lower() == "true"
 LOOP_STALL_DURATION = 120.0  # 120 секунд для loop stall
 HEARTBEAT_MISS_THRESHOLD = 2.0  # Пропуск 2 heartbeats = stall detected
+STARTUP_GRACE_SECONDS = 60.0  # Первые 60с после старта — stall check пропускается
 
 # ========== PRODUCTION HARDENING CONSTANTS ==========
 HEARTBEAT_MISS_ENFORCEMENT_THRESHOLD = 2  # После 2 пропущенных heartbeats → SAFE_MODE
@@ -623,8 +624,8 @@ async def evaluate_and_send_alerts(duration: float):
                 logger.error(f"CRITICAL alert: System entered safe_mode")
         
         # CRITICAL: Scheduler stall detected (via heartbeat miss)
-        # Проверяем через последний heartbeat
-        if system_state.system_health.last_heartbeat:
+        # Пропускаем проверку во время стартового grace period — предотвращает ложные срабатывания при инициализации
+        if uptime >= STARTUP_GRACE_SECONDS and system_state.system_health.last_heartbeat:
             time_since_heartbeat = (datetime.now(UTC) - system_state.system_health.last_heartbeat).total_seconds()
             expected_interval = RUNTIME_HEARTBEAT_INTERVAL
             if time_since_heartbeat > expected_interval * HEARTBEAT_MISS_THRESHOLD:
