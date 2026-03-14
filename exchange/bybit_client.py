@@ -359,7 +359,8 @@ class BybitClient:
         try:
             resp.raise_for_status()
         except requests.HTTPError as e:
-            raise _RetryableError(f"HTTP {resp.status_code} for {path}") from e
+            body = resp.text[:500]
+            raise _RetryableError(f"HTTP {resp.status_code} for {path}: {body}") from e
 
         try:
             data = resp.json()
