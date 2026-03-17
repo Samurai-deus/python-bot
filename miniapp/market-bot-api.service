@@ -1,0 +1,14 @@
+[Unit]
+Description=Market Bot API
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/market_bot
+ExecStart=/root/market_bot/venv/bin/python /root/market_bot/run_api.py
+Restart=always
+RestartSec=5
+EnvironmentFile=/root/market_bot/.env
+
+[Install]
+WantedBy=multi-user.target
