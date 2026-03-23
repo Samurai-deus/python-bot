@@ -16,21 +16,30 @@ async def get_latest_signals(
     _: dict = Depends(verify_auth),
 ):
     try:
-        from core.signal_snapshot_store import SignalSnapshotStore
+        from datetime import datetime, UTC, timedelta
+        from journal import get_recent_signals
 
-        store = SignalSnapshotStore()
-        snap = store.load_latest()
-        if snap is None:
-            return []
-        # Single snapshot — wrap in list
-        return [
-            SignalResponse(
-                symbol=snap.symbol,
-                decision=str(snap.decision),
-                confidence=getattr(snap, "confidence", None),
-                timestamp=snap.timestamp.isoformat() if hasattr(snap.timestamp, "isoformat") else str(snap.timestamp),
+        since = datetime.now(UTC) - timedelta(days=30)
+        rows = await run_sync(get_recent_signals, since)
+        rows.sort(key=lambda r: r["timestamp"], reverse=True)
+        result = []
+        for r in rows[:limit]:
+            direction = r.get("direction", "")
+            if direction == "LONG":
+                decision_label = "BUY"
+            elif direction == "SHORT":
+                decision_label = "SELL"
+            else:
+                decision_label = r.get("decision") or r.get("risk") or "UNKNOWN"
+            result.append(
+                SignalResponse(
+                    symbol=r["symbol"],
+                    decision=decision_label,
+                    confidence=r.get("confidence"),
+                    timestamp=r["timestamp"].isoformat(),
+                )
             )
-        ]
+        return result
     except Exception:
         return []
 
