@@ -30,6 +30,7 @@ from core.signal_snapshot import (
 )
 from core.market_state import normalize_states_dict
 from core.cognitive_engine import calculate_confidence, calculate_entropy
+from datetime import datetime, UTC
 
 
 def generate_signals_for_symbols(
@@ -235,7 +236,18 @@ def generate_signals_for_symbols(
             atr_5m = atr(candles_map["5m"])
             volatility_pct = calculate_volatility_pct(candles_map["15m"])
             trend_strength_val = momentum_data.get("trend_strength_30m", 50) if momentum_data else 50
-            
+
+            # Расширяем стоп если он слишком близко к entry.
+            # Стоп от low/high последней 5m свечи часто слишком тесный в trending market.
+            # Используем 1 ATR — стандартный технический стоп, заведомо > 0.5 ATR (избегаем FP).
+            min_stop_dist = max(atr_15m, entry * 0.003)  # 1 ATR или 0.3% — что больше
+            if side == "LONG" and (entry - stop) < min_stop_dist:
+                stop = entry - min_stop_dist
+                print(f"   🔧 Стоп расширен до минимального: {stop:.4f} ({min_stop_dist/entry*100:.2f}%)")
+            elif side == "SHORT" and (stop - entry) < min_stop_dist:
+                stop = entry + min_stop_dist
+                print(f"   🔧 Стоп расширен до минимального: {stop:.4f} ({min_stop_dist/entry*100:.2f}%)")
+
             # Проверяем размер стопа
             stop_info = calculate_stop_distance(entry, stop, atr_15m, entry)
             if not stop_info.get("is_valid", True):
