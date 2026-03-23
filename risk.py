@@ -29,11 +29,13 @@ def risk_level(states: Dict[str, Optional[MarketState]], directions=None) -> str
             )
             states[key] = None
     
-    # Абсолютный запрет
-    if states.get("1h") is None:
-        return "HIGH"
-
     risk = 0
+
+    # Неизвестное состояние 1h — добавляет неопределённость, но не блокирует полностью.
+    # В trending market determine_state() часто возвращает None для коротких таймфреймов
+    # (обычные трендовые свечи не соответствуют ни одному из 4 паттернов).
+    if states.get("1h") is None:
+        risk += 1  # Было: return "HIGH" (абсолютный запрет — слишком агрессивно)
 
     # конфликт таймфреймов
     if states.get("30m") != states.get("15m"):

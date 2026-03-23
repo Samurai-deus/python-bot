@@ -71,6 +71,9 @@ class SystemState:
         # Кэш сигналов (перенесён из state_cache.py)
         # Хранит последнее состояние 15m для каждого символа
         self.signal_cache: Dict[str, str] = {}  # {symbol: last_state_15m}
+        # Временны́е метки последних TREND_CONTINUATION сигналов (state_15m=None)
+        # Используются для cooldown: позволяем повторный сигнал через TREND_SIGNAL_COOLDOWN секунд
+        self._trend_signal_timestamps: Dict[str, float] = {}  # {symbol: unix_timestamp}
         
         # Метрики производительности
         self.performance_metrics = PerformanceMetrics()
@@ -138,12 +141,22 @@ class SystemState:
             bool: True если сигнал новый, False если уже был отправлен
         """
         if state_15m is None:
-            return False
-        
+            # TREND_CONTINUATION сигнал: разрешаем повтор раз в 4 часа.
+            # В trending market state_15m часто None (нет специфичного паттерна),
+            # поэтому старый "return False" блокировал ВСЕ сигналы навсегда.
+            import time
+            TREND_SIGNAL_COOLDOWN = 4 * 3600  # 4 часа
+            now = time.time()
+            last_ts = self._trend_signal_timestamps.get(symbol, 0.0)
+            if (now - last_ts) < TREND_SIGNAL_COOLDOWN:
+                return False
+            self._trend_signal_timestamps[symbol] = now
+            return True
+
         last_state = self.signal_cache.get(symbol)
         if last_state == state_15m:
             return False
-        
+
         # Состояние изменилось - это новый сигнал
         self.signal_cache[symbol] = state_15m
         return True

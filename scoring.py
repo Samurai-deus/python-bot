@@ -290,21 +290,28 @@ def get_entry_conditions(states: Dict[str, Optional[MarketState]], directions, s
             states[key] = None
     
     state_15m = states.get("15m")
-    
+    total_score = score_details.get("total_score", 0)
+
     # Основное условие: Rejection (D)
     if state_15m == MarketState.D:
         entry_conditions.append("REJECTION")
-    
+
     # Дополнительные условия при высоком score
-    if score_details.get("total_score", 0) >= 70:
+    if total_score >= 70:
         # Сильные импульсы тоже могут быть точками входа
         if state_15m == MarketState.A:
             if score_details.get("trend_strength_30m", 0) >= 70:
                 entry_conditions.append("STRONG_IMPULSE")
-        
+
         # Loss of Control при сильном тренде
         if state_15m == MarketState.C:
             if score_details.get("trend_strength_30m", 0) >= 65:
                 entry_conditions.append("CONTROL_LOSS")
-    
+
+    # Fallback: состояние 15m не определено (None), но тренд чёткий и score достаточный.
+    # Это штатная ситуация для trending market — обычные свечи не соответствуют
+    # ни одному из 4 паттернов (D/A/C/B), но торговать можно по направлению тренда.
+    if not entry_conditions and state_15m is None and total_score >= 70 and direction_30m != "FLAT":
+        entry_conditions.append("TREND_CONTINUATION")
+
     return entry_conditions
