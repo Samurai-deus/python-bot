@@ -47,9 +47,12 @@ def log_signal_snapshot(snapshot: SignalSnapshot):
                 "risk",
                 "entry",
                 "exit",
-                "r"
+                "r",
+                "decision",
+                "confidence",
+                "direction",
             ])
-        
+
         # Преобразуем domain-объект в строки (IO-граница)
         timestamp = snapshot.timestamp.isoformat()
         state_1h = state_to_string(snapshot.states.get("1h"))
@@ -57,14 +60,22 @@ def log_signal_snapshot(snapshot: SignalSnapshot):
         state_15m = state_to_string(snapshot.states.get("15m"))
         state_5m = state_to_string(snapshot.states.get("5m"))
         risk_str = snapshot.risk_level.value if snapshot.risk_level else ""
-        
+
         # Entry/Exit из snapshot
         entry_str = f"{snapshot.entry:.4f}" if snapshot.entry else "NO_ENTRY"
         exit_str = f"{snapshot.tp:.4f}" if snapshot.tp else "NO_EXIT"
-        
+
         # R-ratio из snapshot
         rr_str = f"R={snapshot.rr_ratio:.2f}" if snapshot.rr_ratio else "R=0"
-        
+
+        # Decision, confidence, direction
+        decision_str = snapshot.decision.value if snapshot.decision else ""
+        confidence_str = f"{snapshot.confidence:.4f}" if snapshot.confidence is not None else ""
+        if snapshot.entry and snapshot.tp:
+            direction_str = "LONG" if snapshot.tp > snapshot.entry else "SHORT"
+        else:
+            direction_str = ""
+
         writer.writerow([
             timestamp,
             snapshot.symbol,
@@ -75,7 +86,10 @@ def log_signal_snapshot(snapshot: SignalSnapshot):
             risk_str,
             entry_str,
             exit_str,
-            rr_str
+            rr_str,
+            decision_str,
+            confidence_str,
+            direction_str,
         ])
 
 
@@ -177,7 +191,10 @@ def get_recent_signals(since: Optional[datetime] = None) -> List[Dict]:
                             "15m": row[4] if len(row) > 4 else None,
                             "5m": row[5] if len(row) > 5 else None,
                         },
-                        "risk": row[6] if len(row) > 6 else None
+                        "risk": row[6] if len(row) > 6 else None,
+                        "decision": row[10] if len(row) > 10 else "",
+                        "confidence": float(row[11]) if len(row) > 11 and row[11] else None,
+                        "direction": row[12] if len(row) > 12 else "",
                     })
                 except (ValueError, IndexError):
                     continue
