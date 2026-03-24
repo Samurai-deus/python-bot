@@ -45,8 +45,8 @@ except ImportError:
 
 # Импорты для работы бота
 from error_alert import error_alert
-from telegram_bot import send_message
-from health_monitor import send_heartbeat, HEARTBEAT_INTERVAL
+from telegram_bot import send_message, send_message_async
+from health_monitor import send_heartbeat, send_heartbeat_async, HEARTBEAT_INTERVAL
 from daily_report import generate_daily_report
 
 # Новые модули для контролируемой архитектуры
@@ -652,10 +652,7 @@ async def evaluate_and_send_alerts(duration: float):
         for alert in alerts_to_send:
             try:
                 # Отправляем через Telegram (неблокирующе)
-                await asyncio.wait_for(
-                    asyncio.to_thread(send_message, alert["message"]),
-                    timeout=10.0
-                )
+                await send_message_async(alert["message"])
                 logger.info(f"Alert sent: {alert['level']} - {alert['type']}")
                 
                 # HARDENING: CRITICAL alerts: приостанавливаем торговлю через manual pause
@@ -1698,7 +1695,7 @@ async def run_market_analysis():
         if not global_decision.can_trade:
             logger.info(f"⏸ Decision Core блокирует торговлю: {global_decision.reason}")
             try:
-                await asyncio.to_thread(send_message, f"🧠 Decision Core: {global_decision.reason}\n\nРекомендации:\n" + "\n".join(f"• {r}" for r in global_decision.recommendations))
+                await send_message_async(f"🧠 Decision Core: {global_decision.reason}\n\nРекомендации:\n" + "\n".join(f"• {r}" for r in global_decision.recommendations))
             except Exception:
                 pass
             return True
@@ -2152,10 +2149,7 @@ async def market_analysis_loop():
                             logger.info(f"🔄 Trading auto-resumed after {AUTO_RESUME_SUCCESS_CYCLES} successful cycles")
                             # Отправляем уведомление
                             try:
-                                await asyncio.wait_for(
-                                    asyncio.to_thread(send_message, f"✅ **Trading resumed**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} successful analysis cycles. Trading is now active."),
-                                    timeout=5.0
-                                )
+                                await send_message_async(f"✅ **Trading resumed**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} successful analysis cycles. Trading is now active.")
                             except Exception:
                                 pass
                     else:
@@ -2196,10 +2190,7 @@ async def market_analysis_loop():
                         logger.info(f"🔄 Trading auto-resumed after safe_mode exit (delay: {AUTO_RESUME_SAFE_MODE_DELAY}s)")
                         # Отправляем уведомление
                         try:
-                            await asyncio.wait_for(
-                                asyncio.to_thread(send_message, "✅ **Trading resumed**\n\nSystem recovered from safe mode. Trading is now active."),
-                                timeout=5.0
-                            )
+                            await send_message_async("✅ **Trading resumed**\n\nSystem recovered from safe mode. Trading is now active.")
                         except Exception:
                             pass
             
@@ -2673,10 +2664,7 @@ async def heartbeat_loop():
             try:
                 # КРИТИЧНО: to_thread может блокировать при network blackhole, обёртываем в wait_for
                 # Таймаут 10s достаточен для нормальной работы, но предотвращает блокировку shutdown
-                await asyncio.wait_for(
-                    asyncio.to_thread(send_heartbeat),
-                    timeout=10.0
-                )
+                await send_heartbeat_async()
                 system_state.update_heartbeat()
                 update_heartbeat_thread_safe()  # Обновляем для ThreadWatchdog
                 logger.debug("Telegram heartbeat sent")
@@ -4291,7 +4279,7 @@ async def main():
     
     # Отправляем уведомление о запуске (не критично)
     try:
-        await asyncio.to_thread(send_message, "🚀 Торговый бот запущен")
+        await send_message_async("🚀 Торговый бот запущен")
     except Exception as e:
         logger.warning(f"Failed to send startup message (non-critical): {type(e).__name__}: {e}")
     
@@ -4592,10 +4580,7 @@ async def main():
         # Send shutdown notification (non-blocking, timeout-protected)
         # WHY: User feedback, but must not block shutdown
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(send_message, "⏹ Торговый бот остановлен"),
-                timeout=3.0
-            )
+            await send_message_async("⏹ Торговый бот остановлен")
         except Exception:
             # Ignore errors - notification is non-critical
             pass
