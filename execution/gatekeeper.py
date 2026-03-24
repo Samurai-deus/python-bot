@@ -955,7 +955,9 @@ class Gatekeeper:
             stop_price = zone.get("stop", 0.0)
             position_size_usd = signal_data.get("position_size", 0.0)
             leverage = signal_data.get("leverage")
-            side = "LONG" if signal_data.get("side") == "LONG" else "SHORT"
+            # Определяем side из signal_data; fallback по позиции стопа (LONG: стоп ниже, SHORT: стоп выше)
+            raw_side = signal_data.get("side") or ("LONG" if entry_price > stop_price else "SHORT")
+            side = "LONG" if raw_side == "LONG" else "SHORT"
             
             if entry_price <= 0 or stop_price <= 0 or position_size_usd <= 0:
                 # Недостаточно данных для Risk Core - fail-closed

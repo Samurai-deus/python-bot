@@ -71,7 +71,9 @@ def log_signal_snapshot(snapshot: SignalSnapshot):
         # Decision, confidence, direction
         decision_str = snapshot.decision.value if snapshot.decision else ""
         confidence_str = f"{snapshot.confidence:.4f}" if snapshot.confidence is not None else ""
-        if snapshot.entry and snapshot.tp:
+        if snapshot.side:
+            direction_str = snapshot.side
+        elif snapshot.entry and snapshot.tp:
             direction_str = "LONG" if snapshot.tp > snapshot.entry else "SHORT"
         else:
             direction_str = ""

@@ -57,12 +57,20 @@ def entry_trigger_5m(candles):
     return None
 
 def market_direction(candles):
+    if len(candles) < 10:
+        return "FLAT"
     highs = [float(c[2]) for c in candles[-10:]]
     lows = [float(c[3]) for c in candles[-10:]]
 
-    if highs[-1] > highs[0] and lows[-1] > lows[0]:
+    # Сравниваем среднее первых и вторых 5 свечей — устойчиво к шуму одной свечи
+    avg_high_early = sum(highs[:5]) / 5
+    avg_high_late = sum(highs[5:]) / 5
+    avg_low_early = sum(lows[:5]) / 5
+    avg_low_late = sum(lows[5:]) / 5
+
+    if avg_high_late > avg_high_early and avg_low_late > avg_low_early:
         return "UP"
-    if highs[-1] < highs[0] and lows[-1] < lows[0]:
+    if avg_high_late < avg_high_early and avg_low_late < avg_low_early:
         return "DOWN"
     return "FLAT"
 
