@@ -175,6 +175,17 @@ def _init_database(conn: sqlite3.Connection):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_records_closed_at ON pnl_records(closed_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_records_symbol ON pnl_records(symbol)")
 
+    # Настройки пользователя (Phase 5)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            id INTEGER PRIMARY KEY,
+            setting_key TEXT NOT NULL UNIQUE,
+            setting_value TEXT NOT NULL,
+            data_type TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     conn.commit()
 
 
@@ -969,3 +980,59 @@ def get_equity_curve_points(days: int = 30) -> List[Dict]:
     except Exception as e:
         logger.error(f"get_equity_curve_points error: {e}")
         return []
+
+
+# ============================================================================
+# USER SETTINGS (Phase 5)
+# ============================================================================
+
+def get_setting(key: str) -> Optional[str]:
+    """Вернуть значение настройки или None."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT setting_value FROM user_settings WHERE setting_key = ?", (key,)
+        )
+        row = cursor.fetchone()
+    finally:
+        conn.close()
+    return row["setting_value"] if row else None
+
+
+def set_setting(key: str, value: str, data_type: str) -> None:
+    """Сохранить или обновить настройку (UPSERT)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        updated_at = datetime.now(UTC).isoformat()
+        cursor.execute("""
+            INSERT INTO user_settings (setting_key, setting_value, data_type, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                setting_value = excluded.setting_value,
+                data_type = excluded.data_type,
+                updated_at = excluded.updated_at
+        """, (key, value, data_type, updated_at))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_all_settings() -> Dict[str, Dict]:
+    """Вернуть все настройки как {key: {value, data_type, updated_at}}."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT setting_key, setting_value, data_type, updated_at FROM user_settings")
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+    return {
+        row["setting_key"]: {
+            "value": row["setting_value"],
+            "data_type": row["data_type"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    }

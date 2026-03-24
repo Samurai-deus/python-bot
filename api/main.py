@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-from api.routers import analytics, positions, signals, system, ws
+from api.routers import analytics, positions, settings, signals, system, ws
 
 
 @asynccontextmanager
@@ -48,6 +48,7 @@ app.include_router(system.router)
 app.include_router(positions.router)
 app.include_router(signals.router)
 app.include_router(analytics.router)
+app.include_router(settings.router)
 app.include_router(ws.router)
 
 

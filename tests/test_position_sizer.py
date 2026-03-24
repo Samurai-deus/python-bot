@@ -2,7 +2,10 @@
 Тесты для PositionSizer.
 """
 import pytest
-from core.position_sizer import PositionSizer, PositionSizingResult, PositionSizingConfig
+from core.position_sizer import (
+    PositionSizer, PositionSizingResult, PositionSizingConfig,
+    PositionSizingFactor, RegimeFactor, VolatilityFactor, PortfolioStateAdapter,
+)
 from tests.conftest import MockPortfolioState
 
 
@@ -121,3 +124,112 @@ class TestPositionSizerInvariants:
                     portfolio_state=portfolio, symbol="X"
                 )
                 assert result.final_risk >= 0
+
+
+class TestPositionSizingResultValidation:
+    def test_negative_final_risk_raises(self):
+        with pytest.raises(ValueError):
+            PositionSizingResult(
+                position_allowed=False, final_risk=-0.1, base_risk=2.0,
+                confidence_factor=0.5, entropy_factor=0.5, portfolio_factor=0.5,
+                reason="test",
+            )
+
+    def test_confidence_factor_above_1_raises(self):
+        with pytest.raises(ValueError):
+            PositionSizingResult(
+                position_allowed=False, final_risk=1.0, base_risk=2.0,
+                confidence_factor=1.1, entropy_factor=0.5, portfolio_factor=0.5,
+                reason="test",
+            )
+
+    def test_entropy_factor_below_0_raises(self):
+        with pytest.raises(ValueError):
+            PositionSizingResult(
+                position_allowed=False, final_risk=1.0, base_risk=2.0,
+                confidence_factor=0.5, entropy_factor=-0.1, portfolio_factor=0.5,
+                reason="test",
+            )
+
+    def test_portfolio_factor_above_1_raises(self):
+        with pytest.raises(ValueError):
+            PositionSizingResult(
+                position_allowed=False, final_risk=1.0, base_risk=2.0,
+                confidence_factor=0.5, entropy_factor=0.5, portfolio_factor=1.5,
+                reason="test",
+            )
+
+
+class TestPositionSizingFactors:
+    def test_base_factor_returns_1(self):
+        factor = PositionSizingFactor()
+        result = factor.calculate_factor(
+            confidence=0.8, entropy=0.2,
+            portfolio_state=MockPortfolioState(), symbol="X",
+        )
+        assert result == 1.0
+
+    def test_regime_factor_none_regime_returns_1(self):
+        factor = RegimeFactor()
+        result = factor.calculate_factor(
+            confidence=0.8, entropy=0.2,
+            portfolio_state=MockPortfolioState(), symbol="X",
+            market_regime=None,
+        )
+        assert result == 1.0
+
+    def test_regime_factor_with_regime_returns_1(self):
+        factor = RegimeFactor()
+        result = factor.calculate_factor(
+            confidence=0.8, entropy=0.2,
+            portfolio_state=MockPortfolioState(), symbol="X",
+            market_regime=object(),
+        )
+        assert result == 1.0
+
+    def test_volatility_factor_none_level_returns_1(self):
+        factor = VolatilityFactor()
+        result = factor.calculate_factor(
+            confidence=0.8, entropy=0.2,
+            portfolio_state=MockPortfolioState(), symbol="X",
+            volatility_level=None,
+        )
+        assert result == 1.0
+
+    def test_volatility_factor_with_level_returns_1(self):
+        factor = VolatilityFactor()
+        result = factor.calculate_factor(
+            confidence=0.8, entropy=0.2,
+            portfolio_state=MockPortfolioState(), symbol="X",
+            volatility_level="HIGH",
+        )
+        assert result == 1.0
+
+
+class TestPortfolioStateAdapter:
+    def _make_portfolio_state(self, total_exposure=0.5, risk_budget=0.1, used_risk=0.03):
+        class _PS:
+            pass
+        ps = _PS()
+        ps.total_exposure = total_exposure
+        ps.risk_budget = risk_budget
+        ps.used_risk = used_risk
+        return ps
+
+    def test_total_exposure(self):
+        adapter = PortfolioStateAdapter(self._make_portfolio_state(total_exposure=0.4))
+        assert adapter.total_exposure() == 0.4
+
+    def test_available_risk_ratio_normal(self):
+        adapter = PortfolioStateAdapter(self._make_portfolio_state(risk_budget=0.1, used_risk=0.03))
+        ratio = adapter.available_risk_ratio()
+        assert 0.0 <= ratio <= 1.0
+        assert ratio == pytest.approx(0.7)
+
+    def test_available_risk_ratio_zero_budget(self):
+        adapter = PortfolioStateAdapter(self._make_portfolio_state(risk_budget=0.0, used_risk=0.0))
+        assert adapter.available_risk_ratio() == 0.0
+
+    def test_available_risk_ratio_clamped_to_0(self):
+        adapter = PortfolioStateAdapter(self._make_portfolio_state(risk_budget=0.1, used_risk=0.2))
+        assert adapter.available_risk_ratio() == 0.0
