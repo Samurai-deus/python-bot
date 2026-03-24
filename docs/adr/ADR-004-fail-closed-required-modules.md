@@ -1,6 +1,7 @@
 # ADR-004: MetaDecisionBrain и PositionSizer — перевод в fail-closed (CRITICAL)
 
-**Status:** ACCEPTED
+**Status:** IMPLEMENTED
+**Implementation:** 2026-03-14 (commit 6a72d03 и ранее)
 **Date:** 2026-03-13
 **Deciders:** Project team
 **Supersedes:** ADR-003 (в части классификации MetaDecisionBrain и PositionSizer)
