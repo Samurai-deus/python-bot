@@ -2777,6 +2777,61 @@ async def daily_report_loop():
     logger.info("Daily report loop stopped")
 
 
+async def paper_trading_monitor_loop():
+    """
+    Мониторинг бумажных сделок — проверяет SL/TP каждые 60 секунд.
+
+    Независим от signal_generator: работает постоянно, пока есть открытые сделки.
+    При достижении SL/TP — закрывает сделку и отправляет отчёт в Telegram.
+    """
+    logger.info("📄 Paper trading monitor started")
+    shutdown_evt = get_shutdown_event()
+
+    while system_state.system_health.is_running and not shutdown_evt.is_set():
+        try:
+            from trade_manager import check_trades, get_open_trades
+            from trade_reporter import generate_trade_report
+            from data_loader import get_candles
+
+            open_trades = get_open_trades()
+            if open_trades:
+                # Собираем уникальные символы с открытыми сделками
+                symbols_to_check = list({t["symbol"] for t in open_trades})
+
+                for symbol in symbols_to_check:
+                    try:
+                        candles = await asyncio.to_thread(get_candles, symbol, "5", 1)
+                        if candles:
+                            current_price = float(candles[-1][4])  # close price
+                            closed = check_trades(symbol, current_price)
+                            for closed_trade in closed:
+                                logger.info(
+                                    "[PAPER] Trade closed: %s %s @ %.4f (%s) pnl=%.2f",
+                                    symbol, closed_trade.get("side"), current_price,
+                                    closed_trade.get("close_reason"), closed_trade.get("pnl", 0),
+                                )
+                                try:
+                                    generate_trade_report(closed_trade)
+                                except Exception as report_err:
+                                    logger.warning("[PAPER] Failed to send trade report: %s", report_err)
+                    except Exception as sym_err:
+                        logger.warning("[PAPER] Error checking %s: %s", symbol, sym_err)
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("[PAPER] Monitor loop error: %s", e, exc_info=True)
+
+        # Ждём 60 секунд с поддержкой graceful shutdown
+        try:
+            await asyncio.wait_for(shutdown_evt.wait(), timeout=60.0)
+            break  # shutdown_evt сработал
+        except asyncio.TimeoutError:
+            pass  # Нормальный timeout — продолжаем цикл
+
+    logger.info("📄 Paper trading monitor stopped")
+
+
 async def synthetic_decision_tick_loop():
     """
     Synthetic decision tick - периодически выполняет decision pipeline
@@ -4272,6 +4327,10 @@ async def main():
         register_task(
             asyncio.create_task(safe_mode_ttl_monitor(), name="SafeModeTTLMonitor"),
             "SafeModeTTLMonitor"
+        ),
+        register_task(
+            asyncio.create_task(paper_trading_monitor_loop(), name="PaperTradingMonitor"),
+            "PaperTradingMonitor"
         ),
     ]
     

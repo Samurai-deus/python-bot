@@ -204,18 +204,17 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /positions — открытые позиции с unrealized P&L"""
+    """Обработчик команды /positions — в paper режиме показывает trades, в live — реальные позиции"""
     if hasattr(update, 'message') and update.message:
         reply_func = update.message.reply_text
     else:
         reply_func = update.callback_query.message.reply_text
 
+    # В paper/dry-run режиме позиции хранятся в таблице trades, а не positions
     positions = get_open_positions()
     if not positions:
-        await reply_func(
-            "📊 **Нет открытых позиций**\n\nВсе позиции закрыты.",
-            parse_mode="Markdown",
-        )
+        # Перенаправляем на /trades (бумажные позиции)
+        await cmd_trades(update, context)
         return
 
     msg = f"📊 **ОТКРЫТЫЕ ПОЗИЦИИ** (`{len(positions)}`)\n\n"
@@ -397,59 +396,97 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /trades - открытые сделки"""
-    # Определяем, откуда пришел запрос
+    """Обработчик команды /trades - открытые сделки с текущими ценами и unrealized P&L"""
+    import asyncio
+    from data_loader import get_candles
+
     if hasattr(update, 'message') and update.message:
         reply_func = update.message.reply_text
     else:
         reply_func = update.callback_query.message.reply_text
-    
+
     open_trades = get_open_trades()
-    
+
     if not open_trades:
-        await reply_func("📊 **Нет открытых сделок**\n\nВсе позиции закрыты или еще не открыты.")
+        await reply_func("📊 **Нет открытых сделок**\n\nВсе позиции закрыты или еще не открыты.", parse_mode="Markdown")
         return
-    
+
+    # Загружаем текущие цены для всех уникальных символов
+    symbols = list({t["symbol"] for t in open_trades})
+    prices: dict = {}
+    for sym in symbols:
+        try:
+            candles = await asyncio.to_thread(get_candles, sym, "5", 1)
+            if candles:
+                prices[sym] = float(candles[-1][4])
+        except Exception:
+            pass
+
     report = f"💼 **ОТКРЫТЫЕ СДЕЛКИ** (`{len(open_trades)}`)\n\n"
     report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
+
+    total_upnl = 0.0
     for i, trade in enumerate(open_trades, 1):
         symbol = trade.get('symbol', '')
         side = trade.get('side', '')
         entry = float(trade.get('entry', 0))
         stop = float(trade.get('stop', 0))
         target = float(trade.get('target', 0))
-        position_size = trade.get('position_size', 0)
+        position_size = float(trade.get('position_size') or 0)
         leverage = trade.get('leverage', 1.0)
-        
+        current_price = prices.get(symbol)
+
         side_emoji = "🟢" if side == "LONG" else "🔴"
-        
-        # Рассчитываем R:R
+
         if side == "LONG":
             risk = entry - stop
             reward = target - entry
         else:
             risk = stop - entry
             reward = entry - target
-        
+
         rr_ratio = abs(reward / risk) if risk != 0 else 0
-        
+
         report += f"{i}. {side_emoji} **{symbol}** `{side}`\n"
         report += f"   💰 Вход: `{entry:.4f}`\n"
-        report += f"   🛑 Стоп: `{stop:.4f}`\n"
-        report += f"   🎯 Цель: `{target:.4f}`\n"
-        report += f"   📊 R:R: `{rr_ratio:.2f}`\n"
-        
+
+        if current_price:
+            report += f"   📍 Сейчас: `{current_price:.4f}`\n"
+            if position_size > 0:
+                if side == "LONG":
+                    upnl = (current_price - entry) / entry * position_size
+                else:
+                    upnl = (entry - current_price) / entry * position_size
+                total_upnl += upnl
+                upnl_emoji = "🟢" if upnl >= 0 else "🔴"
+                upnl_sign = "+" if upnl >= 0 else ""
+                report += f"   {upnl_emoji} P&L: `{upnl_sign}{upnl:.2f}` USDT\n"
+
+            # Прогресс к цели/стопу
+            if side == "LONG" and (target - stop) != 0:
+                progress = (current_price - stop) / (target - stop) * 100
+                report += f"   📊 Прогресс к цели: `{min(progress, 100):.0f}%`\n"
+            elif side == "SHORT" and (stop - target) != 0:
+                progress = (stop - current_price) / (stop - target) * 100
+                report += f"   📊 Прогресс к цели: `{min(progress, 100):.0f}%`\n"
+
+        report += f"   🛑 SL: `{stop:.4f}` | 🎯 TP: `{target:.4f}`\n"
+        report += f"   📐 R:R: `{rr_ratio:.2f}`\n"
+
         if position_size:
             report += f"   💼 Размер: `{position_size:.2f}` USDT\n"
         if leverage:
             report += f"   ⚡ Плечо: `{leverage:.1f}x`\n"
-        
+
         report += "\n"
-    
+
     report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if total_upnl != 0:
+        total_sign = "+" if total_upnl >= 0 else ""
+        total_emoji = "🟢" if total_upnl >= 0 else "🔴"
+        report += f"\n{total_emoji} Итого unrealized: `{total_sign}{total_upnl:.2f}` USDT"
     report += f"\n⏰ {datetime.now(UTC).strftime('%H:%M:%S UTC')}"
-    
+
     await reply_func(report, parse_mode="Markdown")
 
 
