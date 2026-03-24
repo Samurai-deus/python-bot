@@ -107,3 +107,45 @@ def check_last_heartbeat(max_interval_seconds=7200):
         print(f"⚠️ Ошибка проверки heartbeat: {e}")
         return False
 
+
+async def send_heartbeat_async():
+    """
+    Async version of send_heartbeat. Uses send_message_async directly.
+    Fix: avoids creating new event loop in thread (pool exhaustion bug).
+    """
+    from telegram_bot import send_message_async
+    import time
+    try:
+        timestamp = datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
+
+        system_info = ''
+        if PSUTIL_AVAILABLE:
+            try:
+                cpu_percent = psutil.cpu_percent()
+                memory = psutil.virtual_memory()
+                disk = psutil.disk_usage('/')
+                system_info = (
+                    '\n📊 Система:\n'
+                    + f'CPU: {cpu_percent}%\n'
+                    + f'RAM: {memory.percent}%\n'
+                    + f'Disk: {disk.percent}%'
+                )
+            except Exception:
+                system_info = ''
+
+        message = (
+            '💓 **Heartbeat**\n\n'
+            + '✅ Бот работает нормально'
+            + system_info
+            + '\n\n⏰ ' + timestamp
+        )
+
+        await send_message_async(message)
+
+        try:
+            with open(LAST_HEARTBEAT_FILE, 'w', encoding='utf-8') as fh:
+                fh.write(str(time.time()))
+        except Exception:
+            pass
+    except Exception as e:
+        print(f'Heartbeat async error: {e}')
