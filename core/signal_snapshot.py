@@ -93,6 +93,7 @@ class SignalSnapshot:
     tp: Optional[float] = None  # Take profit
     sl: Optional[float] = None  # Stop loss
     entry: Optional[float] = None  # Entry price
+    side: Optional[str] = None  # "LONG" | "SHORT"
     
     # ========== РЕШЕНИЕ ==========
     decision: SignalDecision = SignalDecision.SKIP

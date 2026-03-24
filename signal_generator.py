@@ -327,6 +327,7 @@ def generate_signals_for_symbols(
                     entry=entry,
                     tp=target,
                     sl=stop,
+                    side=side,
                     decision=decision,
                     decision_reason=decision_reason,
                     directions=directions,
@@ -358,6 +359,7 @@ def generate_signals_for_symbols(
                     entry=entry,
                     tp=target,
                     sl=stop,
+                    side=side,
                     decision=decision,
                     decision_reason=decision_reason,
                     directions=directions,
@@ -368,6 +370,7 @@ def generate_signals_for_symbols(
                 # Формируем данные сигнала для Gatekeeper (для обратной совместимости)
                 signal_data = {
                     "zone": zone,
+                    "side": side,
                     "position_size": pos_size,
                     "leverage": lev,
                     "candle_analysis": candle_analysis,
