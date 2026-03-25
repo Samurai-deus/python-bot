@@ -1,11 +1,14 @@
 """
 Signal endpoints.
 """
+import logging
 from typing import List
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import run_sync, verify_auth
 from api.models import SignalResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
 
@@ -40,8 +43,9 @@ async def get_latest_signals(
                 )
             )
         return result
-    except Exception:
-        return []
+    except Exception as exc:
+        logger.error("Failed to get latest signals: %s: %s", type(exc).__name__, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @router.get("/history", response_model=List[SignalResponse])
@@ -67,5 +71,6 @@ async def get_signal_history(
                 )
             )
         return result
-    except Exception:
-        return []
+    except Exception as exc:
+        logger.error("Failed to get signal history: %s: %s", type(exc).__name__, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc

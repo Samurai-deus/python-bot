@@ -1150,5 +1150,5 @@ def setup_commands(app):
     # Обработчик кнопок
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    print("✅ Telegram команды настроены")
+    logger.info("Telegram commands configured")
 

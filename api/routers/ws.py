@@ -29,21 +29,25 @@ manager = ConnectionManager()
 
 async def _push_loop(ws: WebSocket):
     """Background task: send system snapshot every 5 seconds."""
-    while True:
-        try:
-            payload = await _build_snapshot()
-            await ws.send_json(payload)
-        except Exception as exc:
-            logger.debug("WS push error: %s", exc)
-            break
-        await asyncio.sleep(5)
+    try:
+        while True:
+            try:
+                payload = await _build_snapshot()
+                await ws.send_json(payload)
+            except Exception as exc:
+                logger.warning("WS push error: %s", exc)
+                break
+            await asyncio.sleep(5)
+    except asyncio.CancelledError:
+        logger.debug("WS push task cancelled")
+        raise
 
 
 async def _build_snapshot() -> dict:
     from system_state_machine import get_state_machine
     from database import get_open_positions, get_current_balance_from_db
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     sm = get_state_machine()
     info = sm.get_state_info()

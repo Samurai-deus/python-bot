@@ -1,11 +1,14 @@
 """
 System health and balance endpoints.
 """
+import logging
 from datetime import datetime, UTC
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import run_sync, verify_auth
 from api.models import SystemHealthResponse, BalanceResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -37,7 +40,8 @@ async def get_balance(_: dict = Depends(verify_auth)):
     try:
         b = await run_sync(client.get_wallet_balance, "USDT")
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Bybit unavailable: {exc}") from exc
+        logger.error("Bybit balance request failed: %s: %s", type(exc).__name__, exc, exc_info=True)
+        raise HTTPException(status_code=503, detail="Balance service unavailable") from exc
 
     return BalanceResponse(
         equity=b.total_equity,

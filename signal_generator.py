@@ -31,6 +31,9 @@ from core.signal_snapshot import (
 from core.market_state import normalize_states_dict
 from core.cognitive_engine import calculate_confidence, calculate_entropy
 from datetime import datetime, UTC
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def generate_signals_for_symbols(
@@ -71,9 +74,9 @@ def generate_signals_for_symbols(
     }
     
     for symbol in SYMBOLS:
-        print(f"🔍 Проверяю символ: {symbol}")
+        logger.debug("Checking symbol: %s", symbol)
         stats["processed"] += 1
-        
+
         try:
             states = {}
             candles_map = all_candles.get(symbol, {})
@@ -81,18 +84,17 @@ def generate_signals_for_symbols(
 
             # Проверяем, что данные загружены
             if not candles_map:
-                print(f"   ⚠️ Нет данных для {symbol}")
+                logger.debug("No candle data for %s", symbol)
                 continue
 
             # Определяем состояния для каждого таймфрейма
             for tf, interval in TIMEFRAMES.items():
                 candles = candles_map.get(tf, [])
                 if not candles:
-                    print(f"   ⚠️ Нет данных для {symbol} {tf}")
+                    logger.debug("No data for %s %s", symbol, tf)
                     continue
-                
+
                 log_monitor(symbol, tf)
-                print(f"   ⏱ Таймфрейм: {tf}")
                 atr_val = atr(candles)
                 # determine_state() возвращает MarketState enum (A/B/C/D) или None
                 # None означает, что состояние не определено (валидный результат)
@@ -103,7 +105,7 @@ def generate_signals_for_symbols(
 
             # Проверяем наличие необходимых данных для анализа
             if "15m" not in candles_map or not candles_map["15m"]:
-                print(f"   ⚠️ Нет данных для {symbol} 15m - пропускаем")
+                logger.debug("No 15m data for %s, skipping", symbol)
                 continue
             
             flat = is_flat(candles_map["15m"], atr(candles_map["15m"]))
@@ -114,7 +116,10 @@ def generate_signals_for_symbols(
             
             # Проверка фильтра волатильности
             if not volatility_metrics.get("is_tradeable", True):
-                print(f"   ⏸ Волатильность {volatility_metrics.get('volatility_level', 'UNKNOWN')} ({volatility_metrics.get('atr_pct', 0):.2f}%) - пропускаем")
+                logger.debug(
+                    "%s: volatility %s (%.2f%%) not tradeable, skipping",
+                    symbol, volatility_metrics.get("volatility_level", "UNKNOWN"), volatility_metrics.get("atr_pct", 0)
+                )
                 continue
             
             # Анализ корреляций
@@ -134,16 +139,16 @@ def generate_signals_for_symbols(
                     momentum_data["ema_cross_15m"] = ema_crossover(candles_map["15m"], fast_period=12, slow_period=26)
                     momentum_data["volume_15m"] = volume_analysis(candles_map["15m"], period=20)
                 except Exception as e:
-                    print(f"   ⚠️ Ошибка расчета индикаторов 15m: {e}")
+                    logger.warning("Indicator calc error 15m for %s: %s", symbol, e)
                     momentum_data = {}
-            
+
             if candles_map.get("30m"):
                 try:
                     momentum_data["trend_strength_30m"] = trend_strength(candles_map["30m"], period=20)
                     momentum_data["adx_30m"] = adx(candles_map["30m"], period=14)
                     momentum_data["ema_cross_30m"] = ema_crossover(candles_map["30m"], fast_period=12, slow_period=26)
                 except Exception as e:
-                    print(f"   ⚠️ Ошибка расчета индикаторов 30m: {e}")
+                    logger.warning("Indicator calc error 30m for %s: %s", symbol, e)
             
             # Улучшенная система оценки (добавляем волатильность и корреляции)
             score, reasons, score_details = calculate_score(
@@ -164,21 +169,33 @@ def generate_signals_for_symbols(
             mode = market_mode(score)
 
             # Логируем состояние для отладки
-            print(f"   📊 Score: {score}/125, Mode: {mode}, States: {states}, Directions: {directions}")
-            print(f"   💹 Volatility: {volatility_metrics.get('volatility_level', 'UNKNOWN')} ({volatility_metrics.get('atr_pct', 0):.2f}%)")
-            print(f"   🔗 Correlation: {correlation_data.get('market_alignment', 'UNKNOWN')} (avg: {correlation_data.get('avg_correlation', 0):.2f})")
+            logger.debug(
+                "%s: score=%s/125 mode=%s states=%s directions=%s",
+                symbol, score, mode, states, directions
+            )
+            logger.debug(
+                "%s: volatility=%s (%.2f%%) correlation=%s (avg=%.2f)",
+                symbol,
+                volatility_metrics.get("volatility_level", "UNKNOWN"),
+                volatility_metrics.get("atr_pct", 0),
+                correlation_data.get("market_alignment", "UNKNOWN"),
+                correlation_data.get("avg_correlation", 0),
+            )
             if momentum_data:
-                print(f"   📈 Momentum: RSI={momentum_data.get('rsi_15m', 0):.1f}, Trend={momentum_data.get('trend_strength_30m', 0):.1f}%")
+                logger.debug(
+                    "%s: RSI=%.1f trend=%.1f%%",
+                    symbol, momentum_data.get("rsi_15m", 0), momentum_data.get("trend_strength_30m", 0)
+                )
 
             # если рынок плохой — вообще молчим
             if mode == "STOP":
-                print(f"   ⏸ Режим STOP - пропускаем символ")
+                logger.debug("%s: mode=STOP, skipping", symbol)
                 continue
 
             # Базовая оценка риска с учетом 4h
             base_risk = risk_level(states, directions=directions)
             direction_4h = directions.get("4h", "FLAT")
-            print(f"   ⚠️ Base Risk: {base_risk}, State 15m: {states.get('15m')}, 4H: {direction_4h}")
+            logger.debug("%s: base_risk=%s state_15m=%s 4h=%s", symbol, base_risk, states.get("15m"), direction_4h)
             
             # Проверяем открытые сделки и закрываем при достижении TP/SL
             if candles_map.get("5m") and len(candles_map["5m"]) > 0:
@@ -193,20 +210,20 @@ def generate_signals_for_symbols(
             entry_conditions = get_entry_conditions(states, directions, score_details)
             
             if not entry_conditions:
-                print(f"   ⏸ Нет подходящих условий для входа")
+                logger.debug("%s: no entry conditions, skipping", symbol)
                 continue
-            
+
             # Проверяем объемы для фильтрации
             candle_analysis = get_candle_analysis(candles_map.get("15m", []))
             volume_profile = candle_analysis.get("volume_profile", {})
             volume_trend = volume_profile.get("volume_trend", "NORMAL")
-            
+
             # Пропускаем сигналы с низкой ликвидностью
             if volume_trend == "LOW":
-                print(f"   ⏸ Низкая ликвидность - пропускаем сигнал")
+                logger.debug("%s: low liquidity, skipping", symbol)
                 continue
-            
-            print(f"   ✅ Условия для сигнала: {', '.join(entry_conditions)}, Volume: {volume_trend}")
+
+            logger.debug("%s: entry conditions: %s, volume=%s", symbol, ", ".join(entry_conditions), volume_trend)
             
             # Рассчитываем параметры входа
             if not candles_map.get("5m") or len(candles_map["5m"]) == 0:
@@ -228,7 +245,7 @@ def generate_signals_for_symbols(
                 side = "LONG"
                 stop = low
             else:
-                print(f"   ⏸ Bias FLAT - нет направления для входа")
+                logger.debug("%s: bias FLAT, no direction, skipping", symbol)
                 continue
             
             # Рассчитываем ATR для адаптивного R:R
@@ -243,15 +260,15 @@ def generate_signals_for_symbols(
             min_stop_dist = max(atr_15m, entry * 0.003)  # 1 ATR или 0.3% — что больше
             if side == "LONG" and (entry - stop) < min_stop_dist:
                 stop = entry - min_stop_dist
-                print(f"   🔧 Стоп расширен до минимального: {stop:.4f} ({min_stop_dist/entry*100:.2f}%)")
+                logger.debug("%s: stop widened to minimum: %.4f (%.2f%%)", symbol, stop, min_stop_dist / entry * 100)
             elif side == "SHORT" and (stop - entry) < min_stop_dist:
                 stop = entry + min_stop_dist
-                print(f"   🔧 Стоп расширен до минимального: {stop:.4f} ({min_stop_dist/entry*100:.2f}%)")
+                logger.debug("%s: stop widened to minimum: %.4f (%.2f%%)", symbol, stop, min_stop_dist / entry * 100)
 
             # Проверяем размер стопа
             stop_info = calculate_stop_distance(entry, stop, atr_15m, entry)
             if not stop_info.get("is_valid", True):
-                print(f"   ⏸ Недопустимый размер стопа ({stop_info.get('stop_distance_pct', 0):.2f}%)")
+                logger.debug("%s: invalid stop distance (%.2f%%), skipping", symbol, stop_info.get("stop_distance_pct", 0))
                 continue
             
             # Улучшенная оценка риска с учетом всех индикаторов
@@ -266,7 +283,7 @@ def generate_signals_for_symbols(
             )
             
             if risk == "HIGH":
-                print(f"   ⏸ Высокий риск - пропускаем сигнал")
+                logger.debug("%s: high risk, skipping", symbol)
                 continue
             
             # Адаптивный расчет R:R
@@ -280,13 +297,15 @@ def generate_signals_for_symbols(
             pos_size = position_size(entry, stop, side)
             lev = calculate_leverage(states, atr_15m, entry, stop, side)
             
-            print(f"   📊 {side}: entry={entry:.4f}, stop={stop:.4f}, target={target:.4f}")
-            print(f"   📈 R:R={rr_result['rr_ratio']:.2f}, Risk={risk}, {rr_result['reason']}")
-            
+            logger.debug(
+                "%s: %s entry=%.4f stop=%.4f target=%.4f R:R=%.2f risk=%s %s",
+                symbol, side, entry, stop, target, rr_result["rr_ratio"], risk, rr_result["reason"]
+            )
+
             state_15m = states.get("15m", "")
             # Используем SystemState для проверки нового сигнала
             is_new = system_state.is_new_signal(symbol, state_15m) if system_state else True
-            print(f"   🔔 Проверка нового сигнала для {symbol}: состояние 15m={state_15m}, новый={is_new}")
+            logger.debug("%s: new signal check: state_15m=%s is_new=%s", symbol, state_15m, is_new)
             
             if is_new:
                 # Анализ возможностей (обновляет SystemState напрямую)
@@ -381,7 +400,7 @@ def generate_signals_for_symbols(
                     "volatility_pct": volatility_pct
                 }
                 
-                print(f"   ✅ Отправляем сигнал для {symbol} через Gatekeeper...")
+                logger.info("%s: sending signal via Gatekeeper", symbol)
                 try:
                     # Используем Gatekeeper для отправки сигнала
                     gatekeeper.send_signal(
@@ -396,13 +415,13 @@ def generate_signals_for_symbols(
                         system_state=system_state,
                         snapshot=snapshot  # Передаём snapshot для портфельного анализа
                     )
-                    print(f"   ✅ Сигнал обработан Gatekeeper для {symbol}")
-                    
+                    logger.info("%s: signal processed by Gatekeeper", symbol)
+
                     # Логируем через SignalSnapshotStore - entry point с fault injection
                     from core.signal_snapshot_store import SignalSnapshotStore
                     SignalSnapshotStore.save(snapshot)
                     stats["signals_sent"] += 1
-                    
+
                     # Открываем демо-сделку после успешной отправки сигнала
                     try:
                         from demo_trades import log_demo_trade
@@ -413,24 +432,24 @@ def generate_signals_for_symbols(
                                 position_size=pos_size,
                                 leverage=lev
                             )
-                            print(f"   ✅ Демо-сделка открыта для {symbol} (после отправки сигнала)")
+                            logger.info("%s: demo trade opened", symbol)
                     except Exception as trade_error:
-                        print(f"   ⚠️ Не удалось открыть демо-сделку для {symbol}: {type(trade_error).__name__}: {trade_error}")
+                        logger.warning(
+                            "%s: failed to open demo trade: %s: %s",
+                            symbol, type(trade_error).__name__, trade_error
+                        )
                         # Не блокируем процесс, это не критично
                 except Exception as e:
-                    print(f"   ❌ Ошибка при отправке сигнала для {symbol}: {type(e).__name__}: {e}")
-                    import traceback
-                    print(f"   Трассировка:\n{traceback.format_exc()}")
+                    logger.error(
+                        "%s: error sending signal: %s: %s",
+                        symbol, type(e).__name__, e, exc_info=True
+                    )
                     stats["signals_blocked"] += 1
             else:
-                print(f"   ⏸ Сигнал для {symbol} не новый (состояние 15m={state_15m} уже было отправлено) - пропускаем")
+                logger.debug("%s: signal not new (state_15m=%s already sent), skipping", symbol, state_15m)
 
         except Exception as e:
-            error_msg = f"Ошибка при обработке символа {symbol}: {e}"
-            print(error_msg)
-            import traceback
-            error_trace = traceback.format_exc()
-            print(error_trace)
+            logger.error("Error processing symbol %s: %s", symbol, e, exc_info=True)
             stats["errors"] += 1
             # Продолжаем обработку других символов при ошибке
     
