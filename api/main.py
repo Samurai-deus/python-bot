@@ -31,10 +31,14 @@ app = FastAPI(
 )
 
 # CORS — allow Mini App origin and local dev
-_allowed_origins = os.environ.get(
-    "CORS_ORIGINS",
-    "https://telegram.org,https://web.telegram.org,http://localhost:5173",
-).split(",")
+_allowed_origins = [
+    o.strip()
+    for o in os.environ.get(
+        "CORS_ORIGINS",
+        "https://telegram.org,https://web.telegram.org,http://localhost:5173",
+    ).split(",")
+    if o.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,

@@ -3,6 +3,7 @@ Shared dependencies for FastAPI routes.
 """
 import asyncio
 import functools
+import logging
 import os
 import hashlib
 import hmac
@@ -11,6 +12,8 @@ from typing import Optional
 from urllib.parse import unquote
 
 from fastapi import Request, HTTPException
+
+logger = logging.getLogger(__name__)
 
 
 async def run_sync(fn, *args, **kwargs):
@@ -25,6 +28,7 @@ def verify_ws_token(init_data: str) -> bool:
     Returns True if valid or DISABLE_AUTH=true, False otherwise.
     """
     if os.environ.get("DISABLE_AUTH", "false").lower() == "true":
+        logger.warning("DISABLE_AUTH=true: WS authentication is disabled — do NOT use in production")
         return True
     if not init_data:
         return False
@@ -60,6 +64,7 @@ async def verify_auth(request: Request) -> Optional[dict]:
     If DISABLE_AUTH=true, skip validation and return a stub user.
     """
     if os.environ.get("DISABLE_AUTH", "false").lower() == "true":
+        logger.warning("DISABLE_AUTH=true: HTTP authentication is disabled — do NOT use in production")
         return {"user_id": 0, "username": "dev"}
 
     init_data = request.headers.get("X-Telegram-Init-Data")

@@ -173,7 +173,7 @@ class OpportunityAwareness:
             if prev_width > 0 and current_width < prev_width * 0.8:
                 return True
         except Exception as e:
-            logger.debug("_check_volatility_squeeze error: %s", e)
+            logger.warning("_check_volatility_squeeze error: %s", e)
 
         return False
     
@@ -315,7 +315,7 @@ class OpportunityAwareness:
             if volume_trend in ["LOW", "DECREASING"]:
                 return True
         except Exception as e:
-            logger.debug("_check_suspicious_silence error: %s", e)
+            logger.warning("_check_suspicious_silence error: %s", e)
 
         return False
     

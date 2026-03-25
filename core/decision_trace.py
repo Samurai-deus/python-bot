@@ -213,12 +213,13 @@ class DecisionTrace:
         if context_snapshot is None:
             context_snapshot = {}
         
+        conn = None
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            
+
             cursor.execute("""
-                INSERT INTO decision_trace 
+                INSERT INTO decision_trace
                 (timestamp, symbol, decision_source, allow_trading, block_level, reason, context_snapshot)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -230,16 +231,17 @@ class DecisionTrace:
                 reason,
                 json.dumps(context_snapshot) if context_snapshot else "{}"
             ))
-            
+
             record_id = cursor.lastrowid
             conn.commit()
-            conn.close()
-            
             return record_id
         except Exception as e:
             logger.error(f"Ошибка записи решения в DecisionTrace: {type(e).__name__}: {e}", exc_info=True)
             # Не выбрасываем исключение - логирование не должно влиять на торговую логику
             return -1
+        finally:
+            if conn is not None:
+                conn.close()
     
     def get_recent_decisions(
         self,
@@ -260,32 +262,32 @@ class DecisionTrace:
         Returns:
             List[DecisionRecord]: Список записей о решениях
         """
+        conn = None
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            
+
             query = "SELECT * FROM decision_trace WHERE 1=1"
             params = []
-            
+
             if symbol:
                 query += " AND symbol = ?"
                 params.append(symbol)
-            
+
             if decision_source:
                 query += " AND decision_source = ?"
                 params.append(decision_source)
-            
+
             if allow_trading is not None:
                 query += " AND allow_trading = ?"
                 params.append(1 if allow_trading else 0)
-            
+
             query += " ORDER BY timestamp DESC LIMIT ?"
             params.append(limit)
-            
+
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            conn.close()
-            
+
             records = []
             for row in rows:
                 record_dict = {
@@ -298,11 +300,14 @@ class DecisionTrace:
                     "context_snapshot": row["context_snapshot"]
                 }
                 records.append(DecisionRecord.from_dict(record_dict))
-            
+
             return records
         except Exception as e:
             logger.error(f"Ошибка получения решений из DecisionTrace: {type(e).__name__}: {e}", exc_info=True)
             return []
+        finally:
+            if conn is not None:
+                conn.close()
     
     def clear_old_records(self, days: int = 30) -> int:
         """
@@ -317,26 +322,28 @@ class DecisionTrace:
         Примечание:
             Используется для управления размером базы данных.
         """
+        conn = None
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            
+
             cutoff_date = (datetime.now(UTC) - timedelta(days=days)).isoformat()
-            
+
             cursor.execute("""
-                DELETE FROM decision_trace 
+                DELETE FROM decision_trace
                 WHERE timestamp < ?
             """, (cutoff_date,))
-            
+
             deleted_count = cursor.rowcount
             conn.commit()
-            conn.close()
-            
             logger.info(f"Удалено {deleted_count} старых записей из DecisionTrace (старше {days} дней)")
             return deleted_count
         except Exception as e:
             logger.error(f"Ошибка удаления старых записей из DecisionTrace: {type(e).__name__}: {e}", exc_info=True)
             return 0
+        finally:
+            if conn is not None:
+                conn.close()
     
     def get_statistics(
         self,
@@ -356,14 +363,15 @@ class DecisionTrace:
         Примечание:
             Готово для использования в Drift Detector.
         """
+        conn = None
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            
+
             cutoff_date = (datetime.now(UTC) - timedelta(days=days)).isoformat()
-            
+
             query = """
-                SELECT 
+                SELECT
                     COUNT(*) as total,
                     SUM(CASE WHEN allow_trading = 1 THEN 1 ELSE 0 END) as allowed,
                     SUM(CASE WHEN allow_trading = 0 THEN 1 ELSE 0 END) as blocked,
@@ -374,21 +382,21 @@ class DecisionTrace:
                 FROM decision_trace
                 WHERE timestamp >= ?
             """
-            
+
             params = [cutoff_date]
-            
+
             if symbol:
                 query += " AND symbol = ?"
                 params.append(symbol)
-            
+
             query += " GROUP BY decision_source"
-            
+
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            
+
             # Общая статистика
             cursor.execute("""
-                SELECT 
+                SELECT
                     COUNT(*) as total,
                     SUM(CASE WHEN allow_trading = 1 THEN 1 ELSE 0 END) as allowed,
                     SUM(CASE WHEN allow_trading = 0 THEN 1 ELSE 0 END) as blocked,
@@ -397,10 +405,9 @@ class DecisionTrace:
                 FROM decision_trace
                 WHERE timestamp >= ?
             """ + (" AND symbol = ?" if symbol else ""), params[:1] if not symbol else params)
-            
+
             total_row = cursor.fetchone()
-            conn.close()
-            
+
             stats = {
                 "period_days": days,
                 "total_decisions": total_row["total"] if total_row else 0,
@@ -422,6 +429,9 @@ class DecisionTrace:
         except Exception as e:
             logger.error(f"Ошибка получения статистики из DecisionTrace: {type(e).__name__}: {e}", exc_info=True)
             return {}
+        finally:
+            if conn is not None:
+                conn.close()
 
 
 # ========== АРХИТЕКТУРА ДЛЯ REPLAY / DRIFT DETECTOR ==========
