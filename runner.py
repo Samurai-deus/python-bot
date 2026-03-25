@@ -2769,6 +2769,44 @@ async def daily_report_loop():
     logger.info("Daily report loop stopped")
 
 
+async def outcome_tracker_loop():
+    """
+    Периодически маркирует сигналы результатами (WIN/LOSS/NEUTRAL).
+
+    Запускается через 5 минут после старта (дать боту время),
+    затем повторяется каждые 30 минут.
+    """
+    logger.info("[OutcomeTracker] Loop started")
+    shutdown_evt = get_shutdown_event()
+
+    # Initial delay: 5 minutes
+    try:
+        await asyncio.wait_for(shutdown_evt.wait(), timeout=300.0)
+        logger.info("[OutcomeTracker] Loop stopped (shutdown during initial delay)")
+        return
+    except asyncio.TimeoutError:
+        pass
+
+    while system_state.system_health.is_running and not shutdown_evt.is_set():
+        try:
+            from brains.outcome_tracker import run_outcome_check
+            count = await asyncio.to_thread(run_outcome_check)
+            if count > 0:
+                logger.info("[OutcomeTracker] Newly marked outcomes: %d", count)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("[OutcomeTracker] Error: %s", e, exc_info=True)
+
+        try:
+            await asyncio.wait_for(shutdown_evt.wait(), timeout=1800.0)  # 30 min
+            break
+        except asyncio.TimeoutError:
+            pass
+
+    logger.info("[OutcomeTracker] Loop stopped")
+
+
 async def paper_trading_monitor_loop():
     """
     Мониторинг бумажных сделок — проверяет SL/TP каждые 60 секунд.
@@ -4323,6 +4361,10 @@ async def main():
         register_task(
             asyncio.create_task(paper_trading_monitor_loop(), name="PaperTradingMonitor"),
             "PaperTradingMonitor"
+        ),
+        register_task(
+            asyncio.create_task(outcome_tracker_loop(), name="OutcomeTracker"),
+            "OutcomeTracker"
         ),
     ]
     

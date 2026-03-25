@@ -5,6 +5,53 @@ from typing import List, Dict, Optional
 from core.market_state import MarketState, state_to_string
 from core.signal_snapshot import SignalSnapshot, SignalDecision
 
+
+def _parse_price(s: str) -> Optional[float]:
+    """Парсит цену из строки CSV. Возвращает None если не число."""
+    if not s or s in ("NO_ENTRY", "NO_EXIT", ""):
+        return None
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_rr(s: str) -> Optional[float]:
+    """Парсит R-ratio из строки вида 'R=2.50'. Возвращает None если не распарсилось."""
+    if not s:
+        return None
+    try:
+        if s.startswith("R="):
+            return float(s[2:])
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def _compute_sl_from_row(row: list) -> Optional[float]:
+    """
+    Возвращает SL из колонки 13 (новый формат) или вычисляет из entry/tp/rr (старый формат).
+    """
+    # Новый формат: col 13
+    if len(row) > 13:
+        sl = _parse_price(row[13])
+        if sl is not None:
+            return sl
+
+    # Старый формат: вычисляем из entry, tp, rr
+    entry = _parse_price(row[7]) if len(row) > 7 else None
+    tp = _parse_price(row[8]) if len(row) > 8 else None
+    rr = _parse_rr(row[9]) if len(row) > 9 else None
+    direction = row[12] if len(row) > 12 else ""
+
+    if entry and tp and rr and rr > 0:
+        if direction == "LONG" and tp > entry:
+            return entry - (tp - entry) / rr
+        if direction == "SHORT" and tp < entry:
+            return entry + (entry - tp) / rr
+    return None
+
+
 # ========== FAULT INJECTION (для тестирования устойчивости) ==========
 
 FAULT_INJECT_STORAGE_FAILURE = os.environ.get("FAULT_INJECT_STORAGE_FAILURE", "false").lower() == "true"
@@ -51,6 +98,7 @@ def log_signal_snapshot(snapshot: SignalSnapshot):
                 "decision",
                 "confidence",
                 "direction",
+                "sl",
             ])
 
         # Преобразуем domain-объект в строки (IO-граница)
@@ -78,6 +126,8 @@ def log_signal_snapshot(snapshot: SignalSnapshot):
         else:
             direction_str = ""
 
+        sl_str = f"{snapshot.sl:.4f}" if snapshot.sl else ""
+
         writer.writerow([
             timestamp,
             snapshot.symbol,
@@ -92,6 +142,7 @@ def log_signal_snapshot(snapshot: SignalSnapshot):
             decision_str,
             confidence_str,
             direction_str,
+            sl_str,
         ])
 
 
@@ -197,6 +248,9 @@ def get_recent_signals(since: Optional[datetime] = None) -> List[Dict]:
                         "decision": row[10] if len(row) > 10 else "",
                         "confidence": float(row[11]) if len(row) > 11 and row[11] else None,
                         "direction": row[12] if len(row) > 12 else "",
+                        "entry": _parse_price(row[7]) if len(row) > 7 else None,
+                        "tp": _parse_price(row[8]) if len(row) > 8 else None,
+                        "sl": _compute_sl_from_row(row),
                     })
                 except (ValueError, IndexError):
                     continue
