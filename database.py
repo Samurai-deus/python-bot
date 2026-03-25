@@ -192,6 +192,30 @@ def _init_database(conn: sqlite3.Connection):
         )
     """)
 
+    # Исходы сигналов — для системы обучения (Phase 5+)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS signal_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_ts TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry REAL NOT NULL,
+            tp REAL NOT NULL,
+            sl REAL NOT NULL,
+            confidence REAL,
+            state_15m TEXT,
+            checked_at TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            candles_checked INTEGER NOT NULL DEFAULT 0,
+            max_favorable_pct REAL,
+            max_adverse_pct REAL,
+            UNIQUE(signal_ts, symbol)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_symbol ON signal_outcomes(symbol)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_outcome ON signal_outcomes(outcome)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_ts ON signal_outcomes(signal_ts)")
+
     conn.commit()
 
 
@@ -1042,3 +1066,76 @@ def get_all_settings() -> Dict[str, Dict]:
         }
         for row in rows
     }
+
+
+# ============================================================================
+# SIGNAL OUTCOMES (система обучения)
+# ============================================================================
+
+def save_signal_outcome(data: dict) -> Optional[int]:
+    """
+    Сохраняет исход сигнала. Возвращает id или None если дубликат.
+
+    Args:
+        data: dict with keys: signal_ts, symbol, direction, entry, tp, sl,
+              confidence (opt), state_15m (opt), checked_at, outcome,
+              candles_checked (opt), max_favorable_pct (opt), max_adverse_pct (opt)
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO signal_outcomes
+            (signal_ts, symbol, direction, entry, tp, sl, confidence, state_15m,
+             checked_at, outcome, candles_checked, max_favorable_pct, max_adverse_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["signal_ts"], data["symbol"], data["direction"],
+            data["entry"], data["tp"], data["sl"],
+            data.get("confidence"), data.get("state_15m"),
+            data["checked_at"], data["outcome"],
+            data.get("candles_checked", 0),
+            data.get("max_favorable_pct"), data.get("max_adverse_pct"),
+        ))
+        conn.commit()
+        return cursor.lastrowid if cursor.rowcount > 0 else None
+    finally:
+        conn.close()
+
+
+def is_outcome_tracked(signal_ts: str, symbol: str) -> bool:
+    """Проверяет, записан ли уже исход для данного сигнала."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM signal_outcomes WHERE signal_ts = ? AND symbol = ? LIMIT 1",
+            (signal_ts, symbol),
+        )
+        return cursor.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def get_outcomes_for_analysis(days: int = 30) -> List[Dict]:
+    """
+    Возвращает все исходы за последние N дней для анализа точности.
+
+    Args:
+        days: Период в днях
+    Returns:
+        Список словарей с полями таблицы signal_outcomes
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        cursor.execute("""
+            SELECT * FROM signal_outcomes
+            WHERE signal_ts >= ?
+            ORDER BY signal_ts DESC
+        """, (since,))
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()

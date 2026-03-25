@@ -98,3 +98,45 @@ class UpdateSettingsRequest(BaseModel):
     bot_interval: Optional[int] = None          # 60–600s
     trading_mode: Optional[str] = None          # DRY_RUN | PAPER_TRADING
     symbols_enabled: Optional[List[str]] = None
+
+
+class ConfidenceBucketResponse(BaseModel):
+    label: str
+    total: int
+    wins: int
+    losses: int
+    win_rate: float
+    expected_rate: float
+    calibration_error: float
+
+
+class SymbolAccuracyResponse(BaseModel):
+    symbol: str
+    total: int
+    wins: int
+    losses: int
+    neutrals: int
+    win_rate: float
+    avg_favorable_pct: float
+    avg_adverse_pct: float
+
+
+class AccuracyReportResponse(BaseModel):
+    period_days: int
+    total_outcomes: int
+    total_wins: int
+    total_losses: int
+    total_neutrals: int
+    overall_win_rate: float
+    long_win_rate: float
+    long_total: int
+    short_win_rate: float
+    short_total: int
+    by_confidence: List[ConfidenceBucketResponse]
+    by_state_15m: Dict[str, dict]
+    mean_calibration_error: float
+    top_symbols: List[SymbolAccuracyResponse]
+    bottom_symbols: List[SymbolAccuracyResponse]
+    avg_max_favorable_pct: float
+    avg_max_adverse_pct: float
+    generated_at: str

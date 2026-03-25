@@ -2,6 +2,7 @@
 Analytics endpoints.
 """
 import asyncio
+import logging
 from typing import List
 from fastapi import APIRouter, Depends, Query
 
@@ -11,7 +12,12 @@ from api.models import (
     EquityCurveResponse,
     SymbolPnlItem,
     PnlHistoryItem,
+    AccuracyReportResponse,
+    ConfidenceBucketResponse,
+    SymbolAccuracyResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -102,3 +108,88 @@ async def get_pnl_history(
         )
         for r in rows
     ]
+
+
+@router.get("/accuracy", response_model=AccuracyReportResponse)
+async def get_accuracy_report(
+    days: int = Query(default=30, ge=1, le=90),
+    _: dict = Depends(verify_auth),
+):
+    """
+    Отчёт точности предсказаний бота на основе исходов сигналов.
+
+    Требует накопленных данных в signal_outcomes (заполняется outcome_tracker_loop).
+    Возвращает 404 если данных ещё недостаточно (< 3 размеченных сигнала).
+    """
+    from fastapi import HTTPException
+    from brains.accuracy_analyzer import analyze_accuracy
+
+    try:
+        report = await asyncio.wait_for(
+            run_sync(analyze_accuracy, days), timeout=5.0
+        )
+    except Exception as exc:
+        logger.error("Failed to get accuracy report: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Not enough outcome data yet. OutcomeTracker needs more time to accumulate results.",
+        )
+
+    return AccuracyReportResponse(
+        period_days=report.period_days,
+        total_outcomes=report.total_outcomes,
+        total_wins=report.total_wins,
+        total_losses=report.total_losses,
+        total_neutrals=report.total_neutrals,
+        overall_win_rate=report.overall_win_rate,
+        long_win_rate=report.long_win_rate,
+        long_total=report.long_total,
+        short_win_rate=report.short_win_rate,
+        short_total=report.short_total,
+        by_confidence=[
+            ConfidenceBucketResponse(
+                label=b.label,
+                total=b.total,
+                wins=b.wins,
+                losses=b.losses,
+                win_rate=b.win_rate,
+                expected_rate=b.expected_rate,
+                calibration_error=b.calibration_error,
+            )
+            for b in report.by_confidence
+        ],
+        by_state_15m=report.by_state_15m,
+        mean_calibration_error=report.mean_calibration_error,
+        top_symbols=[
+            SymbolAccuracyResponse(
+                symbol=s.symbol,
+                total=s.total,
+                wins=s.wins,
+                losses=s.losses,
+                neutrals=s.neutrals,
+                win_rate=s.win_rate,
+                avg_favorable_pct=s.avg_favorable_pct,
+                avg_adverse_pct=s.avg_adverse_pct,
+            )
+            for s in report.top_symbols
+        ],
+        bottom_symbols=[
+            SymbolAccuracyResponse(
+                symbol=s.symbol,
+                total=s.total,
+                wins=s.wins,
+                losses=s.losses,
+                neutrals=s.neutrals,
+                win_rate=s.win_rate,
+                avg_favorable_pct=s.avg_favorable_pct,
+                avg_adverse_pct=s.avg_adverse_pct,
+            )
+            for s in report.bottom_symbols
+        ],
+        avg_max_favorable_pct=report.avg_max_favorable_pct,
+        avg_max_adverse_pct=report.avg_max_adverse_pct,
+        generated_at=report.generated_at.isoformat(),
+    )
