@@ -430,15 +430,13 @@ def pause_trading_manually():
         if _control_plane_state["manual_pause_active"]:
             return False  # Уже приостановлена
         _control_plane_state["manual_pause_active"] = True
+        _prometheus_metrics["admin_commands_total"]["pause"]["success"] += 1
+        _adaptive_system_state["recovery_cycles"] = 0
 
-    # HARDENING: Синхронизируем trading_paused через state machine
+    # HARDENING: Синхронизируем trading_paused через state machine (вне лока — не использует _metrics_lock)
     state_machine = get_state_machine()
     state_machine.sync_to_system_state(system_state, manual_pause_active=True)
 
-    with _metrics_lock:
-        _prometheus_metrics["admin_commands_total"]["pause"]["success"] += 1
-        _adaptive_system_state["recovery_cycles"] = 0
-    
     logger.info("Trading paused manually via control plane")
     return True
 
@@ -461,17 +459,14 @@ def resume_trading_manually():
     
     with _metrics_lock:
         _control_plane_state["manual_pause_active"] = False
+        # ВАЖНО: Эта функция вызывается только если safe_mode == False (проверка выше)
+        _prometheus_metrics["admin_commands_total"]["resume"]["success"] += 1
+        _adaptive_system_state["recovery_cycles"] = 0
 
-    # HARDENING: Синхронизируем trading_paused через state machine
+    # HARDENING: Синхронизируем trading_paused через state machine (вне лока — не использует _metrics_lock)
     state_machine = get_state_machine()
     state_machine.sync_to_system_state(system_state, manual_pause_active=False)
 
-    # Обновляем метрику с новой структурой (result labels)
-    # ВАЖНО: Эта функция вызывается только если safe_mode == False (проверка выше)
-    with _metrics_lock:
-        _prometheus_metrics["admin_commands_total"]["resume"]["success"] += 1
-        _adaptive_system_state["recovery_cycles"] = 0
-    
     logger.info("Trading resumed manually via control plane")
     return (True, "Trading resumed")
 

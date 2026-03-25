@@ -117,34 +117,35 @@ async def send_message_async(text, parse_mode="Markdown"):
     """
     Async версия отправки сообщения.
     Используется из async контекста (runner.py, supervisors).
-    
+
     Args:
         text: Текст сообщения
         parse_mode: Режим парсинга (Markdown, HTML или None)
     """
     try:
         return await _send(text, parse_mode=parse_mode)
-    except Exception:
+    except Exception as e:
         # Если не получилось с Markdown, пробуем без него
+        logger.debug("Ошибка отправки с parse_mode=%s, повтор без форматирования: %s", parse_mode, e)
         try:
             return await _send(text, parse_mode=None)
-        except Exception:
+        except Exception as e2:
             # Игнорируем ошибки - не блокируем основной процесс
-            pass
+            logger.warning("Не удалось отправить сообщение в Telegram: %s: %s", type(e2).__name__, e2)
 
 async def send_chart_async(symbol):
     """
     Async версия отправки графика.
     Используется из async контекста (runner.py, supervisors).
-    
+
     Args:
         symbol: Символ для графика
     """
     try:
         return await _send_chart(symbol)
-    except Exception:
+    except Exception as e:
         # Игнорируем ошибки - не блокируем основной процесс
-        pass
+        logger.warning("Не удалось отправить график для %s: %s: %s", symbol, type(e).__name__, e)
 
 
 # ===============================

@@ -25,7 +25,7 @@ async def get_latest_signals(
 
         since = datetime.now(UTC) - timedelta(days=30)
         rows = await asyncio.wait_for(run_sync(get_recent_signals, since), timeout=5.0)
-        rows.sort(key=lambda r: r["timestamp"], reverse=True)
+        rows.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
         result = []
         for r in rows[:limit]:
             direction = r.get("direction", "")
