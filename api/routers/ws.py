@@ -5,7 +5,9 @@ import asyncio
 import logging
 from datetime import datetime, UTC
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+
+from api.deps import verify_ws_token
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +81,10 @@ async def _build_snapshot() -> dict:
 
 
 @router.websocket("/api/ws")
-async def websocket_endpoint(ws: WebSocket):
+async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
+    if not verify_ws_token(token):
+        await ws.close(code=4001, reason="Unauthorized")
+        return
     await manager.connect(ws)
     task = asyncio.create_task(_push_loop(ws))
     try:

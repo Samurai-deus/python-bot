@@ -31,7 +31,7 @@ def send_heartbeat():
         system_info = ""
         if PSUTIL_AVAILABLE:
             try:
-                cpu_percent = psutil.cpu_percent(interval=1)
+                cpu_percent = psutil.cpu_percent(interval=0)
                 memory = psutil.virtual_memory()
                 memory_percent = memory.percent
                 disk = psutil.disk_usage('/')
