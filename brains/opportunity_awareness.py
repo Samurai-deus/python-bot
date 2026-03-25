@@ -7,6 +7,7 @@ Opportunity Awareness Bot - готовит возможности, не толк
 - расхождения ожидание / реакция
 - подозрительная тишина
 """
+import logging
 from typing import Dict, List, Optional
 from core.decision_core import Opportunity
 from volatility_filter import calculate_volatility_metrics
@@ -15,6 +16,8 @@ from states import is_flat
 from datetime import datetime, UTC, timedelta
 import hashlib
 import json
+
+logger = logging.getLogger(__name__)
 
 
 class OpportunityAwareness:
@@ -169,9 +172,9 @@ class OpportunityAwareness:
             # Если ширина уменьшилась более чем на 20% - сжатие
             if prev_width > 0 and current_width < prev_width * 0.8:
                 return True
-        except:
-            pass
-        
+        except Exception as e:
+            logger.debug("_check_volatility_squeeze error: %s", e)
+
         return False
     
     def _check_accumulation(self, candles_15m: List, candles_30m: List) -> bool:
@@ -311,9 +314,9 @@ class OpportunityAwareness:
             # Низкая волатильность + низкие/падающие объемы = подозрительная тишина
             if volume_trend in ["LOW", "DECREASING"]:
                 return True
-        except:
-            pass
-        
+        except Exception as e:
+            logger.debug("_check_suspicious_silence error: %s", e)
+
         return False
     
     def _calculate_readiness(self, volatility_squeeze: bool, accumulation: bool,
