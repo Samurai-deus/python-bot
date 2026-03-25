@@ -15,7 +15,7 @@ from fastapi import Request, HTTPException
 
 async def run_sync(fn, *args, **kwargs):
     """Run a synchronous function in the default thread pool executor."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, functools.partial(fn, *args, **kwargs))
 
 

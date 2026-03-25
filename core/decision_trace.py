@@ -117,12 +117,18 @@ class DecisionTrace:
     def _get_connection(self) -> sqlite3.Connection:
         """
         Получает соединение с базой данных.
-        
+
+        check_same_thread=False safe here: each caller creates its own
+        connection, uses it within a single thread, and closes it immediately.
+        WAL mode enables concurrent readers/writers without "database is locked".
+
         Returns:
             sqlite3.Connection: Соединение с БД
         """
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row  # Для доступа к колонкам по имени
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         return conn
     
     def _init_database(self):
