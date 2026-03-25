@@ -409,11 +409,13 @@ def update_volatility_state(volatility_level: str):
     if volatility_level in ["LOW", "NORMAL", "MEDIUM", "HIGH", "EXTREME"]:
         # Маппинг: LOW -> LOW, NORMAL/MEDIUM -> MEDIUM, HIGH/EXTREME -> HIGH
         if volatility_level == "LOW":
-            _adaptive_system_state["volatility_state"] = "LOW"
+            new_state = "LOW"
         elif volatility_level in ["NORMAL", "MEDIUM"]:
-            _adaptive_system_state["volatility_state"] = "MEDIUM"
+            new_state = "MEDIUM"
         else:  # HIGH, EXTREME
-            _adaptive_system_state["volatility_state"] = "HIGH"
+            new_state = "HIGH"
+        with _metrics_lock:
+            _adaptive_system_state["volatility_state"] = new_state
 
 def pause_trading_manually():
     """
@@ -484,15 +486,15 @@ def _get_alert_key(alert_type: str, level: str) -> str:
 
 def _should_send_alert(alert_key: str) -> bool:
     """Проверяет, можно ли отправить алерт (cooldown)"""
-    global _alert_last_sent
     now = time.monotonic()
-    last_sent = _alert_last_sent.get(alert_key, 0.0)
+    with _metrics_lock:
+        last_sent = _alert_last_sent.get(alert_key, 0.0)
     return (now - last_sent) >= ALERT_COOLDOWN
 
 def _mark_alert_sent(alert_key: str):
     """Отмечает, что алерт был отправлен"""
-    global _alert_last_sent
-    _alert_last_sent[alert_key] = time.monotonic()
+    with _metrics_lock:
+        _alert_last_sent[alert_key] = time.monotonic()
 
 async def evaluate_and_send_alerts(duration: float):
     """
