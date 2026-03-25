@@ -1,11 +1,14 @@
 """
 Модуль для алертов о резких движениях без видимой причины
 """
+import logging
 from datetime import datetime, UTC
 from typing import Dict, List, Optional
 from volatility_filter import check_price_spike
 from indicators import atr, rsi, macd
 from telegram_bot import send_message
+
+logger = logging.getLogger(__name__)
 
 
 # Кэш последних алертов (чтобы не спамить)
@@ -150,7 +153,7 @@ def send_spike_alert(symbol: str, spike_analysis: Dict):
         send_message(message)
         _last_alerts[alert_key] = current_time
     except Exception as e:
-        print(f"Ошибка отправки алерта: {e}")
+        logger.error("Alert send error: %s", e)
 
 
 def check_all_symbols_for_spikes(symbols: List[str], candles_map: Dict[str, Dict[str, List]]):

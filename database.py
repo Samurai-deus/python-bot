@@ -29,9 +29,15 @@ def get_db_connection():
     """
     Получает соединение с базой данных.
     Создает базу и таблицы, если их нет.
+
+    check_same_thread=False is safe here because each caller creates its own
+    connection, uses it within a single thread, and closes it immediately.
+    WAL mode enables concurrent readers without blocking writers.
     """
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row  # Для доступа к колонкам по имени
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     _init_database(conn)
     return conn
 

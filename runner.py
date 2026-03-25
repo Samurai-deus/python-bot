@@ -339,6 +339,12 @@ _control_plane_state = {
 # Initialized lazily in start_http_server() when event loop is available
 _admin_command_lock = None
 
+# Thread-safe lock for metrics counters.
+# These sync functions may be called from the event loop thread OR from threads
+# spawned by run_in_executor, so threading.Lock is required (asyncio.Lock cannot
+# be awaited from sync code).
+_metrics_lock = threading.Lock()
+
 def _get_admin_lock():
     """Returns the admin command lock, initializing it if needed"""
     global _admin_command_lock
@@ -348,46 +354,49 @@ def _get_admin_lock():
 
 def get_analysis_metrics():
     """Возвращает текущие метрики анализа для health endpoint"""
-    return _analysis_metrics.copy()
+    with _metrics_lock:
+        return _analysis_metrics.copy()
 
 def update_analysis_metrics(metrics_update: dict):
     """Обновляет глобальные метрики анализа"""
     global _analysis_metrics
-    _analysis_metrics.update(metrics_update)
+    with _metrics_lock:
+        _analysis_metrics.update(metrics_update)
 
 def get_prometheus_metrics():
     """Возвращает текущие Prometheus метрики"""
-    return _prometheus_metrics.copy()
+    with _metrics_lock:
+        return _prometheus_metrics.copy()
 
 def record_analysis_duration(duration: float):
     """
     Записывает длительность анализа в histogram buckets.
-    
+
     NON-BLOCKING: Просто обновляет счетчики в памяти.
-    
+
     Prometheus histogram buckets are cumulative:
     - Each bucket counts all observations <= bucket value
     - Values < smallest bucket are still counted in smallest bucket
     """
     global _prometheus_metrics
-    # Обновляем sum и count
-    _prometheus_metrics["analysis_duration_sum"] += duration
-    _prometheus_metrics["analysis_duration_count"] += 1
-    
-    # Обновляем buckets (cumulative - все bucket'ы >= duration увеличиваются)
-    for bucket in ANALYSIS_DURATION_BUCKETS:
-        if duration <= bucket:
-            _prometheus_metrics["analysis_duration_buckets"][bucket] += 1
+    with _metrics_lock:
+        _prometheus_metrics["analysis_duration_sum"] += duration
+        _prometheus_metrics["analysis_duration_count"] += 1
+        for bucket in ANALYSIS_DURATION_BUCKETS:
+            if duration <= bucket:
+                _prometheus_metrics["analysis_duration_buckets"][bucket] += 1
 
 def increment_scheduler_stalls():
     """Увеличивает счетчик scheduler stalls (NON-BLOCKING)"""
     global _prometheus_metrics
-    _prometheus_metrics["scheduler_stalls_total"] += 1
+    with _metrics_lock:
+        _prometheus_metrics["scheduler_stalls_total"] += 1
 
 def increment_analysis_cycles():
     """Увеличивает счетчик завершенных циклов анализа (NON-BLOCKING)"""
     global _prometheus_metrics
-    _prometheus_metrics["analysis_cycles_total"] += 1
+    with _metrics_lock:
+        _prometheus_metrics["analysis_cycles_total"] += 1
 
 def get_adaptive_system_state():
     """Возвращает текущее состояние адаптивной системы"""
@@ -415,20 +424,18 @@ def pause_trading_manually():
     """
     global _control_plane_state, _prometheus_metrics, _adaptive_system_state
     
-    if _control_plane_state["manual_pause_active"]:
-        return False  # Уже приостановлена
-    
-    _control_plane_state["manual_pause_active"] = True
-    
+    with _metrics_lock:
+        if _control_plane_state["manual_pause_active"]:
+            return False  # Уже приостановлена
+        _control_plane_state["manual_pause_active"] = True
+
     # HARDENING: Синхронизируем trading_paused через state machine
     state_machine = get_state_machine()
     state_machine.sync_to_system_state(system_state, manual_pause_active=True)
-    
-    # Обновляем метрику с новой структурой
-    if "success" not in _prometheus_metrics["admin_commands_total"]["pause"]:
-        _prometheus_metrics["admin_commands_total"]["pause"]["success"] = 0
-    _prometheus_metrics["admin_commands_total"]["pause"]["success"] += 1
-    _adaptive_system_state["recovery_cycles"] = 0
+
+    with _metrics_lock:
+        _prometheus_metrics["admin_commands_total"]["pause"]["success"] += 1
+        _adaptive_system_state["recovery_cycles"] = 0
     
     logger.info("Trading paused manually via control plane")
     return True
@@ -450,18 +457,18 @@ def resume_trading_manually():
     if not system_state.system_health.trading_paused:
         return (False, "Trading is already active")
     
-    _control_plane_state["manual_pause_active"] = False
-    
+    with _metrics_lock:
+        _control_plane_state["manual_pause_active"] = False
+
     # HARDENING: Синхронизируем trading_paused через state machine
     state_machine = get_state_machine()
     state_machine.sync_to_system_state(system_state, manual_pause_active=False)
-    
+
     # Обновляем метрику с новой структурой (result labels)
     # ВАЖНО: Эта функция вызывается только если safe_mode == False (проверка выше)
-    if "success" not in _prometheus_metrics["admin_commands_total"]["resume"]:
-        _prometheus_metrics["admin_commands_total"]["resume"]["success"] = 0
-    _prometheus_metrics["admin_commands_total"]["resume"]["success"] += 1
-    _adaptive_system_state["recovery_cycles"] = 0
+    with _metrics_lock:
+        _prometheus_metrics["admin_commands_total"]["resume"]["success"] += 1
+        _adaptive_system_state["recovery_cycles"] = 0
     
     logger.info("Trading resumed manually via control plane")
     return (True, "Trading resumed")

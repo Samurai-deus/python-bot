@@ -1,10 +1,13 @@
 """
 Модуль для мониторинга работоспособности бота и отправки heartbeat сообщений.
 """
+import logging
 import time
 import os
 from datetime import datetime, UTC
 from telegram_bot import send_message
+
+logger = logging.getLogger(__name__)
 
 # Пытаемся импортировать psutil, но не критично если его нет
 try:
@@ -59,7 +62,7 @@ def send_heartbeat():
             pass
             
     except Exception as e:
-        print(f"⚠️ Ошибка отправки heartbeat: {e}")
+        logger.error("Heartbeat send error: %s", e)
 
 
 def check_last_heartbeat(max_interval_seconds=7200):
@@ -104,7 +107,7 @@ def check_last_heartbeat(max_interval_seconds=7200):
         return True
         
     except Exception as e:
-        print(f"⚠️ Ошибка проверки heartbeat: {e}")
+        logger.error("Heartbeat check error: %s", e)
         return False
 
 
@@ -148,4 +151,4 @@ async def send_heartbeat_async():
         except Exception:
             pass
     except Exception as e:
-        print(f'Heartbeat async error: {e}')
+        logger.error("Heartbeat async error: %s", e)
