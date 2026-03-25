@@ -1,6 +1,7 @@
 """
 Open positions and trade history endpoints.
 """
+import asyncio
 from typing import List
 from fastapi import APIRouter, Depends, Query
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/positions", tags=["positions"])
 async def get_open_positions(_: dict = Depends(verify_auth)):
     from database import get_open_positions
 
-    rows = await run_sync(get_open_positions)
+    rows = await asyncio.wait_for(run_sync(get_open_positions), timeout=5.0)
     return [
         PositionResponse(
             id=r["id"],
@@ -37,7 +38,7 @@ async def get_trade_history(
 ):
     from database import get_closed_trades
 
-    rows = await run_sync(get_closed_trades, days)
+    rows = await asyncio.wait_for(run_sync(get_closed_trades, days), timeout=5.0)
     return [
         TradeHistoryItem(
             symbol=r["symbol"],

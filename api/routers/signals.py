@@ -1,6 +1,7 @@
 """
 Signal endpoints.
 """
+import asyncio
 import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,7 +24,7 @@ async def get_latest_signals(
         from journal import get_recent_signals
 
         since = datetime.now(UTC) - timedelta(days=30)
-        rows = await run_sync(get_recent_signals, since)
+        rows = await asyncio.wait_for(run_sync(get_recent_signals, since), timeout=5.0)
         rows.sort(key=lambda r: r["timestamp"], reverse=True)
         result = []
         for r in rows[:limit]:
@@ -57,7 +58,7 @@ async def get_signal_history(
     from database import get_closed_trades
 
     try:
-        rows = await run_sync(get_closed_trades, days)
+        rows = await asyncio.wait_for(run_sync(get_closed_trades, days), timeout=5.0)
         result = []
         for r in rows:
             if symbol and r["symbol"] != symbol:
