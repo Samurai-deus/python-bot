@@ -1,6 +1,7 @@
 """
 Analytics endpoints.
 """
+import asyncio
 from typing import List
 from fastapi import APIRouter, Depends, Query
 
@@ -23,7 +24,7 @@ async def get_summary(
     from analytics.performance_tracker import PerformanceTracker
 
     tracker = PerformanceTracker()
-    report = await run_sync(tracker.get_full_report, days)
+    report = await asyncio.wait_for(run_sync(tracker.get_full_report, days), timeout=5.0)
 
     if report is None:
         return AnalyticsSummaryResponse(
@@ -54,7 +55,7 @@ async def get_equity_curve(
 ):
     from database import get_equity_curve_points
 
-    rows = await run_sync(get_equity_curve_points, days)
+    rows = await asyncio.wait_for(run_sync(get_equity_curve_points, days), timeout=5.0)
     points = [r["balance"] for r in rows]
     timestamps = [r["timestamp"] for r in rows]
     return EquityCurveResponse(points=points, timestamps=timestamps)
@@ -68,7 +69,7 @@ async def get_by_symbol(
     from analytics.performance_tracker import PerformanceTracker
 
     tracker = PerformanceTracker()
-    by_sym = await run_sync(tracker.get_pnl_by_symbol, days)
+    by_sym = await asyncio.wait_for(run_sync(tracker.get_pnl_by_symbol, days), timeout=5.0)
 
     result = []
     for symbol, sym_report in by_sym.items():
@@ -91,7 +92,7 @@ async def get_pnl_history(
 ):
     from database import get_pnl_history
 
-    rows = await run_sync(get_pnl_history, days)
+    rows = await asyncio.wait_for(run_sync(get_pnl_history, days), timeout=5.0)
     return [
         PnlHistoryItem(
             date=r["date"],
