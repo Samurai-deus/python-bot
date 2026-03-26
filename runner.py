@@ -4243,6 +4243,13 @@ async def main():
     loop = asyncio.get_running_loop()
     state_machine.set_event_loop(loop)
     logger.critical("STATE_MACHINE: Event loop registered for thread-safe triggers")
+
+    # HARDENING: Регистрируем loop в AsyncToSyncAdapter для вызовов из worker threads
+    # (generate_signals_for_symbols запускается через asyncio.to_thread — без этого
+    #  get_running_loop() падает с RuntimeError и все сигналы блокируются fail-safe)
+    from core.system_guardian import AsyncToSyncAdapter
+    AsyncToSyncAdapter.set_main_loop(loop)
+    logger.critical("ASYNC_TO_SYNC_ADAPTER: Main event loop registered")
     
     # ========== THREAD-BASED WATCHDOG STARTUP ==========
     # HARDENING: ThreadWatchdog использует state machine, не system_state

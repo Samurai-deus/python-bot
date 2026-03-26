@@ -24,55 +24,63 @@ logger = logging.getLogger(__name__)
 class AsyncToSyncAdapter:
     """
     Тонкий адаптер для вызова async функций из синхронного контекста.
-    
+
     Инкапсулирует логику адаптации к event loop, делая SystemGuardian
     execution-agnostic (независимым от runtime контекста).
-    
+
     Поведение:
-    - Если event loop запущен → использует run_coroutine_threadsafe
-    - Если event loop не запущен → возвращает fail-safe результат (не создаёт новый loop)
+    - Если event loop запущен в текущем потоке → использует run_coroutine_threadsafe
+    - Если вызов из worker thread (asyncio.to_thread) → использует сохранённый главный loop
+    - Если loop недоступен → возвращает fail-safe результат (не создаёт новый loop)
     - Fail-safe: любой сбой → возвращает блокирующий результат
     """
-    
+
+    _main_loop = None  # Главный event loop, регистрируется при старте бота
+
+    @classmethod
+    def set_main_loop(cls, loop) -> None:
+        """Регистрирует главный event loop. Вызывать один раз при старте бота."""
+        cls._main_loop = loop
+
     @staticmethod
     def call_async(coro, timeout: float = 5.0, fail_safe_result=None):
         """
         Вызывает async корутину из синхронного контекста.
-        
+
+        Поддерживает два сценария:
+        1. Вызов из основного async потока — get_running_loop() успешен.
+        2. Вызов из worker thread (asyncio.to_thread) — get_running_loop() падает,
+           используется сохранённый _main_loop через run_coroutine_threadsafe.
+
         CRITICAL: Never creates nested event loops.
-        If no event loop is running, returns fail-safe result instead of creating a new loop.
-        This prevents "RuntimeError: This event loop is already running".
-        
+
         Args:
             coro: Async корутина для выполнения
             timeout: Таймаут в секундах
             fail_safe_result: Результат при сбое (для fail-safe)
-        
+
         Returns:
             Результат выполнения корутины или fail_safe_result при сбое
         """
         import asyncio
-        
+
         try:
-            # Определяем контекст: запущен ли event loop
+            # Определяем loop: сначала текущий поток, затем сохранённый главный
             try:
                 loop = asyncio.get_running_loop()
-                # Контекст: event loop запущен → используем thread-safe вызов
-                future = asyncio.run_coroutine_threadsafe(coro, loop)
-                return future.result(timeout=timeout)
             except RuntimeError:
-                # CRITICAL: get_running_loop() failed - could mean:
-                # 1. No loop running (safe case, but we can't create one from sync context)
-                # 2. Loop running in different thread (unsafe to create new loop)
-                # 
-                # NEVER use asyncio.run() here - it will fail if we're in async context
-                # Instead, return fail-safe result to prevent nested loop creation
-                logger.error(
-                    "AsyncToSyncAdapter: No running event loop detected. "
-                    "Cannot safely execute async operation from sync context. "
-                    "Returning fail-safe result to prevent nested event loop creation."
-                )
-                return fail_safe_result
+                # Нет loop в текущем потоке (worker thread из asyncio.to_thread)
+                loop = AsyncToSyncAdapter._main_loop
+                if loop is None or loop.is_closed():
+                    logger.error(
+                        "AsyncToSyncAdapter: No event loop available. "
+                        "Call AsyncToSyncAdapter.set_main_loop(loop) at bot startup."
+                    )
+                    coro.close()  # Явно закрываем coroutine, чтобы не было RuntimeWarning
+                    return fail_safe_result
+
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            return future.result(timeout=timeout)
         except (asyncio.TimeoutError, TimeoutError):
             # Timeout → возвращаем fail-safe результат
             logger.error(f"AsyncToSyncAdapter timeout (operation: {coro.__name__ if hasattr(coro, '__name__') else 'unknown'})")
