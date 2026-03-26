@@ -17,13 +17,16 @@ router = APIRouter(tags=["websocket"])
 class ConnectionManager:
     def __init__(self):
         self._connections: set[WebSocket] = set()
+        self._lock = asyncio.Lock()
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
-        self._connections.add(ws)
+        async with self._lock:
+            self._connections.add(ws)
 
-    def disconnect(self, ws: WebSocket):
-        self._connections.discard(ws)
+    async def disconnect(self, ws: WebSocket):
+        async with self._lock:
+            self._connections.discard(ws)
 
 
 manager = ConnectionManager()
@@ -31,14 +34,19 @@ manager = ConnectionManager()
 
 async def _push_loop(ws: WebSocket):
     """Background task: send system snapshot every 5 seconds."""
+    from fastapi import WebSocketDisconnect as _WSD
     try:
         while True:
             try:
                 payload = await _build_snapshot()
                 await ws.send_json(payload)
-            except Exception as exc:
-                logger.warning("WS push error: %s", exc)
+            except (_WSD, RuntimeError) as exc:
+                # Client disconnected — stop the loop
+                logger.debug("WS client disconnected: %s", exc)
                 break
+            except Exception as exc:
+                # Serialisation or transient error — log and keep pushing
+                logger.warning("WS push error (non-fatal): %s", exc)
             await asyncio.sleep(5)
     except asyncio.CancelledError:
         logger.debug("WS push task cancelled")
@@ -95,4 +103,4 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
         pass
     finally:
         task.cancel()
-        manager.disconnect(ws)
+        await manager.disconnect(ws)

@@ -34,8 +34,10 @@ INVARIANTS:
 - No state transitions after shutdown start
 """
 import asyncio
+import os
 import time
 import logging
+import threading
 import uuid
 import queue
 from enum import Enum
@@ -477,6 +479,16 @@ class SystemStateMachine:
                     except RuntimeError:
                         # Loop закрыт - FATAL_REAPER обработает
                         pass
+
+                # Fallback: если asyncio loop завис, принудительно завершаем процесс
+                # через 10 секунд, чтобы FATAL гарантированно достигался даже при stall.
+                def _force_exit_after_delay():
+                    time.sleep(10)
+                    logger.critical("STATE_MACHINE: Force exit after EVENT_DELIVERY_FAILURE (loop stall)")
+                    os._exit(1)
+
+                _t = threading.Thread(target=_force_exit_after_delay, daemon=True, name="force-exit-guard")
+                _t.start()
             return False
     
     def _process_event_queue(self) -> None:

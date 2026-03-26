@@ -424,7 +424,10 @@ class Gatekeeper:
                 )
             except Exception as e:
                 logger.error(f"Ошибка формирования сигнала для {symbol}: {type(e).__name__}: {e}", exc_info=True)
-                return
+                # Fallback: use a plain-text summary instead of dropping the signal entirely
+                side_str = signal_data.get("side", "?")
+                entry_str = signal_data.get("entry", "?")
+                msg = f"⚠️ {symbol} {side_str} @ {entry_str} (signal formatting error)"
             
             # Добавляем контекст от Decision Core
             extra = (

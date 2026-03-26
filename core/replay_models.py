@@ -11,7 +11,7 @@ Replay Engine - оффлайн-инструмент аудита для повт
 - Replay не торгует, только анализирует решения
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
@@ -131,7 +131,7 @@ class ReplayResult:
     replayed_decision: ReplayedDecision
     diff: DecisionDiff
     
-    replay_timestamp: datetime = field(default_factory=lambda: datetime.now())
+    replay_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     
     def is_changed(self) -> bool:
         """Проверяет, изменилось ли решение"""

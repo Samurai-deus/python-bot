@@ -10,6 +10,7 @@ CSV остается для логов (signals_log.csv)
 """
 import sqlite3
 import os
+import threading
 from datetime import datetime, UTC, timedelta
 from typing import List, Dict, Optional
 from pathlib import Path
@@ -24,22 +25,54 @@ DB_PATH = os.environ.get("DB_PATH", "market_bot.db")
 
 FAULT_INJECT_STORAGE_FAILURE = os.environ.get("FAULT_INJECT_STORAGE_FAILURE", "false").lower() == "true"
 
+# ========== THREAD-LOCAL CONNECTION POOL ==========
+# Each thread gets its own persistent connection (check_same_thread=True).
+# _PooledConnection wraps the real connection: .close() rolls back any open
+# transaction but keeps the underlying connection alive for reuse.
 
-def get_db_connection():
-    """
-    Получает соединение с базой данных.
-    Создает базу и таблицы, если их нет.
+_thread_local = threading.local()
 
-    check_same_thread=False is safe here because each caller creates its own
-    connection, uses it within a single thread, and closes it immediately.
-    WAL mode enables concurrent readers without blocking writers.
-    """
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row  # Для доступа к колонкам по имени
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    _init_database(conn)
+
+class _PooledConnection:
+    """Thread-local pooled SQLite connection. .close() rolls back instead of closing."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+    def close(self) -> None:
+        """Roll back any uncommitted transaction; keep connection alive for reuse."""
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+
+
+def _get_raw_connection() -> sqlite3.Connection:
+    conn = getattr(_thread_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=True)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        _init_database(conn)
+        _thread_local.conn = conn
     return conn
+
+
+def get_db_connection() -> _PooledConnection:
+    """
+    Returns a thread-local pooled connection.
+
+    Each thread reuses one persistent connection; check_same_thread=True
+    enforces this at the SQLite level.  WAL mode enables concurrent readers.
+    Callers must still call conn.commit() after writes and conn.close()
+    after each logical operation — close() rolls back any open transaction
+    but keeps the underlying connection alive.
+    """
+    return _PooledConnection(_get_raw_connection())
 
 
 def _init_database(conn: sqlite3.Connection):
