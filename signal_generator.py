@@ -66,13 +66,17 @@ def generate_signals_for_symbols(
     if gatekeeper is None:
         gatekeeper = get_gatekeeper()
     
+    if all_candles is None:
+        logger.error("generate_signals_for_symbols: all_candles is None, skipping")
+        return {"processed": 0, "signals_sent": 0, "signals_blocked": 0, "errors": 0}
+
     stats = {
         "processed": 0,
         "signals_sent": 0,
         "signals_blocked": 0,
         "errors": 0
     }
-    
+
     for symbol in SYMBOLS:
         logger.debug("Checking symbol: %s", symbol)
         stats["processed"] += 1
@@ -140,7 +144,7 @@ def generate_signals_for_symbols(
                     momentum_data["volume_15m"] = volume_analysis(candles_map["15m"], period=20)
                 except Exception as e:
                     logger.warning("Indicator calc error 15m for %s: %s", symbol, e)
-                    momentum_data = {}
+                    # Keep whatever was calculated before the error; do NOT reset momentum_data
 
             if candles_map.get("30m"):
                 try:

@@ -58,9 +58,11 @@ def send_heartbeat():
         try:
             with open(LAST_HEARTBEAT_FILE, "w", encoding="utf-8") as f:
                 f.write(str(time.time()))
-        except Exception:
-            pass
-            
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception as e:
+            logger.warning("Could not write heartbeat file: %s", e)
+
     except Exception as e:
         logger.error("Heartbeat send error: %s", e)
 
@@ -99,9 +101,9 @@ def check_last_heartbeat(max_interval_seconds=7200):
             
             try:
                 send_message(message)
-            except Exception:
-                pass
-            
+            except Exception as e:
+                logger.warning("Could not send heartbeat warning: %s", e)
+
             return False
         
         return True
@@ -148,7 +150,9 @@ async def send_heartbeat_async():
         try:
             with open(LAST_HEARTBEAT_FILE, 'w', encoding='utf-8') as fh:
                 fh.write(str(time.time()))
-        except Exception:
-            pass
+                fh.flush()
+                os.fsync(fh.fileno())
+        except Exception as e:
+            logger.warning("Could not write heartbeat file (async): %s", e)
     except Exception as e:
         logger.error("Heartbeat async error: %s", e)

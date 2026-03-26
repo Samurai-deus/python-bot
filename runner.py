@@ -91,6 +91,13 @@ AUTO_RESUME_SAFE_MODE_DELAY = int(os.environ.get("AUTO_RESUME_SAFE_MODE_DELAY", 
 
 # Adaptive system feature flags
 ADAPTIVE_INTERVAL_ENABLED = os.environ.get("ADAPTIVE_INTERVAL_ENABLED", "true").lower() == "true"
+
+# Validate interval bounds at startup
+if ADAPTIVE_INTERVAL_MIN >= ADAPTIVE_INTERVAL_MAX:
+    raise ValueError(
+        f"ADAPTIVE_INTERVAL_MIN ({ADAPTIVE_INTERVAL_MIN}) must be strictly less than "
+        f"ADAPTIVE_INTERVAL_MAX ({ADAPTIVE_INTERVAL_MAX})"
+    )
 AUTO_RESUME_TRADING_ENABLED = os.environ.get("AUTO_RESUME_TRADING_ENABLED", "true").lower() == "true"
 AUTO_RESUME_SUCCESS_CYCLES = int(os.environ.get("AUTO_RESUME_SUCCESS_CYCLES", "3"))  # Количество успешных циклов для auto-resume
 
@@ -346,7 +353,32 @@ _admin_command_lock = None
 # These sync functions may be called from the event loop thread OR from threads
 # spawned by run_in_executor, so threading.Lock is required (asyncio.Lock cannot
 # be awaited from sync code).
-_metrics_lock = threading.Lock()
+# _TimeoutLock: acquire() raises RuntimeError after `timeout` seconds to surface
+# potential deadlocks instead of hanging indefinitely.
+class _TimeoutLock:
+    def __init__(self, timeout: float = 5.0):
+        self._lock = threading.Lock()
+        self._timeout = timeout
+
+    def __enter__(self):
+        if not self._lock.acquire(timeout=self._timeout):
+            logger.error("_metrics_lock acquire timeout after %.1fs — possible deadlock", self._timeout)
+            raise RuntimeError("_metrics_lock acquire timeout")
+        return self
+
+    def __exit__(self, *args):
+        self._lock.release()
+
+    # Compatibility shim used by code that calls acquire()/release() directly
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        t = timeout if timeout >= 0 else self._timeout
+        return self._lock.acquire(blocking=blocking, timeout=t)
+
+    def release(self):
+        self._lock.release()
+
+
+_metrics_lock = _TimeoutLock(timeout=5.0)
 
 def _get_admin_lock():
     """Returns the admin command lock, initializing it if needed"""
@@ -446,23 +478,25 @@ def pause_trading_manually():
 def resume_trading_manually():
     """
     Возобновляет торговлю вручную (через admin/telegram).
-    
+
     Returns:
         tuple: (success: bool, message: str)
     """
     global _control_plane_state, _prometheus_metrics, _adaptive_system_state
-    
-    # Проверяем safe_mode (имеет приоритет)
-    if system_state.system_health.safe_mode:
-        return (False, "Cannot resume: system is in safe_mode")
-    
-    # Проверяем, не активна ли уже торговля
-    if not system_state.system_health.trading_paused:
-        return (False, "Trading is already active")
-    
+
+    # TOCTOU fix: all state checks and mutation happen inside a single lock
+    # acquisition to prevent another thread from changing state between check
+    # and set.
     with _metrics_lock:
+        # Проверяем safe_mode (имеет приоритет) — under lock to avoid TOCTOU
+        if system_state.system_health.safe_mode:
+            return (False, "Cannot resume: system is in safe_mode")
+
+        # Проверяем, не активна ли уже manual pause
+        if not _control_plane_state["manual_pause_active"]:
+            return (False, "Trading is already active")
+
         _control_plane_state["manual_pause_active"] = False
-        # ВАЖНО: Эта функция вызывается только если safe_mode == False (проверка выше)
         _prometheus_metrics["admin_commands_total"]["resume"]["success"] += 1
         _adaptive_system_state["recovery_cycles"] = 0
 
