@@ -24,8 +24,8 @@ SYMBOLS = [
     "SUIUSDT",
     "APTUSDT",
 
-    # Мемкоины с высокой ликвидностью (на Bybit — формат 1000X для токенов < $0.001)
-    "1000SHIBUSDT",
+    # Мемкоины с высокой ликвидностью (нестандартные имена на Bybit)
+    "SHIB1000USDT",   # SHIB на Bybit — SHIB1000USDT (не 1000SHIBUSDT)
     "1000PEPEUSDT",
 
     # Дополнительные ликвидные пары
@@ -38,7 +38,7 @@ SYMBOLS = [
     "WLDUSDT",     # Worldcoin
     "TIAUSDT",     # Celestia
     "RENDERUSDT",  # Render Network
-    "FETUSDT",     # Fetch.ai (ASI Alliance) — если пустой, попробовать AIUSDT
+    # FETUSDT отсутствует как linear perp на Bybit (ASI Alliance merger)
     "EIGENUSDT",   # EigenLayer
     "JUPUSDT",     # Jupiter (Solana DEX)
 ]
