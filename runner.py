@@ -4619,7 +4619,10 @@ async def main():
                         if not task.done():
                             task.cancel()
                     # Await cancellation of all tasks
-                    await asyncio.gather(*remaining_tasks, return_exceptions=True)
+                    results = await asyncio.gather(*remaining_tasks, return_exceptions=True)
+                    for r in results:
+                        if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
+                            logger.warning(f"Task shutdown exception: {type(r).__name__}: {r}")
                     logger.critical("All tasks cancelled and completed")
             except RuntimeError:
                 pass
@@ -4722,7 +4725,10 @@ async def main():
                         task.cancel()
                 # Await cancellation of all tasks
                 # CRITICAL: This ensures event loop can drain and asyncio.run() can return
-                await asyncio.gather(*remaining_tasks, return_exceptions=True)
+                results = await asyncio.gather(*remaining_tasks, return_exceptions=True)
+                for r in results:
+                    if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
+                        logger.warning(f"Task shutdown exception: {type(r).__name__}: {r}")
                 logger.critical("All remaining tasks cancelled and completed")
         except RuntimeError:
             # Event loop already closed - this is normal during shutdown
@@ -4828,7 +4834,10 @@ async def main():
                 # Await cancellation of all tasks
                 # CRITICAL: return_exceptions=True ensures one failing task doesn't block others
                 # This is the final guarantee that all tasks complete
-                await asyncio.gather(*remaining_tasks, return_exceptions=True)
+                results = await asyncio.gather(*remaining_tasks, return_exceptions=True)
+                for r in results:
+                    if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
+                        logger.warning(f"FINAL BARRIER task exception: {type(r).__name__}: {r}")
                 logger.critical("FINAL BARRIER: All remaining tasks cancelled and completed")
             else:
                 logger.critical("FINAL BARRIER: No remaining tasks - event loop is empty")

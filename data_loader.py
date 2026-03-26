@@ -114,10 +114,10 @@ def get_candles_parallel(symbols: List[str], timeframes: Dict[str, str],
         }
         
         # Собираем результаты
-        for future in as_completed(futures):
+        for future in as_completed(futures, timeout=120):
             symbol, tf_name = futures[future]
             try:
-                candles = future.result()
+                candles = future.result(timeout=60)
                 result[symbol][tf_name] = candles
             except Exception as e:
                 logging.error("Ошибка при загрузке свечей для %s %s: %s", symbol, tf_name, e)
@@ -140,10 +140,10 @@ def validate_symbols(symbols: List[str], interval: str = "60") -> List[str]:
             executor.submit(get_candles, symbol, interval, 1): symbol
             for symbol in symbols
         }
-        for future in as_completed(futures):
+        for future in as_completed(futures, timeout=120):
             symbol = futures[future]
             try:
-                candles = future.result()
+                candles = future.result(timeout=60)
                 if candles:
                     valid.append(symbol)
                 else:

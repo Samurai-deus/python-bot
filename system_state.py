@@ -4,6 +4,7 @@
 Вместо разрозненных переменных и singleton объектов,
 все важное состояние хранится здесь и передается явно.
 """
+import threading
 from datetime import datetime, UTC
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
@@ -48,6 +49,8 @@ class SystemState:
     """
     
     def __init__(self):
+        self._lock = threading.Lock()
+
         # Состояния от brain'ов (хранятся здесь, а не в brain'ах)
         self.market_regime: Optional[MarketRegime] = None  # От MarketRegimeBrain
         self.risk_state: Optional[RiskExposure] = None  # От RiskExposureBrain
@@ -83,122 +86,137 @@ class SystemState:
     
     def update_market_regime(self, regime: MarketRegime):
         """Обновляет режим рынка (вызывается MarketRegimeBrain)"""
-        self.market_regime = regime
-        self.last_analysis_time = datetime.now(UTC)
-    
+        with self._lock:
+            self.market_regime = regime
+            self.last_analysis_time = datetime.now(UTC)
+
     def update_risk_state(self, exposure: RiskExposure):
         """Обновляет состояние риска (вызывается RiskExposureBrain)"""
-        self.risk_state = exposure
-        self.last_analysis_time = datetime.now(UTC)
-    
+        with self._lock:
+            self.risk_state = exposure
+            self.last_analysis_time = datetime.now(UTC)
+
     def update_cognitive_state(self, cognitive: CognitiveState):
         """Обновляет когнитивное состояние (вызывается CognitiveFilter)"""
-        self.cognitive_state = cognitive
-        self.last_analysis_time = datetime.now(UTC)
-    
+        with self._lock:
+            self.cognitive_state = cognitive
+            self.last_analysis_time = datetime.now(UTC)
+
     def update_opportunity(self, symbol: str, opportunity: Opportunity):
         """Обновляет возможность для символа (вызывается OpportunityAwareness)"""
-        self.opportunities[symbol] = opportunity
-        self.last_analysis_time = datetime.now(UTC)
-    
+        with self._lock:
+            self.opportunities[symbol] = opportunity
+            self.last_analysis_time = datetime.now(UTC)
+
     def update_market_correlations(self, correlations: Dict):
         """Обновляет корреляции рынка"""
-        self.market_correlations = correlations
-        self.last_analysis_time = datetime.now(UTC)
-    
+        with self._lock:
+            self.market_correlations = correlations
+            self.last_analysis_time = datetime.now(UTC)
+
     def update_trading_decision(self, can_trade: bool):
         """Обновляет решение о торговле (вызывается DecisionCore)"""
-        self.can_trade = can_trade
-        self.last_decision_time = datetime.now(UTC)
-    
+        with self._lock:
+            self.can_trade = can_trade
+            self.last_decision_time = datetime.now(UTC)
+
     def add_signal(self, signal: Dict):
         """Добавляет новый сигнал"""
-        self.recent_signals.append(signal)
-        # Храним только последние 50 сигналов
-        if len(self.recent_signals) > 50:
-            self.recent_signals.pop(0)
-    
+        with self._lock:
+            self.recent_signals.append(signal)
+            # Храним только последние 50 сигналов
+            if len(self.recent_signals) > 50:
+                self.recent_signals.pop(0)
+
     def update_signal_cache(self, symbol: str, state_15m: str):
         """
         Обновляет кэш сигналов для символа.
         Используется для предотвращения дублирования сигналов.
-        
+
         Args:
             symbol: Торговая пара
             state_15m: Состояние на 15m таймфрейме
         """
-        self.signal_cache[symbol] = state_15m
+        with self._lock:
+            self.signal_cache[symbol] = state_15m
     
     def is_new_signal(self, symbol: str, state_15m: Optional[str]) -> bool:
         """
         Проверяет, является ли сигнал новым (изменилось ли состояние).
-        
+
         Args:
             symbol: Торговая пара
             state_15m: Состояние на 15m таймфрейме (может быть None)
-        
+
         Returns:
             bool: True если сигнал новый, False если уже был отправлен
         """
-        if state_15m is None:
-            # TREND_CONTINUATION сигнал: разрешаем повтор раз в 4 часа.
-            # В trending market state_15m часто None (нет специфичного паттерна),
-            # поэтому старый "return False" блокировал ВСЕ сигналы навсегда.
-            import time
-            TREND_SIGNAL_COOLDOWN = 4 * 3600  # 4 часа
-            now = time.time()
-            last_ts = self._trend_signal_timestamps.get(symbol, 0.0)
-            if (now - last_ts) < TREND_SIGNAL_COOLDOWN:
+        import time
+        with self._lock:
+            if state_15m is None:
+                # TREND_CONTINUATION сигнал: разрешаем повтор раз в 4 часа.
+                # В trending market state_15m часто None (нет специфичного паттерна),
+                # поэтому старый "return False" блокировал ВСЕ сигналы навсегда.
+                TREND_SIGNAL_COOLDOWN = 4 * 3600  # 4 часа
+                now = time.time()
+                last_ts = self._trend_signal_timestamps.get(symbol, 0.0)
+                if (now - last_ts) < TREND_SIGNAL_COOLDOWN:
+                    return False
+                self._trend_signal_timestamps[symbol] = now
+                return True
+
+            last_state = self.signal_cache.get(symbol)
+            if last_state == state_15m:
                 return False
-            self._trend_signal_timestamps[symbol] = now
+
+            # Состояние изменилось - это новый сигнал
+            self.signal_cache[symbol] = state_15m
             return True
-
-        last_state = self.signal_cache.get(symbol)
-        if last_state == state_15m:
-            return False
-
-        # Состояние изменилось - это новый сигнал
-        self.signal_cache[symbol] = state_15m
-        return True
     
     def reset_signal_cache(self, symbol: Optional[str] = None):
         """
         Сбрасывает кэш сигналов для указанного символа или для всех символов.
-        
+
         Args:
             symbol: Символ для сброса кэша. Если None, сбрасывает кэш для всех символов.
         """
-        if symbol is None:
-            self.signal_cache = {}
-        else:
-            if symbol in self.signal_cache:
-                del self.signal_cache[symbol]
-    
+        with self._lock:
+            if symbol is None:
+                self.signal_cache = {}
+            else:
+                if symbol in self.signal_cache:
+                    del self.signal_cache[symbol]
+
     def update_open_positions(self, positions: List[Dict]):
         """Обновляет список открытых позиций"""
-        self.open_positions = positions
-    
+        with self._lock:
+            self.open_positions = positions
+
     def increment_cycle(self, success: bool = True):
         """Увеличивает счетчик циклов"""
-        self.performance_metrics.total_cycles += 1
-        if success:
-            self.performance_metrics.successful_cycles += 1
-        else:
-            self.performance_metrics.errors += 1
-    
+        with self._lock:
+            self.performance_metrics.total_cycles += 1
+            if success:
+                self.performance_metrics.successful_cycles += 1
+            else:
+                self.performance_metrics.errors += 1
+
     def record_error(self, error: str):
         """Записывает ошибку"""
-        self.performance_metrics.last_error = error
-        self.performance_metrics.errors += 1
-        self.system_health.consecutive_errors += 1
-    
+        with self._lock:
+            self.performance_metrics.last_error = error
+            self.performance_metrics.errors += 1
+            self.system_health.consecutive_errors += 1
+
     def reset_errors(self):
         """Сбрасывает счетчик ошибок"""
-        self.system_health.consecutive_errors = 0
-    
+        with self._lock:
+            self.system_health.consecutive_errors = 0
+
     def update_heartbeat(self):
         """Обновляет время последнего heartbeat"""
-        self.system_health.last_heartbeat = datetime.now(UTC)
+        with self._lock:
+            self.system_health.last_heartbeat = datetime.now(UTC)
     
     def reset(self):
         """Сбрасывает состояние (для тестов)"""
