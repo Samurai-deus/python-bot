@@ -3,7 +3,7 @@ SYMBOLS = [
     "BTCUSDT",
     "ETHUSDT",
     "BNBUSDT",
-    
+
     # Популярные альткоины с высокой ликвидностью
     "SOLUSDT",
     "XRPUSDT",
@@ -11,28 +11,36 @@ SYMBOLS = [
     "DOGEUSDT",
     "AVAXUSDT",
     "DOTUSDT",
-    "MATICUSDT",
+    "POLUSDT",   # Polygon (бывший MATICUSDT, переименован в 2024)
     "LINKUSDT",
-    
-    # DeFi токены (стабильные)
+
+    # DeFi токены
     "UNIUSDT",
     "AAVEUSDT",
-    "MKRUSDT",
-    
+
     # L2 и новые протоколы
     "ARBUSDT",
     "OPUSDT",
     "SUIUSDT",
     "APTUSDT",
-    
+
     # Мемкоины с высокой ликвидностью
     "SHIBUSDT",
-    
-    # Дополнительные стабильные пары
+    "PEPEUSDT",
+
+    # Дополнительные ликвидные пары
     "ATOMUSDT",
     "NEARUSDT",
-    "FTMUSDT",
-    "ALGOUSDT"
+
+    # Новые высоколиквидные токены (2024–2025)
+    "TONUSDT",     # The Open Network
+    "INJUSDT",     # Injective
+    "WLDUSDT",     # Worldcoin
+    "TIAUSDT",     # Celestia
+    "RENDERUSDT",  # Render Network
+    "FETUSDT",     # Fetch.ai (ASI Alliance)
+    "EIGENUSDT",   # EigenLayer
+    "JUPUSDT",     # Jupiter (Solana DEX)
 ]
 
 TIMEFRAMES = {
