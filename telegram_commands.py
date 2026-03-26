@@ -154,14 +154,17 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     pnl_emoji = "🟢" if stats['total_pnl'] >= 0 else "🔴"
-    wr_emoji = "🟢" if stats['win_rate'] >= 50 else "🟡" if stats['win_rate'] >= 30 else "🔴"
+    has_trades = stats.get('total_trades', 0) > 0
+    win_rate = stats['win_rate']
+    wr_emoji = "🟢" if has_trades and win_rate >= 50 else "🟡" if has_trades and win_rate >= 30 else "🔴"
+    wr_str = f"`{win_rate:.1f}%`" if has_trades else "`N/A`"
 
     msg = f"📊 **СТАТИСТИКА ЗА {days} ДНЕЙ**\n\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     msg += f"💰 **Баланс:** `{stats['current_balance']:.2f}` / `{stats['initial_balance']:.2f}` USDT\n"
     msg += f"{pnl_emoji} **P&L:** `{stats['total_pnl']:+.2f}` USDT (`{stats['total_pnl_pct']:+.2f}%`)\n\n"
     msg += f"📈 **Сделки:** всего `{stats['total_trades']}`, открыто `{stats['open_trades']}`\n"
-    msg += f"{wr_emoji} **Win Rate:** `{stats['win_rate']:.1f}%` "
+    msg += f"{wr_emoji} **Win Rate:** {wr_str} "
     msg += f"(W:`{stats.get('wins', 0)}` / L:`{stats.get('losses', 0)}`)\n\n"
 
     sharpe = stats.get('sharpe_ratio')

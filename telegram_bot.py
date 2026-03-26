@@ -1,5 +1,6 @@
 import logging
 import os
+import time as _time
 import warnings
 import asyncio
 
@@ -25,6 +26,24 @@ if not _chat_id:
 
 TOKEN = _token
 CHAT_ID = _chat_id
+
+# ---------------------------------------------------------------------------
+# Rate limiter: не более ~3 сообщений/сек в один чат (Telegram 429 prevention)
+# ---------------------------------------------------------------------------
+_rate_lock = asyncio.Lock()
+_last_send_time: float = 0.0
+_MIN_SEND_INTERVAL: float = 0.35  # секунды между отправками
+
+
+async def _apply_rate_limit() -> None:
+    """Ожидает минимальный интервал между отправками, чтобы не словить Telegram 429."""
+    global _last_send_time
+    async with _rate_lock:
+        elapsed = _time.monotonic() - _last_send_time
+        if elapsed < _MIN_SEND_INTERVAL:
+            await asyncio.sleep(_MIN_SEND_INTERVAL - elapsed)
+        _last_send_time = _time.monotonic()
+
 
 # Создаем Bot с увеличенным connection pool и таймаутом
 # Это решает проблему "Pool timeout: All connections in the connection pool are occupied"
@@ -122,6 +141,7 @@ async def send_message_async(text, parse_mode="Markdown"):
         text: Текст сообщения
         parse_mode: Режим парсинга (Markdown, HTML или None)
     """
+    await _apply_rate_limit()
     try:
         return await _send(text, parse_mode=parse_mode)
     except Exception as e:
@@ -141,6 +161,7 @@ async def send_chart_async(symbol):
     Args:
         symbol: Символ для графика
     """
+    await _apply_rate_limit()
     try:
         return await _send_chart(symbol)
     except Exception as e:
