@@ -26,6 +26,8 @@ def verify_ws_token(init_data: str) -> bool:
     """
     Validate Telegram InitData for WebSocket connections (query-param based).
     Returns True if valid or DISABLE_AUTH=true, False otherwise.
+    Uses 24-hour expiry (vs 5 min for HTTP) since WS connections are long-lived
+    and the token is retrieved once at app startup.
     """
     if os.environ.get("DISABLE_AUTH", "false").lower() == "true":
         logger.warning("DISABLE_AUTH=true: WS authentication is disabled — do NOT use in production")
@@ -50,7 +52,7 @@ def verify_ws_token(init_data: str) -> bool:
     if hash_value is None:
         return False
     auth_date = int(params.get("auth_date", 0))
-    if abs(time.time() - auth_date) > 300:
+    if abs(time.time() - auth_date) > 86400:  # 24h for WS (token retrieved once at app start)
         return False
     check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
