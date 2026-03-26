@@ -54,7 +54,10 @@ def verify_ws_token(init_data: str) -> bool:
             params[key] = value
     if hash_value is None:
         return False
-    auth_date = int(params.get("auth_date", 0))
+    try:
+        auth_date = int(params.get("auth_date", 0))
+    except (ValueError, TypeError):
+        return False
     if abs(time.time() - auth_date) > 86400:  # 24h for WS (token retrieved once at app start)
         return False
     check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
@@ -98,7 +101,10 @@ async def verify_auth(request: Request) -> Optional[dict]:
         raise HTTPException(status_code=401, detail="Missing hash in InitData")
 
     # Check timestamp freshness (5 minutes)
-    auth_date = int(params.get("auth_date", 0))
+    try:
+        auth_date = int(params.get("auth_date", 0))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid auth_date in InitData")
     if abs(time.time() - auth_date) > 300:
         raise HTTPException(status_code=401, detail="InitData expired")
 

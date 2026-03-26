@@ -119,6 +119,8 @@ class SystemStateMachine:
         self._event_queue_consecutive_drops = 0  # Подряд идущие отбросы
         self._event_queue_max_consecutive_drops = 5  # После 5 подряд → FATAL
         self._shutdown_started = False  # Флаг начала shutdown (запрет transitions)
+        # Tracked tasks for _process_event_queue — prevents GC and surfaces errors.
+        self._pending_event_tasks: set = set()
     
     @property
     def state(self) -> SystemState:
@@ -503,11 +505,25 @@ class SystemStateMachine:
                 except queue.Empty:
                     break
                 
-                # Создаём задачу для обработки события
-                asyncio.create_task(self._handle_event(event))
+                # Создаём задачу для обработки события; сохраняем ссылку и логируем ошибки.
+                _task = asyncio.create_task(self._handle_event(event))
+                self._pending_event_tasks.add(_task)
+                _task.add_done_callback(self._pending_event_tasks.discard)
+                _task.add_done_callback(self._log_event_task_error)
         except Exception as e:
             logger.error(f"STATE_MACHINE: Error processing event queue: {type(e).__name__}: {e}")
     
+    @staticmethod
+    def _log_event_task_error(t: asyncio.Task) -> None:
+        """Done-callback: log unhandled exceptions from event handler tasks."""
+        if not t.cancelled():
+            exc = t.exception()
+            if exc:
+                logger.error(
+                    f"STATE_MACHINE: event handler task failed: {type(exc).__name__}: {exc}",
+                    exc_info=exc,
+                )
+
     async def _handle_event(self, event: dict) -> None:
         """
         HARDENING: Обрабатывает одно событие из очереди.
