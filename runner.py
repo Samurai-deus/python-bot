@@ -57,7 +57,10 @@ from systemd_integration import get_systemd_integration, ExitCode
 
 # Импорты для анализа рынка (будем вызывать напрямую)
 from config import SYMBOLS, TIMEFRAMES
-from data_loader import get_candles_parallel
+from data_loader import get_candles_parallel, validate_symbols
+
+# Символы, прошедшие проверку при старте (None = ещё не валидировалось)
+_active_symbols: list = []
 from time_filter import is_good_time
 from correlation_analysis import analyze_market_correlations
 from spike_alert import check_all_symbols_for_spikes
@@ -1547,7 +1550,8 @@ async def run_market_analysis():
     iteration_start = time.monotonic()
     
     start_time = time.time()
-    logger.info(f"🚀 Начало анализа {len(SYMBOLS)} символов")
+    symbols = _active_symbols if _active_symbols else SYMBOLS
+    logger.info(f"🚀 Начало анализа {len(symbols)} символов")
     
     # Проверка торгового времени
     if not is_good_time():
@@ -1577,7 +1581,7 @@ async def run_market_analysis():
         # Используем asyncio.to_thread для синхронных операций с timeout
         try:
             all_candles = await asyncio.wait_for(
-                asyncio.to_thread(get_candles_parallel, SYMBOLS, TIMEFRAMES, 120, 20),
+                asyncio.to_thread(get_candles_parallel, symbols, TIMEFRAMES, 120, 20),
                 timeout=60.0
             )
         except asyncio.TimeoutError:
@@ -1608,7 +1612,7 @@ async def run_market_analysis():
         logger.debug("🧠 Анализ Market Regime Brain...")
         try:
             market_regime = await asyncio.wait_for(
-                asyncio.to_thread(market_regime_brain.analyze, SYMBOLS, all_candles, system_state),
+                asyncio.to_thread(market_regime_brain.analyze, symbols, all_candles, system_state),
                 timeout=30.0
             )
             logger.info(f"   Режим: {market_regime.trend_type}, Волатильность: {market_regime.volatility_level}, Risk: {market_regime.risk_sentiment}")
@@ -1625,7 +1629,7 @@ async def run_market_analysis():
         logger.debug("🧠 Анализ Risk & Exposure Brain...")
         try:
             risk_exposure = await asyncio.wait_for(
-                asyncio.to_thread(risk_exposure_brain.analyze, SYMBOLS, all_candles, system_state),
+                asyncio.to_thread(risk_exposure_brain.analyze, symbols, all_candles, system_state),
                 timeout=30.0
             )
             logger.info(f"   Риск: {risk_exposure.total_risk_pct:.2f}%, Позиций: {risk_exposure.active_positions}, Перегрузка: {risk_exposure.is_overloaded}")
@@ -1717,7 +1721,7 @@ async def run_market_analysis():
         logger.info("🔍 Проверка резких движений...")
         try:
             await asyncio.wait_for(
-                asyncio.to_thread(check_all_symbols_for_spikes, SYMBOLS, all_candles),
+                asyncio.to_thread(check_all_symbols_for_spikes, symbols, all_candles),
                 timeout=30.0
             )
         except asyncio.TimeoutError:
@@ -1738,7 +1742,7 @@ async def run_market_analysis():
         logger.info("📊 Анализ корреляций между парами...")
         try:
             market_correlations = await asyncio.wait_for(
-                asyncio.to_thread(analyze_market_correlations, SYMBOLS, all_candles, "15m"),
+                asyncio.to_thread(analyze_market_correlations, symbols, all_candles, "15m"),
                 timeout=30.0
             )
             # Обновляем SystemState с корреляциями
@@ -4326,6 +4330,24 @@ async def main():
     except Exception as e:
         logger.warning(f"Error restoring snapshot: {e}, starting with empty state")
     
+    # Одноразовая валидация символов против Bybit API
+    global _active_symbols
+    try:
+        logger.info("🔍 Валидация символов против Bybit API...")
+        _active_symbols = await asyncio.wait_for(
+            asyncio.to_thread(validate_symbols, SYMBOLS),
+            timeout=30.0,
+        )
+        if not _active_symbols:
+            logger.critical("Ни один символ не вернул свечи. Проверьте соединение с Bybit.")
+            _active_symbols = list(SYMBOLS)
+    except asyncio.TimeoutError:
+        logger.warning("Валидация символов превысила таймаут 30с — используем весь список")
+        _active_symbols = list(SYMBOLS)
+    except Exception as e:
+        logger.warning("Валидация символов упала (%s) — используем весь список", e)
+        _active_symbols = list(SYMBOLS)
+
     # Отправляем уведомление о запуске (не критично)
     try:
         await send_message_async("🚀 Торговый бот запущен")

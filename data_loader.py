@@ -124,3 +124,37 @@ def get_candles_parallel(symbols: List[str], timeframes: Dict[str, str],
                 result[symbol][tf_name] = []
     
     return result
+
+
+def validate_symbols(symbols: List[str], interval: str = "60") -> List[str]:
+    """
+    Проверяет каждый символ против Bybit API (одна свеча).
+    Возвращает список валидных символов.
+    Невалидные логирует один раз — убирает шум из основного цикла.
+    """
+    valid: List[str] = []
+    invalid: List[str] = []
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {
+            executor.submit(get_candles, symbol, interval, 1): symbol
+            for symbol in symbols
+        }
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                candles = future.result()
+                if candles:
+                    valid.append(symbol)
+                else:
+                    invalid.append(symbol)
+            except Exception:
+                invalid.append(symbol)
+
+    if invalid:
+        logging.warning(
+            "Символы недоступны на Bybit, будут пропущены: %s",
+            ", ".join(sorted(invalid)),
+        )
+    logging.info("Валидных символов: %d/%d", len(valid), len(symbols))
+    return valid
