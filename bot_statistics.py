@@ -202,20 +202,23 @@ def format_statistics_report(stats):
     
     # Эмодзи для PnL
     pnl_emoji = "🟢" if stats['total_pnl'] >= 0 else "🔴"
-    win_rate_emoji = "🟢" if stats['win_rate'] >= 50 else "🟡" if stats['win_rate'] >= 30 else "🔴"
-    
+    has_trades = stats.get('total_trades', 0) > 0
+    win_rate = stats['win_rate']
+    win_rate_emoji = "🟢" if has_trades and win_rate >= 50 else "🟡" if has_trades and win_rate >= 30 else "🔴"
+    win_rate_str = f"`{win_rate:.1f}%`" if has_trades else "`N/A`"
+
     report = f"💰 **БАЛАНС:**\n"
     report += f"• Начальный: `{stats['initial_balance']:.2f}` USDT\n"
     report += f"• Текущий: `{stats['current_balance']:.2f}` USDT\n"
     report += f"• {pnl_emoji} P&L: `{stats['total_pnl']:+.2f}` USDT (`{stats['total_pnl_pct']:+.2f}%`)\n\n"
-    
+
     report += f"📈 **СДЕЛКИ:**\n"
     report += f"• Всего: `{stats['total_trades']}`\n"
     report += f"• Открыто: `{stats['open_trades']}`\n"
     report += f"• Закрыто: `{stats['total_trades'] - stats['open_trades']}`\n"
     report += f"• Побед: `{stats.get('wins', stats.get('winning_trades', 0))}` ✅\n"
     report += f"• Поражений: `{stats.get('losses', stats.get('losing_trades', 0))}` ❌\n"
-    report += f"• {win_rate_emoji} Win Rate: `{stats['win_rate']:.1f}%`\n\n"
+    report += f"• {win_rate_emoji} Win Rate: {win_rate_str}\n\n"
     
     if stats.get('best_trade'):
         report += f"🏆 **Лучшая сделка:**\n"
