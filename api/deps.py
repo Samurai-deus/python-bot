@@ -25,12 +25,15 @@ async def run_sync(fn, *args, **kwargs):
 def verify_ws_token(init_data: str) -> bool:
     """
     Validate Telegram InitData for WebSocket connections (query-param based).
-    Returns True if valid or DISABLE_AUTH=true, False otherwise.
+    Returns True if valid, DISABLE_AUTH=true, or DISABLE_WS_AUTH=true.
     Uses 24-hour expiry (vs 5 min for HTTP) since WS connections are long-lived
     and the token is retrieved once at app startup.
     """
     if os.environ.get("DISABLE_AUTH", "false").lower() == "true":
         logger.warning("DISABLE_AUTH=true: WS authentication is disabled — do NOT use in production")
+        return True
+    if os.environ.get("DISABLE_WS_AUTH", "false").lower() == "true":
+        logger.warning("DISABLE_WS_AUTH=true: WS authentication is disabled")
         return True
     if not init_data:
         return False
