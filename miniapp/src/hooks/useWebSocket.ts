@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useSystemStore } from '../store/useSystemStore'
+import { getInitData } from '../api/client'
 import type { WsSnapshot } from '../api/types'
 
 const MAX_RETRIES = 10
@@ -20,7 +21,11 @@ export function useWebSocket() {
       setWsStatus(retryRef.current === 0 ? 'connecting' : 'reconnecting')
 
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws`)
+      const token = getInitData()
+      const wsUrl = token
+        ? `${protocol}://${window.location.host}/api/ws?token=${encodeURIComponent(token)}`
+        : `${protocol}://${window.location.host}/api/ws`
+      const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
       ws.onopen = () => {

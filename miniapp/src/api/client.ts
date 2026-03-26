@@ -11,6 +11,10 @@ export function setInitData(data: string) {
   initData = data
 }
 
+export function getInitData(): string {
+  return initData
+}
+
 apiClient.interceptors.request.use((config) => {
   if (initData) {
     config.headers['X-Telegram-Init-Data'] = initData

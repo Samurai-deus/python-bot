@@ -2845,7 +2845,7 @@ async def paper_trading_monitor_loop():
                                     closed_trade.get("close_reason"), closed_trade.get("pnl", 0),
                                 )
                                 try:
-                                    generate_trade_report(closed_trade)
+                                    await asyncio.to_thread(generate_trade_report, closed_trade)
                                 except Exception as report_err:
                                     logger.warning("[PAPER] Failed to send trade report: %s", report_err)
                     except Exception as sym_err:
