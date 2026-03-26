@@ -46,8 +46,8 @@ class _PooledConnection:
         """Roll back any uncommitted transaction; keep connection alive for reuse."""
         try:
             self._conn.rollback()
-        except Exception:
-            pass
+        except sqlite3.Error as e:
+            logger.warning("_PooledConnection.close: rollback failed: %s", e)
 
 
 def _get_raw_connection() -> sqlite3.Connection:

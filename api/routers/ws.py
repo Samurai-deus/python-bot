@@ -62,8 +62,8 @@ async def _build_snapshot() -> dict:
     sm = get_state_machine()
     info = sm.get_state_info()
 
-    positions_raw = await loop.run_in_executor(None, get_open_positions)
-    balance = await loop.run_in_executor(None, get_current_balance_from_db)
+    positions_raw = await asyncio.wait_for(loop.run_in_executor(None, get_open_positions), timeout=5.0)
+    balance = await asyncio.wait_for(loop.run_in_executor(None, get_current_balance_from_db), timeout=5.0)
 
     positions = [
         {
@@ -103,4 +103,8 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
         pass
     finally:
         task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
         await manager.disconnect(ws)

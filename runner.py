@@ -1417,8 +1417,15 @@ def register_task(task: asyncio.Task, name: str) -> asyncio.Task:
     logger.debug(f"Task registered: {name} (total: {len(RUNNING_TASKS)})")
     
     def task_done_callback(t: asyncio.Task):
-        """Auto-removes task from registry when done"""
+        """Auto-removes task from registry when done; logs unhandled exceptions."""
         RUNNING_TASKS.discard(t)
+        if not t.cancelled():
+            exc = t.exception()
+            if exc:
+                logger.error(
+                    f"Task '{name}' failed with unhandled exception: {type(exc).__name__}: {exc}",
+                    exc_info=exc,
+                )
         logger.debug(f"Task completed: {name} (remaining: {len(RUNNING_TASKS)})")
     
     task.add_done_callback(task_done_callback)
@@ -2267,8 +2274,17 @@ async def market_analysis_loop():
                     )
             
             alert_task = asyncio.create_task(_safe_evaluate_alerts(), name="AlertEvaluation")
-            # Note: This is a fire-and-forget task created inside a registered loop
-            # It will be cancelled when the parent loop (MarketAnalysis) is cancelled
+            # Fire-and-forget task inside a registered loop; cancelled when MarketAnalysis is cancelled.
+            # Add done-callback to surface any unexpected exceptions.
+            def _alert_task_done(t: asyncio.Task) -> None:
+                if not t.cancelled():
+                    exc = t.exception()
+                    if exc:
+                        logger.error(
+                            f"AlertEvaluation task failed: {type(exc).__name__}: {exc}",
+                            exc_info=exc,
+                        )
+            alert_task.add_done_callback(_alert_task_done)
             
             # ========== ПЕРИОДИЧЕСКОЕ ЛОГИРОВАНИЕ МЕТРИК ==========
             now = time.monotonic()
