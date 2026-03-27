@@ -4856,12 +4856,13 @@ async def main():
         except Exception as e:
             logger.debug(f"Error shutting down async generators: {type(e).__name__}: {e}")
         
-        # 5. Закрываем PostgreSQL connection pool (если активен)
+        # 5. Закрываем PostgreSQL pool / сбрасываем SQLite WAL
         try:
-            from database import close_pg_pool
+            from database import close_pg_pool, checkpoint_sqlite_wal
             close_pg_pool()
+            checkpoint_sqlite_wal()
         except Exception as e:
-            logger.debug(f"Error closing PostgreSQL pool: {type(e).__name__}: {e}")
+            logger.debug(f"Error closing database: {type(e).__name__}: {e}")
 
         logger.critical("=== GRACEFUL SHUTDOWN COMPLETED ===")
 

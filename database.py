@@ -69,6 +69,24 @@ def close_pg_pool() -> None:
             _pg_pool = None
 
 
+def checkpoint_sqlite_wal() -> None:
+    """
+    Запускает WAL checkpoint (TRUNCATE mode) для SQLite.
+
+    Вызывается при graceful shutdown, чтобы очистить WAL-файл и избежать
+    его неограниченного роста. Только в SQLite-режиме.
+    """
+    if _PG_MODE:
+        return
+    try:
+        conn = getattr(_thread_local, "conn", None)
+        if conn is not None:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            logger.info("SQLite WAL checkpoint completed")
+    except Exception as e:
+        logger.warning("SQLite WAL checkpoint failed: %s", e)
+
+
 # ========== SQL DIALECT HELPERS ==========
 
 
