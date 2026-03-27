@@ -541,6 +541,21 @@ def get_current_balance_from_db(initial_balance: float = 10000.0) -> float:
     return max(balance, 10.0)  # Минимум 10 USDT
 
 
+def get_total_open_positions_size() -> float:
+    """Sum of position_size for all OPEN trades (locked capital)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COALESCE(SUM(position_size), 0)
+            FROM trades
+            WHERE status = 'OPEN' AND position_size IS NOT NULL
+        """)
+        return float(cursor.fetchone()[0] or 0.0)
+    finally:
+        conn.close()
+
+
 def migrate_from_csv(csv_file: str = "demo_trades.csv"):
     """
     Мигрирует данные из CSV в SQLite.
