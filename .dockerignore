@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+*.db
+*.log
+*.log.*
+.git/
+.gitignore
+tests/
+*.md
+miniapp/node_modules/
+miniapp/dist/
+.planning/
+monitoring/grafana/data/

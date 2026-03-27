@@ -1,0 +1,115 @@
+version: '3.9'
+
+services:
+  market-bot:
+    build: .
+    image: market-bot:latest
+    container_name: market-bot
+    restart: unless-stopped
+    command: python runner.py
+    env_file: .env
+    environment:
+      - DB_PATH=/data/db/market_bot.db
+      - LOG_FILE=/data/logs/runner.log
+    volumes:
+      - /data:/data
+    networks:
+      - market-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    build: .
+    image: market-bot:latest
+    container_name: market-bot-api
+    restart: unless-stopped
+    command: python run_api.py
+    env_file: .env
+    environment:
+      - DB_PATH=/data/db/market_bot.db
+      - API_HOST=0.0.0.0
+    volumes:
+      - /data:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - market-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    container_name: market-bot-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - market-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: market-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - market-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: market-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-changeme}
+      - GF_SERVER_ROOT_URL=https://signabot.ru/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - market-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  market-net:
+    driver: bridge
