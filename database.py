@@ -1,5 +1,9 @@
 """
-SQLite база данных для торговых данных
+База данных для торговых данных.
+
+Поддерживает два режима:
+  - SQLite (по умолчанию): используется для локальной разработки
+  - PostgreSQL: включается установкой DATABASE_URL в .env
 
 Используется для:
 - Статистики
@@ -8,27 +12,84 @@ SQLite база данных для торговых данных
 
 CSV остается для логов (signals_log.csv)
 """
-import sqlite3
 import os
+import sqlite3
 import threading
 from datetime import datetime, UTC, timedelta
 from typing import List, Dict, Optional
-from pathlib import Path
+
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Путь к базе данных
+# ========== DATABASE MODE ==========
+
+_DATABASE_URL = os.environ.get("DATABASE_URL", "")
+_PG_MODE = bool(_DATABASE_URL)
+
 DB_PATH = os.environ.get("DB_PATH", "market_bot.db")
 
 # ========== FAULT INJECTION (для тестирования устойчивости) ==========
 
-FAULT_INJECT_STORAGE_FAILURE = os.environ.get("FAULT_INJECT_STORAGE_FAILURE", "false").lower() == "true"
+FAULT_INJECT_STORAGE_FAILURE = (
+    os.environ.get("FAULT_INJECT_STORAGE_FAILURE", "false").lower() == "true"
+)
 
-# ========== THREAD-LOCAL CONNECTION POOL ==========
-# Each thread gets its own persistent connection (check_same_thread=True).
-# _PooledConnection wraps the real connection: .close() rolls back any open
-# transaction but keeps the underlying connection alive for reuse.
+# ========== POSTGRESQL POOL ==========
+
+_pg_pool = None
+
+if _PG_MODE:
+    try:
+        import psycopg2
+        import psycopg2.pool
+        import psycopg2.extras
+
+        _pg_pool = psycopg2.pool.ThreadedConnectionPool(2, 10, _DATABASE_URL)
+        logger.info("PostgreSQL connection pool initialized (min=2 max=10)")
+    except Exception as _pg_init_err:
+        logger.critical(
+            "FATAL: DATABASE_URL set but psycopg2 pool init failed: %s", _pg_init_err
+        )
+        raise
+
+# ========== SQL DIALECT HELPERS ==========
+
+
+def _q(sql: str) -> str:
+    """Convert SQLite ? placeholders to PostgreSQL %s when in PG mode."""
+    return sql.replace("?", "%s") if _PG_MODE else sql
+
+
+def _exec_insert(cursor, sql: str, params) -> int:
+    """
+    Execute an INSERT and return the new row id.
+
+    SQLite: uses cursor.lastrowid
+    PostgreSQL: appends RETURNING id and fetches the result
+    """
+    if _PG_MODE:
+        cursor.execute(_q(sql) + " RETURNING id", params)
+        row = cursor.fetchone()
+        return row["id"] if row else 0
+    else:
+        cursor.execute(sql, params)
+        return cursor.lastrowid
+
+
+def _insert_ignore(table_and_rest: str) -> str:
+    """
+    Build an INSERT that silently ignores unique-constraint violations.
+
+    table_and_rest: everything after INSERT (e.g. 'INTO t (a,b) VALUES (?,?)')
+    """
+    if _PG_MODE:
+        return f"INSERT {table_and_rest} ON CONFLICT DO NOTHING"
+    return f"INSERT OR IGNORE {table_and_rest}"
+
+
+# ========== THREAD-LOCAL SQLite POOL ==========
+# Used only in SQLite mode.
 
 _thread_local = threading.local()
 
@@ -50,7 +111,7 @@ class _PooledConnection:
             logger.warning("_PooledConnection.close: rollback failed: %s", e)
 
 
-def _get_raw_connection() -> sqlite3.Connection:
+def _get_raw_sqlite_connection() -> sqlite3.Connection:
     conn = getattr(_thread_local, "conn", None)
     if conn is None:
         conn = sqlite3.connect(DB_PATH, check_same_thread=True)
@@ -62,26 +123,239 @@ def _get_raw_connection() -> sqlite3.Connection:
     return conn
 
 
-def get_db_connection() -> _PooledConnection:
-    """
-    Returns a thread-local pooled connection.
-
-    Each thread reuses one persistent connection; check_same_thread=True
-    enforces this at the SQLite level.  WAL mode enables concurrent readers.
-    Callers must still call conn.commit() after writes and conn.close()
-    after each logical operation — close() rolls back any open transaction
-    but keeps the underlying connection alive.
-    """
-    return _PooledConnection(_get_raw_connection())
+# ========== POSTGRESQL CONNECTION WRAPPER ==========
 
 
-def _init_database(conn: sqlite3.Connection):
+class _PGConnection:
+    """Wraps a psycopg2 connection from the pool with the same interface as _PooledConnection."""
+
+    def __init__(self) -> None:
+        self._conn = _pg_pool.getconn()
+        self._conn.autocommit = False
+
+    def cursor(self):
+        return self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        """Return connection to pool after rolling back any open transaction."""
+        try:
+            self._conn.rollback()
+        except Exception as e:
+            logger.warning("_PGConnection.close: rollback failed: %s", e)
+        _pg_pool.putconn(self._conn)
+
+
+# ========== PUBLIC CONNECTION FACTORY ==========
+
+
+def get_db_connection():
     """
-    Инициализирует схему базы данных.
+    Returns a database connection appropriate for the current mode.
+
+    PostgreSQL mode: borrows from ThreadedConnectionPool; .close() returns to pool.
+    SQLite mode: returns thread-local _PooledConnection; .close() rolls back.
+
+    Callers must always:
+      conn.commit()  after writes
+      conn.close()   in a finally block
     """
+    if _PG_MODE:
+        return _PGConnection()
+    return _PooledConnection(_get_raw_sqlite_connection())
+
+
+# ========== SCHEMA INITIALISATION ==========
+
+
+def _init_pg_schema(conn) -> None:
+    """Create all tables in PostgreSQL if they don't already exist."""
     cursor = conn.cursor()
-    
-    # Таблица сделок
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trades (
+            id BIGSERIAL PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry REAL NOT NULL,
+            stop REAL NOT NULL,
+            target REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            position_size REAL,
+            leverage REAL,
+            close_price REAL,
+            close_reason TEXT,
+            pnl REAL,
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US'),
+            updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS system_state_snapshots (
+            id BIGSERIAL PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            snapshot_data TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        )
+    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON system_state_snapshots(timestamp DESC)"
+    )
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id BIGSERIAL PRIMARY KEY,
+            order_id TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            order_type TEXT NOT NULL,
+            qty REAL NOT NULL,
+            entry_price REAL,
+            stop_loss REAL NOT NULL,
+            take_profit REAL,
+            status TEXT NOT NULL DEFAULT 'CREATED',
+            dry_run INTEGER NOT NULL DEFAULT 1,
+            error TEXT,
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US'),
+            updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS positions (
+            id BIGSERIAL PRIMARY KEY,
+            order_id TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            qty REAL NOT NULL,
+            entry_price REAL NOT NULL,
+            stop_loss REAL NOT NULL,
+            take_profit REAL,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            close_price REAL,
+            close_reason TEXT,
+            realised_pnl REAL,
+            opened_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US'),
+            closed_at TEXT
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status)")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pnl_history (
+            id BIGSERIAL PRIMARY KEY,
+            date TEXT NOT NULL UNIQUE,
+            realised_pnl REAL NOT NULL DEFAULT 0.0,
+            trades_count INTEGER NOT NULL DEFAULT 0,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            balance_end REAL NOT NULL DEFAULT 0.0,
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_history_date ON pnl_history(date)")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pnl_records (
+            id BIGSERIAL PRIMARY KEY,
+            closed_at TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            exit_price REAL NOT NULL,
+            quantity REAL NOT NULL,
+            gross_pnl REAL NOT NULL,
+            commission REAL NOT NULL DEFAULT 0.0,
+            net_pnl REAL NOT NULL,
+            market_regime TEXT,
+            hold_duration_seconds INTEGER,
+            signal_confidence REAL,
+            signal_entropy REAL,
+            balance_after REAL,
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        )
+    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pnl_records_closed_at ON pnl_records(closed_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pnl_records_symbol ON pnl_records(symbol)"
+    )
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            id BIGSERIAL PRIMARY KEY,
+            setting_key TEXT NOT NULL UNIQUE,
+            setting_value TEXT NOT NULL,
+            data_type TEXT NOT NULL,
+            updated_at TEXT DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS signal_outcomes (
+            id BIGSERIAL PRIMARY KEY,
+            signal_ts TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry REAL NOT NULL,
+            tp REAL NOT NULL,
+            sl REAL NOT NULL,
+            confidence REAL,
+            state_15m TEXT,
+            checked_at TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            candles_checked INTEGER NOT NULL DEFAULT 0,
+            max_favorable_pct REAL,
+            max_adverse_pct REAL,
+            UNIQUE(signal_ts, symbol)
+        )
+    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_symbol ON signal_outcomes(symbol)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_outcome ON signal_outcomes(outcome)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_ts ON signal_outcomes(signal_ts)"
+    )
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS encrypted_api_keys (
+            id BIGSERIAL PRIMARY KEY,
+            key_name TEXT NOT NULL UNIQUE,
+            encrypted_value TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        )
+    """)
+
+    conn.commit()
+
+
+def _init_database(conn) -> None:
+    """Initialise database schema (SQLite or PostgreSQL)."""
+    if _PG_MODE:
+        _init_pg_schema(conn)
+        return
+
+    # ---- SQLite schema ----
+    cursor = conn.cursor()
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,19 +375,10 @@ def _init_database(conn: sqlite3.Connection):
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
-    # Индексы для быстрого поиска
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)
-    """)
-    
-    # Таблица для snapshot SystemState
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_state_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,28 +387,23 @@ def _init_database(conn: sqlite3.Connection):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
-    # Индекс для быстрого поиска последнего snapshot
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON system_state_snapshots(timestamp DESC)
-    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON system_state_snapshots(timestamp DESC)"
+    )
 
-    # ========== Phase 2: Exchange order/position tables ==========
-
-    # Ордера — запись каждого ордера размещённого на бирже (или DRY_RUN)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id TEXT NOT NULL,           -- Bybit order ID (или "dry_*")
+            order_id TEXT NOT NULL,
             symbol TEXT NOT NULL,
-            side TEXT NOT NULL,               -- "LONG" | "SHORT"
-            order_type TEXT NOT NULL,         -- "Market" | "Limit"
+            side TEXT NOT NULL,
+            order_type TEXT NOT NULL,
             qty REAL NOT NULL,
-            entry_price REAL,                 -- NULL для Market ордеров
+            entry_price REAL,
             stop_loss REAL NOT NULL,
             take_profit REAL,
-            status TEXT NOT NULL DEFAULT 'CREATED',  -- CREATED | FILLED | CANCELLED | FAILED
-            dry_run INTEGER NOT NULL DEFAULT 1,       -- 1 = симуляция, 0 = реальный
+            status TEXT NOT NULL DEFAULT 'CREATED',
+            dry_run INTEGER NOT NULL DEFAULT 1,
             error TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -153,20 +413,19 @@ def _init_database(conn: sqlite3.Connection):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
 
-    # Позиции — жизненный цикл позиции от открытия до закрытия
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id TEXT NOT NULL,           -- Ссылка на orders.order_id
+            order_id TEXT NOT NULL,
             symbol TEXT NOT NULL,
-            side TEXT NOT NULL,               -- "LONG" | "SHORT"
+            side TEXT NOT NULL,
             qty REAL NOT NULL,
             entry_price REAL NOT NULL,
             stop_loss REAL NOT NULL,
             take_profit REAL,
-            status TEXT NOT NULL DEFAULT 'OPEN',  -- OPEN | CLOSED
+            status TEXT NOT NULL DEFAULT 'OPEN',
             close_price REAL,
-            close_reason TEXT,                -- "SL" | "TP" | "MANUAL" | "EXPIRED"
+            close_reason TEXT,
             realised_pnl REAL,
             opened_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             closed_at TEXT
@@ -175,11 +434,10 @@ def _init_database(conn: sqlite3.Connection):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status)")
 
-    # Ежедневные P&L снимки для аналитики (Phase 3)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pnl_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL UNIQUE,        -- "2026-03-13"
+            date TEXT NOT NULL UNIQUE,
             realised_pnl REAL NOT NULL DEFAULT 0.0,
             trades_count INTEGER NOT NULL DEFAULT 0,
             wins INTEGER NOT NULL DEFAULT 0,
@@ -190,7 +448,6 @@ def _init_database(conn: sqlite3.Connection):
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_history_date ON pnl_history(date)")
 
-    # Детальные записи P&L по каждой закрытой сделке (Phase 3)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pnl_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,10 +468,13 @@ def _init_database(conn: sqlite3.Connection):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_records_closed_at ON pnl_records(closed_at)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_records_symbol ON pnl_records(symbol)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pnl_records_closed_at ON pnl_records(closed_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pnl_records_symbol ON pnl_records(symbol)"
+    )
 
-    # Настройки пользователя (Phase 5)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_settings (
             id INTEGER PRIMARY KEY,
@@ -225,7 +485,6 @@ def _init_database(conn: sqlite3.Connection):
         )
     """)
 
-    # Исходы сигналов — для системы обучения (Phase 5+)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS signal_outcomes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,76 +504,88 @@ def _init_database(conn: sqlite3.Connection):
             UNIQUE(signal_ts, symbol)
         )
     """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_symbol ON signal_outcomes(symbol)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_outcome ON signal_outcomes(outcome)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_ts ON signal_outcomes(signal_ts)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_symbol ON signal_outcomes(symbol)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_outcome ON signal_outcomes(outcome)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_ts ON signal_outcomes(signal_ts)"
+    )
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS encrypted_api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key_name TEXT NOT NULL UNIQUE,
+            encrypted_value TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     conn.commit()
+
+
+# ============================================================================
+# INITIALISE PostgreSQL ON STARTUP
+# ============================================================================
+
+if _PG_MODE:
+    _init_conn = _PGConnection()
+    try:
+        _init_pg_schema(_init_conn)
+    finally:
+        _init_conn.close()
+    logger.info("PostgreSQL schema ready")
 
 
 # ============================================================================
 # TRADES (Сделки)
 # ============================================================================
 
-def add_trade(symbol: str, side: str, entry: float, stop: float, target: float,
-              position_size: Optional[float] = None, leverage: Optional[float] = None) -> int:
-    """
-    Добавляет новую сделку в базу данных.
-    
-    Args:
-        symbol: Торговая пара
-        side: "LONG" или "SHORT"
-        entry: Цена входа
-        stop: Цена стоп-лосса
-        target: Цена тейк-профита
-        position_size: Размер позиции в USDT
-        leverage: Плечо
-    
-    Returns:
-        int: ID созданной сделки
-    """
+
+def add_trade(
+    symbol: str,
+    side: str,
+    entry: float,
+    stop: float,
+    target: float,
+    position_size: Optional[float] = None,
+    leverage: Optional[float] = None,
+) -> int:
+    """Добавляет новую сделку в базу данных. Возвращает ID."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-
         timestamp = datetime.now(UTC).isoformat()
-
-        cursor.execute("""
+        trade_id = _exec_insert(
+            cursor,
+            """
             INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage)
             VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-        """, (timestamp, symbol, side, entry, stop, target, position_size, leverage))
-
-        trade_id = cursor.lastrowid
+            """,
+            (timestamp, symbol, side, entry, stop, target, position_size, leverage),
+        )
         conn.commit()
     finally:
         conn.close()
-
     logger.info(f"Добавлена сделка #{trade_id}: {symbol} {side} @ {entry}")
     return trade_id
 
 
 def get_open_trades() -> List[Dict]:
-    """
-    Получает список всех открытых сделок.
-    
-    Returns:
-        list: Список словарей с данными открытых сделок
-    """
+    """Получает список всех открытых сделок."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT * FROM trades WHERE status = 'OPEN' ORDER BY timestamp DESC
-        """)
-
+        cursor.execute(
+            _q("SELECT * FROM trades WHERE status = 'OPEN' ORDER BY timestamp DESC")
+        )
         rows = cursor.fetchall()
     finally:
         conn.close()
-
-    trades = []
-    for row in rows:
-        trades.append({
+    return [
+        {
             "id": row["id"],
             "timestamp": row["timestamp"],
             "symbol": row["symbol"],
@@ -325,94 +596,64 @@ def get_open_trades() -> List[Dict]:
             "status": row["status"],
             "position_size": row["position_size"],
             "leverage": row["leverage"],
-        })
-
-    return trades
+        }
+        for row in rows
+    ]
 
 
 def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float):
-    """
-    Закрывает сделку в базе данных.
-    
-    Args:
-        trade_id: ID сделки
-        close_price: Цена закрытия
-        close_reason: Причина закрытия (STOP_LOSS/TAKE_PROFIT)
-        pnl: Прибыль/убыток
-    """
+    """Закрывает сделку в базе данных."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-
         updated_at = datetime.now(UTC).isoformat()
-
-        cursor.execute("""
+        cursor.execute(
+            _q("""
             UPDATE trades
             SET status = 'CLOSED', close_price = ?, close_reason = ?, pnl = ?, updated_at = ?
             WHERE id = ?
-        """, (close_price, close_reason, pnl, updated_at, trade_id))
-
+            """),
+            (close_price, close_reason, pnl, updated_at, trade_id),
+        )
         conn.commit()
     finally:
         conn.close()
-
     logger.info(f"Закрыта сделка #{trade_id}: PnL={pnl:.2f} USDT, причина={close_reason}")
 
 
 def get_trades_by_symbol(symbol: str, status: Optional[str] = None) -> List[Dict]:
-    """
-    Получает сделки по символу.
-    
-    Args:
-        symbol: Торговая пара
-        status: Статус сделки (OPEN/CLOSED) или None для всех
-    
-    Returns:
-        list: Список сделок
-    """
+    """Получает сделки по символу."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-
         if status:
-            cursor.execute("""
-                SELECT * FROM trades WHERE symbol = ? AND status = ? ORDER BY timestamp DESC
-            """, (symbol, status))
+            cursor.execute(
+                _q("SELECT * FROM trades WHERE symbol = ? AND status = ? ORDER BY timestamp DESC"),
+                (symbol, status),
+            )
         else:
-            cursor.execute("""
-                SELECT * FROM trades WHERE symbol = ? ORDER BY timestamp DESC
-            """, (symbol,))
-
+            cursor.execute(
+                _q("SELECT * FROM trades WHERE symbol = ? ORDER BY timestamp DESC"),
+                (symbol,),
+            )
         rows = cursor.fetchall()
     finally:
         conn.close()
-
-    trades = []
-    for row in rows:
-        trades.append(dict(row))
-
-    return trades
+    return [dict(row) for row in rows]
 
 
 def get_trades_statistics(days: int = 1) -> Dict:
-    """
-    Получает статистику по сделкам за последние N дней.
-    
-    Args:
-        days: Количество дней для анализа
-    
-    Returns:
-        dict: Статистика по сделкам
-    """
+    """Получает статистику по сделкам за последние N дней."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+        cutoff_time = (
+            datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+            - timedelta(days=days)
+        ).isoformat()
 
-        cutoff_time = (datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) -
-                       timedelta(days=days)).isoformat()
-
-        # Закрытые сделки за период
-        cursor.execute("""
+        cursor.execute(
+            _q("""
             SELECT
                 COUNT(*) as total_trades,
                 SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
@@ -423,18 +664,18 @@ def get_trades_statistics(days: int = 1) -> Dict:
                 MIN(pnl) as worst_pnl
             FROM trades
             WHERE status = 'CLOSED' AND timestamp >= ?
-        """, (cutoff_time,))
-
+            """),
+            (cutoff_time,),
+        )
         stats_row = cursor.fetchone()
 
-        # Открытые сделки
-        cursor.execute("""
-            SELECT COUNT(*) as open_trades FROM trades WHERE status = 'OPEN'
-        """)
+        cursor.execute(
+            _q("SELECT COUNT(*) as open_trades FROM trades WHERE status = 'OPEN'")
+        )
         open_trades = cursor.fetchone()["open_trades"]
 
-        # Статистика по символам
-        cursor.execute("""
+        cursor.execute(
+            _q("""
             SELECT
                 symbol,
                 COUNT(*) as trades,
@@ -444,57 +685,54 @@ def get_trades_statistics(days: int = 1) -> Dict:
             WHERE status = 'CLOSED' AND timestamp >= ?
             GROUP BY symbol
             ORDER BY pnl DESC
-        """, (cutoff_time,))
+            """),
+            (cutoff_time,),
+        )
+        symbol_stats = {
+            row["symbol"]: {"trades": row["trades"], "wins": row["wins"], "pnl": row["pnl"]}
+            for row in cursor.fetchall()
+        }
 
-        symbol_stats = {}
-        for row in cursor.fetchall():
-            symbol_stats[row["symbol"]] = {
-                "trades": row["trades"],
-                "wins": row["wins"],
-                "pnl": row["pnl"]
-            }
-
-        # Лучшая и худшая сделки
-        cursor.execute("""
+        cursor.execute(
+            _q("""
             SELECT symbol, side, pnl FROM trades
             WHERE status = 'CLOSED' AND timestamp >= ?
             ORDER BY pnl DESC LIMIT 1
-        """, (cutoff_time,))
+            """),
+            (cutoff_time,),
+        )
         best_trade_row = cursor.fetchone()
 
-        cursor.execute("""
+        cursor.execute(
+            _q("""
             SELECT symbol, side, pnl FROM trades
             WHERE status = 'CLOSED' AND timestamp >= ?
             ORDER BY pnl ASC LIMIT 1
-        """, (cutoff_time,))
+            """),
+            (cutoff_time,),
+        )
         worst_trade_row = cursor.fetchone()
     finally:
         conn.close()
-    
+
     total_trades = stats_row["total_trades"] or 0
     winning_trades = stats_row["winning_trades"] or 0
     losing_trades = stats_row["losing_trades"] or 0
     total_pnl = stats_row["total_pnl"] or 0.0
     avg_pnl = stats_row["avg_pnl"] or 0.0
-    
     win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
-    
-    best_trade = None
-    if best_trade_row:
-        best_trade = {
-            "symbol": best_trade_row["symbol"],
-            "pnl": best_trade_row["pnl"],
-            "side": best_trade_row["side"]
-        }
-    
-    worst_trade = None
-    if worst_trade_row:
-        worst_trade = {
-            "symbol": worst_trade_row["symbol"],
-            "pnl": worst_trade_row["pnl"],
-            "side": worst_trade_row["side"]
-        }
-    
+
+    best_trade = (
+        {"symbol": best_trade_row["symbol"], "pnl": best_trade_row["pnl"], "side": best_trade_row["side"]}
+        if best_trade_row
+        else None
+    )
+    worst_trade = (
+        {"symbol": worst_trade_row["symbol"], "pnl": worst_trade_row["pnl"], "side": worst_trade_row["side"]}
+        if worst_trade_row
+        else None
+    )
+
     return {
         "total_trades": total_trades,
         "winning_trades": winning_trades,
@@ -506,39 +744,24 @@ def get_trades_statistics(days: int = 1) -> Dict:
         "best_trade": best_trade,
         "worst_trade": worst_trade,
         "symbol_stats": symbol_stats,
-        # Для совместимости со старым форматом
         "wins": winning_trades,
-        "losses": losing_trades
+        "losses": losing_trades,
     }
 
 
 def get_current_balance_from_db(initial_balance: float = 10000.0) -> float:
-    """
-    Рассчитывает текущий баланс на основе закрытых сделок.
-    
-    Args:
-        initial_balance: Начальный баланс
-    
-    Returns:
-        float: Текущий баланс
-    """
+    """Рассчитывает текущий баланс на основе закрытых сделок."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT COALESCE(SUM(pnl), 0) as total_pnl
-            FROM trades
-            WHERE status = 'CLOSED'
-        """)
-
+        cursor.execute(
+            _q("SELECT COALESCE(SUM(pnl), 0) as total_pnl FROM trades WHERE status = 'CLOSED'")
+        )
         row = cursor.fetchone()
         total_pnl = row["total_pnl"] or 0.0
     finally:
         conn.close()
-
-    balance = initial_balance + total_pnl
-    return max(balance, 10.0)  # Минимум 10 USDT
+    return max(initial_balance + total_pnl, 10.0)
 
 
 def get_total_open_positions_size() -> float:
@@ -546,29 +769,22 @@ def get_total_open_positions_size() -> float:
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT COALESCE(SUM(position_size), 0)
-            FROM trades
-            WHERE status = 'OPEN' AND position_size IS NOT NULL
-        """)
-        return float(cursor.fetchone()[0] or 0.0)
+        cursor.execute(
+            _q("SELECT COALESCE(SUM(position_size), 0) AS total FROM trades WHERE status = 'OPEN' AND position_size IS NOT NULL")
+        )
+        return float(cursor.fetchone()["total"] or 0.0)
     finally:
         conn.close()
 
 
 def migrate_from_csv(csv_file: str = "demo_trades.csv"):
-    """
-    Мигрирует данные из CSV в SQLite.
-    
-    Args:
-        csv_file: Путь к CSV файлу
-    """
+    """Мигрирует данные из CSV в базу данных."""
     if not os.path.exists(csv_file):
         logger.info(f"CSV файл {csv_file} не найден, миграция не требуется")
         return
-    
+
     import csv
-    
+
     conn = get_db_connection()
     migrated = 0
     errors = 0
@@ -578,49 +794,32 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
 
         with open(csv_file, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-
-            # Пропускаем заголовок, если есть
             first_row = next(reader, None)
             if first_row and len(first_row) > 0:
-                if first_row[0].lower() in ['timestamp', 'time', 'date']:
-                    # Это заголовок, пропускаем
-                    pass
-                else:
-                    # Это не заголовок, возвращаемся к началу
+                if first_row[0].lower() not in ("timestamp", "time", "date"):
                     f.seek(0)
                     reader = csv.reader(f)
 
             for row in reader:
                 if len(row) < 7:
                     continue
-
                 try:
-                    timestamp = row[0]
-                    symbol = row[1]
-                    side = row[2]
-                    entry = float(row[3])
-                    stop = float(row[4])
-                    target = float(row[5])
+                    timestamp, symbol, side = row[0], row[1], row[2]
+                    entry, stop, target = float(row[3]), float(row[4]), float(row[5])
                     status = row[6] if len(row) > 6 else "OPEN"
-
                     position_size = None
                     if len(row) > 7 and row[7]:
                         try:
                             position_size = float(row[7])
                         except (ValueError, IndexError):
                             pass
-
                     leverage = None
                     if len(row) > 8 and row[8]:
                         try:
                             leverage = float(row[8])
                         except (ValueError, IndexError):
                             pass
-
-                    close_price = None
-                    close_reason = None
-                    pnl = None
-
+                    close_price = close_reason = pnl = None
                     if status == "CLOSED" and len(row) >= 11:
                         try:
                             close_price = float(row[9]) if row[9] else None
@@ -629,26 +828,26 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
                         except (ValueError, IndexError):
                             pass
 
-                    # Проверяем, не существует ли уже эта сделка
-                    cursor.execute("""
-                        SELECT id FROM trades WHERE timestamp = ? AND symbol = ? AND status = ?
-                    """, (timestamp, symbol, status))
-
+                    cursor.execute(
+                        _q("SELECT id FROM trades WHERE timestamp = ? AND symbol = ? AND status = ?"),
+                        (timestamp, symbol, status),
+                    )
                     if cursor.fetchone():
-                        # Сделка уже существует, пропускаем
                         continue
 
-                    # Добавляем сделку
-                    cursor.execute("""
+                    cursor.execute(
+                        _q("""
                         INSERT INTO trades (
                             timestamp, symbol, side, entry, stop, target, status,
                             position_size, leverage, close_price, close_reason, pnl
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (timestamp, symbol, side, entry, stop, target, status,
-                          position_size, leverage, close_price, close_reason, pnl))
-
+                        """),
+                        (
+                            timestamp, symbol, side, entry, stop, target, status,
+                            position_size, leverage, close_price, close_reason, pnl,
+                        ),
+                    )
                     migrated += 1
-
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Ошибка при миграции строки: {e}")
@@ -656,7 +855,6 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
 
         conn.commit()
         logger.info(f"Миграция завершена: {migrated} сделок мигрировано, {errors} ошибок")
-
     except Exception as e:
         logger.error(f"Критическая ошибка при миграции: {e}", exc_info=True)
     finally:
@@ -667,73 +865,43 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
 # SYSTEM STATE SNAPSHOTS
 # ============================================================================
 
+
 def save_system_state_snapshot(snapshot_data: Dict) -> int:
-    """
-    Сохраняет снимок SystemState в базу данных.
-    
-    Args:
-        snapshot_data: Данные снимка (из SystemState.create_snapshot())
-    
-    Returns:
-        int: ID сохранённого снимка
-    
-    Note:
-        Fault injection проверяется в SystemStateSnapshotStore.save() - entry point.
-        Эта функция вызывается только после проверки fault injection.
-    """
+    """Сохраняет снимок SystemState в базу данных."""
     import json
-    
+
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-
         timestamp = snapshot_data.get("timestamp", datetime.now(UTC).isoformat())
         snapshot_json = json.dumps(snapshot_data)
-
-        cursor.execute("""
-            INSERT INTO system_state_snapshots (timestamp, snapshot_data)
-            VALUES (?, ?)
-        """, (timestamp, snapshot_json))
-
-        snapshot_id = cursor.lastrowid
+        snapshot_id = _exec_insert(
+            cursor,
+            "INSERT INTO system_state_snapshots (timestamp, snapshot_data) VALUES (?, ?)",
+            (timestamp, snapshot_json),
+        )
         conn.commit()
     finally:
         conn.close()
-
     logger.info(f"Сохранён snapshot SystemState #{snapshot_id}")
     return snapshot_id
 
 
 def get_latest_system_state_snapshot() -> Optional[Dict]:
-    """
-    Получает последний снимок SystemState из базы данных.
-    
-    Returns:
-        dict: Последний снимок или None если нет снимков
-    
-    Note:
-        Fault injection проверяется в SystemStateSnapshotStore.load_latest() - entry point.
-        Эта функция вызывается только после проверки fault injection.
-    """
+    """Получает последний снимок SystemState из базы данных."""
     import json
-    
+
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT snapshot_data FROM system_state_snapshots
-            ORDER BY timestamp DESC
-            LIMIT 1
-        """)
-
+        cursor.execute(
+            _q("SELECT snapshot_data FROM system_state_snapshots ORDER BY timestamp DESC LIMIT 1")
+        )
         row = cursor.fetchone()
     finally:
         conn.close()
-
     if not row:
         return None
-
     try:
         return json.loads(row["snapshot_data"])
     except (json.JSONDecodeError, KeyError) as e:
@@ -741,9 +909,43 @@ def get_latest_system_state_snapshot() -> Optional[Dict]:
         return None
 
 
+def cleanup_old_snapshots(keep_last_n: int = 10):
+    """Удаляет старые снимки, оставляя только последние N."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q("SELECT id FROM system_state_snapshots ORDER BY timestamp DESC LIMIT ?"),
+            (keep_last_n,),
+        )
+        keep_ids = [row["id"] for row in cursor.fetchall()]
+
+        if not keep_ids:
+            cursor.execute("DELETE FROM system_state_snapshots")
+        elif _PG_MODE:
+            cursor.execute(
+                "DELETE FROM system_state_snapshots WHERE id NOT IN %s",
+                (tuple(keep_ids),),
+            )
+        else:
+            placeholders = ",".join("?" * len(keep_ids))
+            cursor.execute(
+                f"DELETE FROM system_state_snapshots WHERE id NOT IN ({placeholders})",
+                keep_ids,
+            )
+
+        deleted = cursor.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if deleted > 0:
+        logger.info(f"Удалено {deleted} старых snapshot'ов")
+
+
 # ============================================================================
 # ORDERS (Phase 2)
 # ============================================================================
+
 
 def save_order(
     order_id: str,
@@ -762,14 +964,17 @@ def save_order(
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("""
+        row_id = _exec_insert(
+            cursor,
+            """
             INSERT INTO orders
                 (order_id, symbol, side, order_type, qty, entry_price,
                  stop_loss, take_profit, status, dry_run, error)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (order_id, symbol, side, order_type, qty, entry_price,
-              stop_loss, take_profit, status, int(dry_run), error))
-        row_id = cursor.lastrowid
+            """,
+            (order_id, symbol, side, order_type, qty, entry_price,
+             stop_loss, take_profit, status, int(dry_run), error),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -783,10 +988,10 @@ def update_order_status(order_id: str, status: str, error: Optional[str] = None)
     try:
         cursor = conn.cursor()
         updated_at = datetime.now(UTC).isoformat()
-        cursor.execute("""
-            UPDATE orders SET status = ?, error = ?, updated_at = ?
-            WHERE order_id = ?
-        """, (status, error, updated_at, order_id))
+        cursor.execute(
+            _q("UPDATE orders SET status = ?, error = ?, updated_at = ? WHERE order_id = ?"),
+            (status, error, updated_at, order_id),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -795,6 +1000,7 @@ def update_order_status(order_id: str, status: str, error: Optional[str] = None)
 # ============================================================================
 # POSITIONS (Phase 2)
 # ============================================================================
+
 
 def open_position(
     order_id: str,
@@ -810,12 +1016,15 @@ def open_position(
     try:
         cursor = conn.cursor()
         opened_at = datetime.now(UTC).isoformat()
-        cursor.execute("""
+        row_id = _exec_insert(
+            cursor,
+            """
             INSERT INTO positions
                 (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, status, opened_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
-        """, (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, opened_at))
-        row_id = cursor.lastrowid
+            """,
+            (order_id, symbol, side, qty, entry_price, stop_loss, take_profit, opened_at),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -834,12 +1043,15 @@ def close_position_by_order_id(
     try:
         cursor = conn.cursor()
         closed_at = datetime.now(UTC).isoformat()
-        cursor.execute("""
+        cursor.execute(
+            _q("""
             UPDATE positions
             SET status = 'CLOSED', close_price = ?, close_reason = ?,
                 realised_pnl = ?, closed_at = ?
             WHERE order_id = ? AND status = 'OPEN'
-        """, (close_price, close_reason, realised_pnl, closed_at, order_id))
+            """),
+            (close_price, close_reason, realised_pnl, closed_at, order_id),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -851,9 +1063,9 @@ def get_open_positions() -> List[Dict]:
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at DESC
-        """)
+        cursor.execute(
+            _q("SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at DESC")
+        )
         rows = cursor.fetchall()
     finally:
         conn.close()
@@ -863,6 +1075,7 @@ def get_open_positions() -> List[Dict]:
 # ============================================================================
 # PNL HISTORY (Phase 2)
 # ============================================================================
+
 
 def upsert_daily_pnl(
     date: str,
@@ -876,16 +1089,19 @@ def upsert_daily_pnl(
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            _q("""
             INSERT INTO pnl_history (date, realised_pnl, trades_count, wins, losses, balance_end)
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(date) DO UPDATE SET
-                realised_pnl = excluded.realised_pnl,
-                trades_count = excluded.trades_count,
-                wins = excluded.wins,
-                losses = excluded.losses,
-                balance_end = excluded.balance_end
-        """, (date, realised_pnl, trades_count, wins, losses, balance_end))
+                realised_pnl = EXCLUDED.realised_pnl,
+                trades_count = EXCLUDED.trades_count,
+                wins = EXCLUDED.wins,
+                losses = EXCLUDED.losses,
+                balance_end = EXCLUDED.balance_end
+            """),
+            (date, realised_pnl, trades_count, wins, losses, balance_end),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -896,58 +1112,19 @@ def get_pnl_history(days: int = 30) -> List[Dict]:
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT * FROM pnl_history ORDER BY date DESC LIMIT ?
-        """, (days,))
+        cursor.execute(
+            _q("SELECT * FROM pnl_history ORDER BY date DESC LIMIT ?"), (days,)
+        )
         rows = cursor.fetchall()
     finally:
         conn.close()
     return [dict(row) for row in rows]
 
 
-def cleanup_old_snapshots(keep_last_n: int = 10):
-    """
-    Удаляет старые снимки, оставляя только последние N.
-    
-    Args:
-        keep_last_n: Количество последних снимков для сохранения
-    """
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-
-        # Получаем ID последних N снимков
-        cursor.execute("""
-            SELECT id FROM system_state_snapshots
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (keep_last_n,))
-
-        keep_ids = [row["id"] for row in cursor.fetchall()]
-
-        if keep_ids:
-            # Удаляем все остальные
-            placeholders = ",".join("?" * len(keep_ids))
-            cursor.execute(f"""
-                DELETE FROM system_state_snapshots
-                WHERE id NOT IN ({placeholders})
-            """, keep_ids)
-        else:
-            # Если нет снимков для сохранения, удаляем все
-            cursor.execute("DELETE FROM system_state_snapshots")
-
-        deleted = cursor.rowcount
-        conn.commit()
-    finally:
-        conn.close()
-
-    if deleted > 0:
-        logger.info(f"Удалено {deleted} старых snapshot'ов")
-
-
 # ============================================================================
 # PNL RECORDS (Phase 3)
 # ============================================================================
+
 
 def insert_pnl_record(
     symbol: str,
@@ -964,30 +1141,28 @@ def insert_pnl_record(
     signal_entropy: Optional[float] = None,
     balance_after: Optional[float] = None,
 ) -> Optional[int]:
-    """
-    Записывает детальные данные по закрытой сделке в pnl_records.
-
-    Returns:
-        ID новой записи или None при ошибке.
-    """
+    """Записывает детальные данные по закрытой сделке в pnl_records."""
     try:
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
             closed_at = datetime.now(UTC).isoformat()
-            cursor.execute("""
+            record_id = _exec_insert(
+                cursor,
+                """
                 INSERT INTO pnl_records (
                     closed_at, symbol, side, entry_price, exit_price, quantity,
                     gross_pnl, commission, net_pnl, market_regime,
                     hold_duration_seconds, signal_confidence, signal_entropy, balance_after
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                closed_at, symbol, side, entry_price, exit_price, quantity,
-                gross_pnl, commission, net_pnl, market_regime,
-                hold_duration_seconds, signal_confidence, signal_entropy, balance_after,
-            ))
+                """,
+                (
+                    closed_at, symbol, side, entry_price, exit_price, quantity,
+                    gross_pnl, commission, net_pnl, market_regime,
+                    hold_duration_seconds, signal_confidence, signal_entropy, balance_after,
+                ),
+            )
             conn.commit()
-            record_id = cursor.lastrowid
         finally:
             conn.close()
         return record_id
@@ -999,33 +1174,24 @@ def insert_pnl_record(
 def get_closed_trades(days: int = 30) -> List[Dict]:
     """
     Возвращает закрытые сделки из pnl_records за последние N дней.
-
-    Каждая запись содержит:
-        symbol, side, entry_price, exit_price, quantity,
-        gross_pnl, commission, net_pnl, market_regime,
-        hold_duration_seconds, signal_confidence, signal_entropy,
-        balance_after, closed_at.
-
-    Ключ 'pnl' является алиасом net_pnl для совместимости с
-    функциями финансовых метрик в bot_statistics.py.
+    Ключ 'pnl' является алиасом net_pnl для совместимости.
     """
     try:
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT *
-                FROM pnl_records
-                WHERE closed_at >= datetime('now', ? || ' days')
-                ORDER BY closed_at ASC
-            """, (f'-{days}',))
+            since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+            cursor.execute(
+                _q("SELECT * FROM pnl_records WHERE closed_at >= ? ORDER BY closed_at ASC"),
+                (since,),
+            )
             rows = cursor.fetchall()
         finally:
             conn.close()
         result = []
         for row in rows:
             d = dict(row)
-            d['pnl'] = d['net_pnl']  # алиас для calculate_profit_factor и др.
+            d["pnl"] = d["net_pnl"]
             result.append(d)
         return result
     except Exception as e:
@@ -1034,23 +1200,21 @@ def get_closed_trades(days: int = 30) -> List[Dict]:
 
 
 def get_equity_curve_points(days: int = 30) -> List[Dict]:
-    """
-    Возвращает точки equity curve из pnl_records за последние N дней.
-
-    Каждая точка: {'timestamp': str, 'balance': float}.
-    Используется для расчёта Sharpe Ratio и Max Drawdown.
-    """
+    """Возвращает точки equity curve из pnl_records за последние N дней."""
     try:
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("""
+            since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+            cursor.execute(
+                _q("""
                 SELECT closed_at AS timestamp, balance_after AS balance
                 FROM pnl_records
-                WHERE closed_at >= datetime('now', ? || ' days')
-                  AND balance_after IS NOT NULL
+                WHERE closed_at >= ? AND balance_after IS NOT NULL
                 ORDER BY closed_at ASC
-            """, (f'-{days}',))
+                """),
+                (since,),
+            )
             rows = cursor.fetchall()
         finally:
             conn.close()
@@ -1064,13 +1228,14 @@ def get_equity_curve_points(days: int = 30) -> List[Dict]:
 # USER SETTINGS (Phase 5)
 # ============================================================================
 
+
 def get_setting(key: str) -> Optional[str]:
     """Вернуть значение настройки или None."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT setting_value FROM user_settings WHERE setting_key = ?", (key,)
+            _q("SELECT setting_value FROM user_settings WHERE setting_key = ?"), (key,)
         )
         row = cursor.fetchone()
     finally:
@@ -1084,14 +1249,17 @@ def set_setting(key: str, value: str, data_type: str) -> None:
     try:
         cursor = conn.cursor()
         updated_at = datetime.now(UTC).isoformat()
-        cursor.execute("""
+        cursor.execute(
+            _q("""
             INSERT INTO user_settings (setting_key, setting_value, data_type, updated_at)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(setting_key) DO UPDATE SET
-                setting_value = excluded.setting_value,
-                data_type = excluded.data_type,
-                updated_at = excluded.updated_at
-        """, (key, value, data_type, updated_at))
+                setting_value = EXCLUDED.setting_value,
+                data_type = EXCLUDED.data_type,
+                updated_at = EXCLUDED.updated_at
+            """),
+            (key, value, data_type, updated_at),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -1102,7 +1270,9 @@ def get_all_settings() -> Dict[str, Dict]:
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT setting_key, setting_value, data_type, updated_at FROM user_settings")
+        cursor.execute(
+            _q("SELECT setting_key, setting_value, data_type, updated_at FROM user_settings")
+        )
         rows = cursor.fetchall()
     finally:
         conn.close()
@@ -1120,33 +1290,36 @@ def get_all_settings() -> Dict[str, Dict]:
 # SIGNAL OUTCOMES (система обучения)
 # ============================================================================
 
+
 def save_signal_outcome(data: dict) -> Optional[int]:
     """
     Сохраняет исход сигнала. Возвращает id или None если дубликат.
-
-    Args:
-        data: dict with keys: signal_ts, symbol, direction, entry, tp, sl,
-              confidence (opt), state_15m (opt), checked_at, outcome,
-              candles_checked (opt), max_favorable_pct (opt), max_adverse_pct (opt)
     """
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR IGNORE INTO signal_outcomes
-            (signal_ts, symbol, direction, entry, tp, sl, confidence, state_15m,
-             checked_at, outcome, candles_checked, max_favorable_pct, max_adverse_pct)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
+        params = (
             data["signal_ts"], data["symbol"], data["direction"],
             data["entry"], data["tp"], data["sl"],
             data.get("confidence"), data.get("state_15m"),
             data["checked_at"], data["outcome"],
             data.get("candles_checked", 0),
             data.get("max_favorable_pct"), data.get("max_adverse_pct"),
-        ))
-        conn.commit()
-        return cursor.lastrowid if cursor.rowcount > 0 else None
+        )
+        base = """INTO signal_outcomes
+            (signal_ts, symbol, direction, entry, tp, sl, confidence, state_15m,
+             checked_at, outcome, candles_checked, max_favorable_pct, max_adverse_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        if _PG_MODE:
+            # RETURNING id returns row only on actual insert; nothing on conflict
+            cursor.execute(_q(f"INSERT {base} ON CONFLICT DO NOTHING RETURNING id"), params)
+            row = cursor.fetchone()
+            conn.commit()
+            return row["id"] if row else None
+        else:
+            cursor.execute(f"INSERT OR IGNORE {base}", params)
+            conn.commit()
+            return cursor.lastrowid if cursor.rowcount > 0 else None
     finally:
         conn.close()
 
@@ -1157,7 +1330,7 @@ def is_outcome_tracked(signal_ts: str, symbol: str) -> bool:
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT 1 FROM signal_outcomes WHERE signal_ts = ? AND symbol = ? LIMIT 1",
+            _q("SELECT 1 FROM signal_outcomes WHERE signal_ts = ? AND symbol = ? LIMIT 1"),
             (signal_ts, symbol),
         )
         return cursor.fetchone() is not None
@@ -1166,24 +1339,78 @@ def is_outcome_tracked(signal_ts: str, symbol: str) -> bool:
 
 
 def get_outcomes_for_analysis(days: int = 30) -> List[Dict]:
-    """
-    Возвращает все исходы за последние N дней для анализа точности.
-
-    Args:
-        days: Период в днях
-    Returns:
-        Список словарей с полями таблицы signal_outcomes
-    """
+    """Возвращает все исходы за последние N дней для анализа точности."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
         since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
-        cursor.execute("""
-            SELECT * FROM signal_outcomes
-            WHERE signal_ts >= ?
-            ORDER BY signal_ts DESC
-        """, (since,))
+        cursor.execute(
+            _q("SELECT * FROM signal_outcomes WHERE signal_ts >= ? ORDER BY signal_ts DESC"),
+            (since,),
+        )
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()
+
+
+# ============================================================================
+# ENCRYPTED API KEYS (Phase 6)
+# ============================================================================
+
+
+def save_encrypted_api_key(key_name: str, encrypted_value: str) -> None:
+    """
+    Сохраняет или обновляет зашифрованный API-ключ в БД (UPSERT по key_name).
+
+    Args:
+        key_name: Имя ключа, например 'BYBIT_API_KEY'
+        encrypted_value: Зашифрованное значение (Fernet token, base64)
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        updated_at = datetime.now(UTC).isoformat()
+        cursor.execute(
+            _q("""
+            INSERT INTO encrypted_api_keys (key_name, encrypted_value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key_name) DO UPDATE SET
+                encrypted_value = EXCLUDED.encrypted_value,
+                updated_at = EXCLUDED.updated_at
+            """),
+            (key_name, encrypted_value, updated_at),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    logger.info(f"Encrypted API key saved: {key_name}")
+
+
+def get_encrypted_api_key(key_name: str) -> Optional[str]:
+    """
+    Возвращает зашифрованное значение ключа или None если не найдено.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q("SELECT encrypted_value FROM encrypted_api_keys WHERE key_name = ?"),
+            (key_name,),
+        )
+        row = cursor.fetchone()
+    finally:
+        conn.close()
+    return row["encrypted_value"] if row else None
+
+
+def list_encrypted_key_names() -> List[str]:
+    """Возвращает список имён сохранённых ключей (без значений)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(_q("SELECT key_name, updated_at FROM encrypted_api_keys ORDER BY key_name"))
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+    return [{"key_name": row["key_name"], "updated_at": row["updated_at"]} for row in rows]

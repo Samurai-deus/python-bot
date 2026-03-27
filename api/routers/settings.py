@@ -1,10 +1,13 @@
 """
 Settings endpoints — GET /api/settings, PUT /api/settings.
+Also: GET/PUT /api/settings/keys — encrypted API key management.
 """
 import json
 import os
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 import config
 import database
@@ -149,3 +152,63 @@ async def update_settings(body: UpdateSettingsRequest, _user=Depends(verify_auth
 
     db_overrides = await run_sync(database.get_all_settings)
     return _build_settings_response(db_overrides)
+
+
+# ============================================================================
+# API KEY MANAGEMENT  (encrypted storage)
+# ============================================================================
+
+_ALLOWED_KEY_NAMES = frozenset({"BYBIT_API_KEY", "BYBIT_API_SECRET"})
+
+
+class StoreKeysRequest(BaseModel):
+    bybit_api_key: str
+    bybit_api_secret: str
+
+
+class KeyEntry(BaseModel):
+    key_name: str
+    updated_at: str
+
+
+class KeysResponse(BaseModel):
+    keys: List[KeyEntry]
+    encryption: str = "fernet-aes128"
+
+
+@router.get("/keys", response_model=KeysResponse)
+async def list_keys(_user=Depends(verify_auth)):
+    """List stored API key names (values are never returned)."""
+    entries = await run_sync(database.list_encrypted_key_names)
+    return KeysResponse(keys=[KeyEntry(**e) for e in entries])
+
+
+@router.put("/keys", response_model=KeysResponse)
+async def store_keys(body: StoreKeysRequest, _user=Depends(verify_auth)):
+    """
+    Encrypt and store Bybit API credentials in the database.
+
+    Requires ENCRYPTION_KEY to be configured in .env.
+    Values are encrypted with Fernet (AES-128-CBC + HMAC) before storage.
+    """
+    if not body.bybit_api_key.strip():
+        raise HTTPException(400, "bybit_api_key must not be empty")
+    if not body.bybit_api_secret.strip():
+        raise HTTPException(400, "bybit_api_secret must not be empty")
+
+    try:
+        from utils.crypto import encrypt
+    except ImportError:
+        raise HTTPException(500, "cryptography package not installed")
+
+    try:
+        enc_key = encrypt(body.bybit_api_key.strip())
+        enc_secret = encrypt(body.bybit_api_secret.strip())
+    except RuntimeError as e:
+        raise HTTPException(500, f"Encryption error: {e}")
+
+    await run_sync(database.save_encrypted_api_key, "BYBIT_API_KEY", enc_key)
+    await run_sync(database.save_encrypted_api_key, "BYBIT_API_SECRET", enc_secret)
+
+    entries = await run_sync(database.list_encrypted_key_names)
+    return KeysResponse(keys=[KeyEntry(**e) for e in entries])

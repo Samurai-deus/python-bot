@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from api.ip_whitelist import IPWhitelistMiddleware
 from api.rate_limit import RateLimitMiddleware
 
 load_dotenv()
@@ -62,6 +63,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
 )
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(IPWhitelistMiddleware)
 
 app.include_router(system.router)
 app.include_router(positions.router)

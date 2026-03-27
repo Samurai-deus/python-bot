@@ -1,6 +1,29 @@
 version: '3.9'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: market-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-market_bot}
+      - POSTGRES_USER=${POSTGRES_USER:-market_bot}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - market-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-market_bot} -d ${POSTGRES_DB:-market_bot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
   market-bot:
     build: .
     image: market-bot:latest
@@ -13,6 +36,9 @@ services:
       - LOG_FILE=/data/logs/runner.log
     volumes:
       - /data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - market-net
     logging:
@@ -35,6 +61,9 @@ services:
       - /data:/data
     ports:
       - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - market-net
     logging:
@@ -106,6 +135,7 @@ services:
         max-file: "3"
 
 volumes:
+  postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
