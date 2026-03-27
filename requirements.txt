@@ -19,5 +19,6 @@ uvicorn[standard]>=0.29.0
 # Monitoring (Phase 6)
 prometheus-fastapi-instrumentator>=0.9.1
 sentry-sdk[fastapi]>=2.0.0
+redis>=5.0.0
 
 

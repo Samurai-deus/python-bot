@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from api.rate_limit import RateLimitMiddleware
+
 load_dotenv()
 
 _sentry_dsn = os.environ.get("SENTRY_DSN")
@@ -59,6 +61,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type", "X-Telegram-Init-Data"],
 )
+app.add_middleware(RateLimitMiddleware)
 
 app.include_router(system.router)
 app.include_router(positions.router)

@@ -4,6 +4,8 @@
 import csv
 import logging
 import os
+import random
+import time
 from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,84 @@ from execution.gatekeeper import get_gatekeeper
 from brains.market_regime_brain import get_market_regime_brain
 from brains.risk_exposure_brain import get_risk_exposure_brain
 from brains.cognitive_filter import get_cognitive_filter
+
+# Admin guard — set ADMIN_CHAT_ID in .env to restrict critical commands to one user.
+# If unset (0), any user can issue commands but OTP is still required.
+_ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0"))
+_OTP_TTL = 60  # seconds
+
+
+def _is_admin(update: Update) -> bool:
+    if _ADMIN_CHAT_ID == 0:
+        return True
+    user = update.effective_user
+    return user is not None and user.id == _ADMIN_CHAT_ID
+
+
+def _generate_otp() -> str:
+    return str(random.randint(100000, 999999))
+
+
+async def _request_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
+    """Generate OTP, store in user_data, and prompt the user."""
+    otp = _generate_otp()
+    context.user_data["pending_confirm"] = {
+        "action": action,
+        "code": otp,
+        "expires": time.time() + _OTP_TTL,
+    }
+    label = "PAUSE trading" if action == "pause" else "RESUME trading"
+    text = (
+        f"⚠️ *Confirm {label}*\n\n"
+        f"Reply with this code within {_OTP_TTL} seconds:\n"
+        f"`{otp}`"
+    )
+    if update.message:
+        await update.message.reply_text(text, parse_mode="Markdown")
+    else:
+        await update.callback_query.message.reply_text(text, parse_mode="Markdown")
+
+
+async def cmd_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle OTP confirmation for critical commands (text MessageHandler)."""
+    if not _is_admin(update):
+        return
+
+    pending = context.user_data.get("pending_confirm")
+    if not pending:
+        return  # No pending action — ignore
+
+    if time.time() > pending["expires"]:
+        context.user_data.pop("pending_confirm", None)
+        await update.message.reply_text("❌ Code expired. Re-run the command.")
+        return
+
+    if update.message.text.strip() != pending["code"]:
+        await update.message.reply_text("❌ Wrong code.")
+        return
+
+    # Correct code — execute and clear
+    action = pending.pop("action")
+    context.user_data.pop("pending_confirm", None)
+
+    try:
+        if action == "pause":
+            from runner import pause_trading_manually
+            success = pause_trading_manually()
+            if success:
+                await update.message.reply_text("⏸ *Trading paused.*", parse_mode="Markdown")
+            else:
+                await update.message.reply_text("⏸ *Trading is already paused.*", parse_mode="Markdown")
+        elif action == "resume":
+            from runner import resume_trading_manually
+            success, message = resume_trading_manually()
+            if success:
+                await update.message.reply_text("✅ *Trading resumed.*", parse_mode="Markdown")
+            else:
+                await update.message.reply_text(f"❌ Cannot resume: {message}", parse_mode="Markdown")
+    except Exception as e:
+        logger.error("Ошибка выполнения подтверждённого действия '%s': %s", action, e, exc_info=True)
+        await update.message.reply_text("❌ Internal error executing the action.")
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1068,50 +1148,27 @@ async def cmd_gatekeeper(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /pause - приостановка торговли"""
+    """Обработчик команды /pause — запрашивает OTP-подтверждение перед остановкой торговли."""
+    if not _is_admin(update):
+        await update.message.reply_text("❌ Unauthorized.")
+        return
     try:
-        # Определяем, откуда пришел запрос
-        if hasattr(update, 'message') and update.message:
-            reply_func = update.message.reply_text
-        else:
-            reply_func = update.callback_query.message.reply_text
-        
-        from runner import pause_trading_manually
-        
-        success = pause_trading_manually()
-        if success:
-            await reply_func("⏸ **Trading paused manually**\n\nТорговля приостановлена. Используйте `/resume` для возобновления.", parse_mode="Markdown")
-        else:
-            await reply_func("⏸ **Trading is already paused**\n\nТорговля уже приостановлена.", parse_mode="Markdown")
+        await _request_confirmation(update, context, "pause")
     except Exception as e:
-        logger.error("Ошибка в команде: %s", e, exc_info=True)
-        reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
+        logger.error("Ошибка в команде /pause: %s", e, exc_info=True)
+        await update.message.reply_text("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /resume - возобновление торговли"""
+    """Обработчик команды /resume — запрашивает OTP-подтверждение перед возобновлением торговли."""
+    if not _is_admin(update):
+        await update.message.reply_text("❌ Unauthorized.")
+        return
     try:
-        # Определяем, откуда пришел запрос
-        if hasattr(update, 'message') and update.message:
-            reply_func = update.message.reply_text
-        else:
-            reply_func = update.callback_query.message.reply_text
-        
-        from runner import resume_trading_manually
-        
-        success, message = resume_trading_manually()
-        if success:
-            await reply_func("✅ **Trading resumed manually**\n\nТорговля возобновлена.", parse_mode="Markdown")
-        else:
-            if "safe_mode" in message.lower():
-                await reply_func("❌ **Нельзя возобновить:** Система в safe_mode. Сначала необходимо выйти из safe_mode.", parse_mode="Markdown")
-            else:
-                await reply_func(f"✅ **{message}**\n\nТорговля уже активна.", parse_mode="Markdown")
+        await _request_confirmation(update, context, "resume")
     except Exception as e:
-        logger.error("Ошибка в команде: %s", e, exc_info=True)
-        reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func("❌ Произошла внутренняя ошибка. Попробуйте позже.")
+        logger.error("Ошибка в команде /resume: %s", e, exc_info=True)
+        await update.message.reply_text("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 def setup_commands(app):
@@ -1149,7 +1206,10 @@ def setup_commands(app):
     # Control plane команды
     app.add_handler(CommandHandler("pause", cmd_pause))
     app.add_handler(CommandHandler("resume", cmd_resume))
-    
+
+    # OTP confirmation handler — must be after command handlers so commands take priority
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_confirm))
+
     # Обработчик кнопок
     app.add_handler(CallbackQueryHandler(button_callback))
     
