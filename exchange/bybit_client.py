@@ -97,6 +97,12 @@ class BybitClient:
         self._api_key = api_key or os.environ.get("BYBIT_API_KEY", "")
         self._api_secret = api_secret or os.environ.get("BYBIT_API_SECRET", "")
 
+        # If credentials not in env, try encrypted DB storage
+        if not self._api_key or not self._api_secret:
+            self._api_key, self._api_secret = self._load_keys_from_db(
+                self._api_key, self._api_secret
+            )
+
         if testnet is None:
             testnet = os.environ.get("BYBIT_TESTNET", "true").lower() == "true"
         self._testnet = testnet
@@ -109,6 +115,35 @@ class BybitClient:
 
         mode = "TESTNET" if testnet else "MAINNET"
         logger.info(f"BybitClient initialized [{mode}]: {self._base_url}")
+
+    @staticmethod
+    def _load_keys_from_db(current_key: str, current_secret: str):
+        """
+        Try to load API credentials from encrypted DB storage.
+        Falls back to current values (possibly empty) on any error.
+        Fail-open: missing keys just mean unauthenticated (read-only) mode.
+        """
+        try:
+            from database import get_encrypted_api_key
+            from utils.crypto import decrypt
+
+            key = current_key
+            secret = current_secret
+
+            if not key:
+                enc_key = get_encrypted_api_key("BYBIT_API_KEY")
+                if enc_key:
+                    key = decrypt(enc_key)
+
+            if not secret:
+                enc_secret = get_encrypted_api_key("BYBIT_API_SECRET")
+                if enc_secret:
+                    secret = decrypt(enc_secret)
+
+            return key, secret
+        except Exception as e:
+            logger.debug("Could not load API keys from DB (will use env): %s", e)
+            return current_key, current_secret
 
     # ------------------------------------------------------------------ #
     #  Public market data (без подписи)                                   #
