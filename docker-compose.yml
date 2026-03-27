@@ -26,7 +26,7 @@ services:
 
   market-bot:
     build: .
-    image: market-bot:latest
+    image: market-bot:${RELEASE_TAG:-latest}
     container_name: market-bot
     restart: unless-stopped
     command: python runner.py
@@ -41,6 +41,13 @@ services:
         condition: service_healthy
     networks:
       - market-net
+    healthcheck:
+      test: ["CMD", "python", "-c",
+        "import sqlite3, os; db=os.environ.get('DB_PATH','market_bot.db'); c=sqlite3.connect(db); c.execute('SELECT 1'); c.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     logging:
       driver: "json-file"
       options:
@@ -49,7 +56,7 @@ services:
 
   api:
     build: .
-    image: market-bot:latest
+    image: market-bot:${RELEASE_TAG:-latest}
     container_name: market-bot-api
     restart: unless-stopped
     command: python run_api.py
@@ -66,6 +73,13 @@ services:
         condition: service_healthy
     networks:
       - market-net
+    healthcheck:
+      test: ["CMD", "python", "-c",
+        "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/system/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     logging:
       driver: "json-file"
       options:
@@ -76,11 +90,20 @@ services:
     image: redis:7-alpine
     container_name: market-bot-redis
     restart: unless-stopped
-    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     networks:
       - market-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     logging:
       driver: "json-file"
       options:
@@ -115,7 +138,7 @@ services:
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-changeme}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
       - GF_SERVER_ROOT_URL=https://signabot.ru/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
       - GF_ANALYTICS_REPORTING_ENABLED=false

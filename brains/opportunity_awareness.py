@@ -134,9 +134,8 @@ class OpportunityAwareness:
         if system_state is not None:
             system_state.update_opportunity(symbol, result)
         
-        # Очищаем старый кэш (если больше 100 записей)
-        if len(self._cache) > 100:
-            self._cleanup_cache()
+        # Очищаем устаревшие записи кэша при каждом вызове
+        self._cleanup_cache()
         
         return result
     
