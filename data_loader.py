@@ -1,4 +1,5 @@
 import requests  # type: ignore[import-untyped]  # noqa: F401
+from requests.adapters import HTTPAdapter
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,8 +10,12 @@ INSTRUMENTS_URL = "https://api.bybit.com/v5/market/instruments-info"
 
 # Переиспользуем одну Session для всех запросов — избегаем создания нового
 # TCP-соединения на каждый вызов (ThreadPoolExecutor безопасен с requests.Session).
+# pool_maxsize=50 покрывает 30 символов × 5 таймфреймов с запасом.
 _session = requests.Session()
 _session.headers.update({"Accept": "application/json"})
+_adapter = HTTPAdapter(pool_connections=10, pool_maxsize=50)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 _RETRY_DELAYS = (1, 2, 4)  # секунды между попытками
 

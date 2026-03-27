@@ -153,22 +153,19 @@ class OpportunityAwareness:
     def _check_volatility_squeeze(self, candles: List) -> bool:
         """
         Проверяет сжатие волатильности (Bollinger Bands сужаются).
+        bollinger_bands() возвращает скалярные значения для текущей свечи,
+        поэтому сравниваем ширину двух окон: текущего и смещённого на 5 свечей назад.
         """
-        if len(candles) < 20:
+        if len(candles) < 25:  # 20 period + 5 look-back
             return False
-        
+
         try:
-            bb = bollinger_bands(candles, period=20)
-            upper = bb.get("upper", [])
-            lower = bb.get("lower", [])
-            
-            if len(upper) < 5 or len(lower) < 5:
-                return False
-            
-            # Сравниваем ширину полос сейчас и 5 свечей назад
-            current_width = upper[-1] - lower[-1]
-            prev_width = upper[-5] - lower[-5]
-            
+            bb_current = bollinger_bands(candles, period=20)
+            bb_prev = bollinger_bands(candles[:-5], period=20)
+
+            current_width = bb_current.get("width_pct", 0)
+            prev_width = bb_prev.get("width_pct", 0)
+
             # Если ширина уменьшилась более чем на 20% - сжатие
             if prev_width > 0 and current_width < prev_width * 0.8:
                 return True

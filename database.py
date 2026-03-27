@@ -53,6 +53,22 @@ if _PG_MODE:
         )
         raise
 
+# ========== POOL LIFECYCLE ==========
+
+
+def close_pg_pool() -> None:
+    """Закрывает PostgreSQL connection pool при завершении процесса."""
+    global _pg_pool
+    if _pg_pool is not None:
+        try:
+            _pg_pool.closeall()
+            logger.info("PostgreSQL connection pool closed")
+        except Exception as e:
+            logger.warning("Error closing PostgreSQL pool: %s", e)
+        finally:
+            _pg_pool = None
+
+
 # ========== SQL DIALECT HELPERS ==========
 
 
@@ -619,6 +635,33 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
     finally:
         conn.close()
     logger.info(f"Закрыта сделка #{trade_id}: PnL={pnl:.2f} USDT, причина={close_reason}")
+
+
+def force_cancel_open_trades() -> int:
+    """
+    Принудительно закрывает все сделки со статусом OPEN (помечает как CANCELLED).
+    Используется для сброса зависших позиций, блокирующих Risk Core.
+    Возвращает количество обновлённых записей.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        updated_at = datetime.now(UTC).isoformat()
+        cursor.execute(
+            _q("UPDATE trades SET status = 'CANCELLED', close_reason = 'FORCE_CANCEL', updated_at = ? WHERE status = 'OPEN'"),
+            (updated_at,),
+        )
+        count = cursor.rowcount
+        cursor.execute(
+            _q("UPDATE positions SET status = 'CANCELLED', close_reason = 'FORCE_CANCEL', closed_at = ? WHERE status = 'OPEN'"),
+            (updated_at,),
+        )
+        count += cursor.rowcount
+        conn.commit()
+        logger.warning("force_cancel_open_trades: закрыто %d записей", count)
+        return count
+    finally:
+        conn.close()
 
 
 def get_trades_by_symbol(symbol: str, status: Optional[str] = None) -> List[Dict]:
