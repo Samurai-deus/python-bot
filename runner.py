@@ -2894,6 +2894,9 @@ async def paper_trading_monitor_loop():
                                     symbol, closed_trade.get("side"), current_price,
                                     closed_trade.get("close_reason"), closed_trade.get("pnl", 0),
                                 )
+                                # Сбрасываем кэш сигнала для символа, чтобы следующий цикл
+                                # мог снова генерировать сигналы на тот же символ
+                                system_state.reset_signal_cache(symbol)
                                 try:
                                     await asyncio.to_thread(generate_trade_report, closed_trade)
                                 except Exception as report_err:

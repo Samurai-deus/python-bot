@@ -251,23 +251,25 @@ class RiskExposureBrain:
                        max_correlation: float, active_positions: int) -> bool:
         """
         Проверяет, не перегружен ли портфель.
+
+        Примечание: корреляция НЕ используется как условие перегрузки,
+        т.к. большинство крипто-активов коррелируют с BTC > 0.8 в
+        трендовых условиях — это заблокировало бы все сделки при наличии
+        любых 2 открытых позиций. Корреляция учитывается как предупреждение
+        в DecisionCore (рекомендация «диверсифицируйте»).
         """
         # Перегрузка по риску
         if total_risk_pct > self.max_total_risk_pct:
             return True
-        
+
         # Перегрузка по экспозиции
         if exposure_pct > self.max_exposure_pct:
             return True
-        
-        # Перегрузка по корреляции
-        if max_correlation > self.max_correlation:
-            return True
-        
+
         # Перегрузка по количеству позиций (более 10)
         if active_positions > 10:
             return True
-        
+
         return False
 
 

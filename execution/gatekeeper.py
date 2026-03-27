@@ -746,7 +746,7 @@ class Gatekeeper:
                     current_balance = get_current_balance()
                     if current_balance > 0:
                         # Упрощённый расчёт: сумма всех позиций / баланс
-                        total_exposure = sum(trade.get("size", 0) for trade in open_trades)
+                        total_exposure = sum(trade.get("position_size", 0) for trade in open_trades)
                         portfolio_exposure = min(1.0, total_exposure / current_balance)
             except Exception:
                 portfolio_exposure = 0.0
