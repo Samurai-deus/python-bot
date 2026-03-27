@@ -4856,8 +4856,15 @@ async def main():
         except Exception as e:
             logger.debug(f"Error shutting down async generators: {type(e).__name__}: {e}")
         
+        # 5. Закрываем PostgreSQL connection pool (если активен)
+        try:
+            from database import close_pg_pool
+            close_pg_pool()
+        except Exception as e:
+            logger.debug(f"Error closing PostgreSQL pool: {type(e).__name__}: {e}")
+
         logger.critical("=== GRACEFUL SHUTDOWN COMPLETED ===")
-        
+
         # ========== FINAL SHUTDOWN BARRIER ==========
         # CRITICAL: This is the ABSOLUTE FINAL barrier before main() returns
         # Some tasks may not react properly to cancellation (blocked on Event.wait(), Queue.get(), etc.)

@@ -4,7 +4,7 @@
 import csv
 import logging
 import os
-import random
+import secrets
 import time
 from datetime import datetime, UTC
 
@@ -37,7 +37,7 @@ def _is_admin(update: Update) -> bool:
 
 
 def _generate_otp() -> str:
-    return str(random.randint(100000, 999999))
+    return f"{100000 + secrets.randbelow(900000)}"
 
 
 async def _request_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
@@ -1171,6 +1171,25 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
+async def cmd_reset_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принудительно отменяет все зависшие OPEN-позиции (разблокирует Risk Core)."""
+    if not _is_admin(update):
+        await update.message.reply_text("❌ Unauthorized.")
+        return
+    try:
+        import database
+        count = database.force_cancel_open_trades()
+        await update.message.reply_text(
+            f"✅ Принудительно закрыто позиций: *{count}*\n"
+            "Risk Core разблокирован. Торговля возобновится на следующем цикле.",
+            parse_mode="Markdown",
+        )
+        logger.warning("cmd_reset_trades: admin %s force-cancelled %d positions", update.effective_user.id, count)
+    except Exception as e:
+        logger.error("Ошибка в команде /reset_trades: %s", e, exc_info=True)
+        await update.message.reply_text("❌ Ошибка при сбросе позиций.")
+
+
 def setup_commands(app):
     """
     Настраивает обработчики команд для Telegram бота.
@@ -1206,6 +1225,7 @@ def setup_commands(app):
     # Control plane команды
     app.add_handler(CommandHandler("pause", cmd_pause))
     app.add_handler(CommandHandler("resume", cmd_resume))
+    app.add_handler(CommandHandler("reset_trades", cmd_reset_trades))
 
     # OTP confirmation handler — must be after command handlers so commands take priority
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_confirm))
