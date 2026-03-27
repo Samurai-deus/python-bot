@@ -394,6 +394,9 @@ def generate_signals_for_symbols(
                 signal_data = {
                     "zone": zone,
                     "side": side,
+                    "entry": entry,
+                    "stop": stop,
+                    "target": target,
                     "position_size": pos_size,
                     "leverage": lev,
                     "candle_analysis": candle_analysis,
