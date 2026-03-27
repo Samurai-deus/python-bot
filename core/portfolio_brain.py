@@ -518,7 +518,13 @@ def convert_trades_to_positions(open_trades: List[Dict], current_prices: Optiona
         side = trade.get("side", "LONG")
         entry_price = trade.get("entry", 0.0)
         position_size = trade.get("position_size", 0.0)
-        
+
+        if not position_size or position_size <= 0:
+            continue  # Skip trades with no valid position size
+
+        if not entry_price or entry_price <= 0:
+            continue  # Skip trades with no valid entry price
+
         # Вычисляем unrealized_pnl
         unrealized_pnl = 0.0
         if current_prices and symbol in current_prices:

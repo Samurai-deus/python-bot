@@ -14,7 +14,7 @@ PositionSizer НЕ принимает решения о входе — толь�
 """
 from dataclasses import dataclass
 from typing import Optional, Protocol
-from config import RISK_PERCENT, INITIAL_BALANCE
+from config import RISK_PERCENT, INITIAL_BALANCE, POSITION_ALLOCATION_PERCENT
 
 
 # ========== КОНФИГУРАЦИЯ ==========
@@ -23,7 +23,7 @@ class PositionSizingConfig:
     """Конфигурация для PositionSizer"""
     
     # Базовый риск на сделку (% от баланса)
-    max_risk_per_trade: float = RISK_PERCENT  # 2.0% по умолчанию
+    max_risk_per_trade: float = POSITION_ALLOCATION_PERCENT  # 10.0% base allocation
     
     # Минимальный порог риска (если итоговый риск меньше — позиция не разрешена)
     min_risk_threshold: float = 0.5  # 0.5% от баланса

@@ -407,7 +407,7 @@ def generate_signals_for_symbols(
                 logger.info("%s: sending signal via Gatekeeper", symbol)
                 try:
                     # Используем Gatekeeper для отправки сигнала
-                    gatekeeper.send_signal(
+                    signal_sent = gatekeeper.send_signal(
                         symbol=symbol,
                         signal_data=signal_data,
                         states=states,
@@ -421,28 +421,32 @@ def generate_signals_for_symbols(
                     )
                     logger.info("%s: signal processed by Gatekeeper", symbol)
 
-                    # Логируем через SignalSnapshotStore - entry point с fault injection
-                    from core.signal_snapshot_store import SignalSnapshotStore
-                    SignalSnapshotStore.save(snapshot)
-                    stats["signals_sent"] += 1
+                    if signal_sent:
+                        # Логируем через SignalSnapshotStore - entry point с fault injection
+                        from core.signal_snapshot_store import SignalSnapshotStore
+                        SignalSnapshotStore.save(snapshot)
+                        stats["signals_sent"] += 1
 
-                    # Открываем демо-сделку после успешной отправки сигнала
-                    try:
-                        from demo_trades import log_demo_trade
-                        zone = signal_data.get("zone")
-                        if zone and entry and stop and target:
-                            log_demo_trade(
-                                symbol, side, entry, stop, target,
-                                position_size=pos_size,
-                                leverage=lev
+                        # Открываем демо-сделку только если сигнал реально отправлен
+                        try:
+                            from demo_trades import log_demo_trade
+                            zone = signal_data.get("zone")
+                            if zone and entry and stop and target:
+                                log_demo_trade(
+                                    symbol, side, entry, stop, target,
+                                    position_size=signal_data.get("position_size", pos_size),
+                                    leverage=lev
+                                )
+                                logger.info("%s: demo trade opened", symbol)
+                        except Exception as trade_error:
+                            logger.warning(
+                                "%s: failed to open demo trade: %s: %s",
+                                symbol, type(trade_error).__name__, trade_error
                             )
-                            logger.info("%s: demo trade opened", symbol)
-                    except Exception as trade_error:
-                        logger.warning(
-                            "%s: failed to open demo trade: %s: %s",
-                            symbol, type(trade_error).__name__, trade_error
-                        )
-                        # Не блокируем процесс, это не критично
+                            # Не блокируем процесс, это не критично
+                    else:
+                        stats["signals_blocked"] += 1
+                        logger.info("%s: signal blocked by Gatekeeper", symbol)
                 except Exception as e:
                     logger.error(
                         "%s: error sending signal: %s: %s",

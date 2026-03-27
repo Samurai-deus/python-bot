@@ -19,7 +19,7 @@ from core.risk_core import (
     TradingPermission
 )
 from trade_manager import get_open_trades
-from capital import get_current_balance, INITIAL_BALANCE, RISK_PERCENT
+from capital import get_current_balance, get_available_capital, INITIAL_BALANCE, RISK_PERCENT, MIN_POSITION_SIZE
 from telegram_bot import send_message, send_chart
 from datetime import datetime, UTC, timedelta
 from bot_statistics import get_trade_statistics
@@ -140,13 +140,13 @@ class Gatekeeper:
             self._update_state()
             return False
     
-    def send_signal(self, symbol: str, signal_data: Dict, 
-                   states: Dict, directions: Dict, 
+    def send_signal(self, symbol: str, signal_data: Dict,
+                   states: Dict, directions: Dict,
                    risk: str, score: int, mode: str, reasons: list,
-                   system_state=None, snapshot: Optional[SignalSnapshot] = None):
+                   system_state=None, snapshot: Optional[SignalSnapshot] = None) -> bool:
         """
         Отправляет сигнал пользователю (если прошел проверку).
-        
+
         Args:
             symbol: Торговая пара
             signal_data: Данные сигнала
@@ -158,6 +158,9 @@ class Gatekeeper:
             reasons: Причины сигнала
             system_state: Состояние системы (опционально)
             snapshot: SignalSnapshot (опционально, для портфельного анализа)
+
+        Returns:
+            bool: True если сигнал был отправлен, False если заблокирован
         """
         try:
             # Получаем system_state если не передан
@@ -191,7 +194,7 @@ class Gatekeeper:
                 )
                 self.blocked_signals_count += 1
                 self._update_state()
-                return  # Early exit - fail-safe (архитектурно принудительно)
+                return False  # Early exit - fail-safe (архитектурно принудительно)
             
             # ========== DECISION TRACE - ЛОКАЛЬНЫЙ СБОР РЕШЕНИЙ ==========
             # Создаём локальный trace для этого сигнала (не влияет на runtime)
@@ -223,8 +226,8 @@ class Gatekeeper:
                     self.blocked_signals_count += 1
                     self._update_state()
                     self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                    return  # Early exit - fail-closed enforcement
-                
+                    return False  # Early exit - fail-closed enforcement
+
                 # Validate result structure (fail-closed)
                 if not isinstance(risk_core_result, tuple) or len(risk_core_result) != 3:
                     logger.critical(
@@ -241,8 +244,8 @@ class Gatekeeper:
                     self.blocked_signals_count += 1
                     self._update_state()
                     self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                    return  # Early exit - fail-closed enforcement
-                
+                    return False  # Early exit - fail-closed enforcement
+
                 # Extract result (validated)
                 permission, risk_state, violation_report = risk_core_result
                 
@@ -263,8 +266,8 @@ class Gatekeeper:
                     self.blocked_signals_count += 1
                     self._update_state()
                     self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                    return  # Early exit - fail-closed enforcement
-                
+                    return False  # Early exit - fail-closed enforcement
+
                 # Логируем решение Risk Core
                 risk_allowed = permission != TradingPermission.DENY
                 risk_reason = f"Risk state: {risk_state.value}"
@@ -285,7 +288,7 @@ class Gatekeeper:
                     self._update_state()
                     # Сохраняем trace ПОСЛЕ принятия решения
                     self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                    return  # Early exit - Risk Core veto
+                    return False  # Early exit - Risk Core veto
                 
                 # Если ALLOW_LIMITED, ограничиваем размер позиции
                 if permission == TradingPermission.ALLOW_LIMITED:
@@ -313,8 +316,8 @@ class Gatekeeper:
                 self.blocked_signals_count += 1
                 self._update_state()
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                return  # Early exit - fail-closed enforcement
-            
+                return False  # Early exit - fail-closed enforcement
+
             # ========== META DECISION BRAIN - ОБЯЗАТЕЛЬНЫЙ ФИЛЬТР (ADR-004) ==========
             # Проверяем через MetaDecisionBrain ДО всех остальных проверок
             # ADR-004: fail-closed — если модуль недоступен или падает → BLOCK
@@ -333,7 +336,7 @@ class Gatekeeper:
                         self._update_state()
                         # Сохраняем trace ПОСЛЕ принятия решения
                         self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                        return  # Early exit - не вызываем DecisionCore, PortfolioBrain
+                        return False  # Early exit - не вызываем DecisionCore, PortfolioBrain
             
             # Проверяем через Gatekeeper
             decision_core_result = self.check_signal(symbol, signal_data, system_state=system_state)
@@ -345,8 +348,8 @@ class Gatekeeper:
                 logger.warning("Gatekeeper blocked signal for %s", symbol)
                 # Сохраняем trace ПОСЛЕ принятия решения
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                return
-            
+                return False
+
             # Логируем решение DecisionCore (если прошло)
             decision = self.decision_core.should_i_trade(symbol=symbol, system_state=system_state)
             trace_entries.append(("DecisionCore", True, decision.reason if decision else "Signal approved", TraceBlockLevel.NONE))
@@ -368,8 +371,8 @@ class Gatekeeper:
                         self._update_state()
                         # Сохраняем trace ПОСЛЕ принятия решения
                         self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                        return
-                
+                        return False
+
                 # Применяем размер позиции из portfolio_analysis
                 if portfolio_analysis and portfolio_analysis.recommended_size_multiplier < 1.0:
                     original_size = signal_data.get("position_size", 0.0)
@@ -395,8 +398,8 @@ class Gatekeeper:
                         self._update_state()
                         # Сохраняем trace ПОСЛЕ принятия решения
                         self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
-                        return
-                    
+                        return False
+
                     # Применяем размер позиции из PositionSizer
                     if sizing_result.position_size_usd:
                         # Вычисляем множитель размера
@@ -481,6 +484,7 @@ class Gatekeeper:
             # ========== EXECUTION (Phase 2) ==========
             # Размещаем ордер если режим TESTNET/LIVE
             self._execute_order(symbol, signal_data, sizing_result)
+            return True
         except Exception as e:
             # Критическая ошибка
             logger.error(f"Критическая ошибка в Gatekeeper.send_signal для {symbol}: {type(e).__name__}: {e}", exc_info=True)
@@ -491,6 +495,7 @@ class Gatekeeper:
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="ERROR")
             self.blocked_signals_count += 1
             self._update_state()
+            return False
     
     def _execute_order(
         self,
@@ -655,8 +660,8 @@ class Gatekeeper:
             
             # Вычисляем PortfolioState
             current_balance = get_current_balance()
-            risk_budget = current_balance * (RISK_PERCENT / 100.0) * len(open_trades)  # Упрощённо
-            
+            risk_budget = current_balance  # total equity as risk budget
+
             portfolio_state = calculate_portfolio_state(
                 open_positions=open_positions,
                 risk_budget=risk_budget,
@@ -812,7 +817,7 @@ class Gatekeeper:
             if open_trades:
                 open_positions = convert_trades_to_positions(open_trades)
                 current_balance = get_current_balance()
-                risk_budget = current_balance * (RISK_PERCENT / 100.0) * len(open_trades)
+                risk_budget = current_balance  # total equity as risk budget
                 portfolio_state = calculate_portfolio_state(
                     open_positions=open_positions,
                     risk_budget=risk_budget,
@@ -826,16 +831,29 @@ class Gatekeeper:
                     long_exposure=0.0,
                     short_exposure=0.0,
                     net_exposure=0.0,
-                    risk_budget=get_current_balance() * (RISK_PERCENT / 100.0),
+                    risk_budget=get_current_balance(),
                     used_risk=0.0
                 )
-            
+
             # Используем PortfolioStateAdapter для совместимости с PositionSizer
             portfolio_adapter = PortfolioStateAdapter(portfolio_state)
-            
-            # Получаем баланс
-            balance = get_current_balance()
-            
+
+            # Получаем доступный капитал
+            balance = get_available_capital()
+
+            # Блокируем если доступного капитала недостаточно
+            if balance < MIN_POSITION_SIZE:
+                from core.position_sizer import PositionSizingResult
+                return PositionSizingResult(
+                    position_allowed=False,
+                    final_risk=0.0,
+                    base_risk=0.0,
+                    confidence_factor=0.0,
+                    entropy_factor=0.0,
+                    portfolio_factor=0.0,
+                    reason=f"Insufficient available capital: ${balance:.2f} < ${MIN_POSITION_SIZE}"
+                )
+
             # Вызываем PositionSizer
             sizing_result = self.position_sizer.calculate(
                 confidence=snapshot.confidence,
