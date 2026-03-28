@@ -80,8 +80,10 @@ def macd(candles, fast_period=12, slow_period=26, signal_period=9):
     # MACD линия
     macd_line = [fast_ema[i] - slow_ema[i] for i in range(len(slow_ema))]
     
-    # Signal линия (EMA от MACD)
-    signal_line = ema(macd_line[-signal_period:], signal_period)
+    # Signal линия (EMA от полной истории MACD)
+    # Прошлая версия: ema(macd_line[-9:], 9) — EMA от 9 точек = фактически SMA.
+    # Правильно: строим EMA по всей MACD-линии, берём последнее значение.
+    signal_line = ema(macd_line, signal_period)
     
     # Histogram
     histogram = macd_line[-1] - signal_line[-1] if signal_line else 0
@@ -228,25 +230,24 @@ def stochastic(candles, k_period=14, d_period=3):
     else:
         k = ((current_close - lowest_low) / (highest_high - lowest_low)) * 100
     
-    # %D (SMA от %K за d_period периодов)
-    # Для упрощения используем последние значения
+    # %D = SMA(%K, d_period) — считаем K для последних d_period свечей,
+    # каждый раз с полным окном k_period (не обрезая его у первых точек).
     k_values = []
-    for i in range(len(candles) - k_period, len(candles)):
-        if i >= 0:
-            period_highs = [float(c[2]) for c in candles[max(0, i-k_period+1):i+1]]
-            period_lows = [float(c[3]) for c in candles[max(0, i-k_period+1):i+1]]
-            period_close = float(candles[i][4])
-            
-            period_highest = max(period_highs) if period_highs else period_close
-            period_lowest = min(period_lows) if period_lows else period_close
-            
-            if period_highest == period_lowest:
-                k_val = 50.0
-            else:
-                k_val = ((period_close - period_lowest) / (period_highest - period_lowest)) * 100
-            k_values.append(k_val)
-    
-    d = sum(k_values[-d_period:]) / len(k_values[-d_period:]) if k_values else 50.0
+    n = len(candles)
+    for idx in range(n - d_period, n):
+        if idx < k_period - 1:
+            k_values.append(50.0)
+            continue
+        window = candles[idx - k_period + 1:idx + 1]
+        w_high = max(float(c[2]) for c in window)
+        w_low = min(float(c[3]) for c in window)
+        w_close = float(candles[idx][4])
+        if w_high == w_low:
+            k_values.append(50.0)
+        else:
+            k_values.append(((w_close - w_low) / (w_high - w_low)) * 100)
+
+    d = sum(k_values) / len(k_values) if k_values else 50.0
     
     # Сигнал
     if k > 80:
