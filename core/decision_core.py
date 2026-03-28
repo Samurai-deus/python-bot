@@ -193,24 +193,21 @@ class DecisionCore:
             if symbol and symbol in opportunities:
                 opp = opportunities[symbol]
                 if opp.readiness_score < 0.3:
-                    can_trade = False
-                    reasons.append(f"⏸ Низкая готовность для {symbol}: {opp.readiness_score:.1%}")
-                    return TradingDecision(
-                        can_trade=False,
-                        reason=f"Низкая готовность рынка для {symbol}",
-                        risk_level="MEDIUM",
-                        recommendations=["Дождитесь лучших условий входа"]
-                    )
+                    # Только рекомендация — не блокировка.
+                    # В RISK_OFF / нисходящем тренде readiness_score=0.0 для всех символов
+                    # (нет squeeze/accumulation паттернов), но SHORT сигналы по-прежнему валидны.
+                    recommendations.append(f"⏸ Низкая готовность для {symbol}: {opp.readiness_score:.1%}")
             
             # 5. Расчет максимальных параметров
             max_position_size = None
             max_leverage = None
             
             if risk_exposure and can_trade:
-                # Максимальный размер позиции зависит от текущего риска
-                remaining_risk = max(0, 10.0 - risk_exposure.total_risk_pct)
-                max_position_size = remaining_risk * 100  # Примерная оценка
-                
+                # max_position_size намеренно None — размер позиции определяет PositionSizer,
+                # а не DecisionCore. Старая формула remaining_risk * 100 давала max=$990
+                # при любой открытой позиции, блокируя все новые сигналы.
+                max_position_size = None
+
                 # Максимальное плечо зависит от риска
                 if risk_level == "HIGH":
                     max_leverage = 2.0
@@ -219,8 +216,7 @@ class DecisionCore:
                 else:
                     max_leverage = 10.0
             
-            # Формируем рекомендации
-            recommendations = []
+            # Формируем рекомендации (recommendations инициализирован выше, не сбрасываем)
             if market_regime:
                 if market_regime.trend_type == "RANGE":
                     recommendations.append("Рынок в диапазоне: используйте range-стратегии")

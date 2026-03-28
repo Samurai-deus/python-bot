@@ -198,8 +198,8 @@ class MarketRegimeBrain:
         # Направление BTC
         btc_direction = market_direction(btc_candles)
         
-        # Проверяем альткоины
-        alt_symbols = [s for s in symbols if s != "BTCUSDT"][:5]
+        # Проверяем альткоины (15 символов — достаточная выборка из 30)
+        alt_symbols = [s for s in symbols if s != "BTCUSDT"][:15]
         alt_directions = []
         
         for symbol in alt_symbols:
