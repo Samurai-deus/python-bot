@@ -327,9 +327,17 @@ def get_entry_conditions(states: Dict[str, Optional[MarketState]], directions, s
                 entry_conditions.append("CONTROL_LOSS")
 
     # Fallback: состояние 15m не определено (None), но тренд чёткий и score достаточный.
-    # Это штатная ситуация для trending market — обычные свечи не соответствуют
-    # ни одному из 4 паттернов (D/A/C/B), но торговать можно по направлению тренда.
-    if not entry_conditions and state_15m is None and total_score >= 70 and direction_30m != "FLAT":
+    # Требуем score >= 80 (повышен с 70) и согласие 30m + 1h, чтобы снизить
+    # число ложных входов в боковике, где состояние часто None.
+    direction_1h = directions.get("1h", "FLAT")
+    trend_continuation_ok = (
+        not entry_conditions
+        and state_15m is None
+        and total_score >= 80
+        and direction_30m != "FLAT"
+        and direction_1h == direction_30m  # оба таймфрейма смотрят в одну сторону
+    )
+    if trend_continuation_ok:
         entry_conditions.append("TREND_CONTINUATION")
 
     return entry_conditions
