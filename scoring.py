@@ -97,14 +97,30 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
         # 4. RSI анализ (10 баллов)
         rsi_15m = momentum_data.get("rsi_15m", 50)
         direction_30m_rsi = directions.get("30m", "FLAT")
-        if (direction_30m_rsi == "UP" and 40 < rsi_15m < 60) or \
-           (direction_30m_rsi == "DOWN" and 40 < rsi_15m < 60):
-            # Идеальная зона: RSI по центру, тренд подтверждён
-            score += 10
-            reasons.append(f"RSI оптимален для входа ({rsi_15m:.1f})")
-        elif 30 < rsi_15m < 70:  # Не перекуплен/перепродан
-            score += 5
-            reasons.append(f"RSI в нормальной зоне ({rsi_15m:.1f})")
+
+        if state_15m == MarketState.D:
+            # Rejection (разворотный паттерн): RSI должен быть экстремальным —
+            # это подтверждает, что движение истощено и разворот реален.
+            # LONG: RSI перепродан (<35 = отлично, <45 = хорошо)
+            # SHORT: RSI перекуплен (>65 = отлично, >55 = хорошо)
+            if (direction_30m_rsi == "UP" and rsi_15m < 35) or \
+               (direction_30m_rsi == "DOWN" and rsi_15m > 65):
+                score += 10
+                reasons.append(f"RSI подтверждает разворот — экстремальная зона ({rsi_15m:.1f})")
+            elif (direction_30m_rsi == "UP" and rsi_15m < 45) or \
+                 (direction_30m_rsi == "DOWN" and rsi_15m > 55):
+                score += 5
+                reasons.append(f"RSI в зоне разворота ({rsi_15m:.1f})")
+        else:
+            # Тренд (A, C, TREND_CONTINUATION): RSI должен быть в центре —
+            # не перегрет, есть запас для продолжения движения.
+            if (direction_30m_rsi == "UP" and 40 < rsi_15m < 60) or \
+               (direction_30m_rsi == "DOWN" and 40 < rsi_15m < 60):
+                score += 10
+                reasons.append(f"RSI оптимален для входа ({rsi_15m:.1f})")
+            elif 30 < rsi_15m < 70:
+                score += 5
+                reasons.append(f"RSI в нормальной зоне ({rsi_15m:.1f})")
         details["rsi_15m"] = rsi_15m
         
         # 5. MACD тренд (10 баллов)
