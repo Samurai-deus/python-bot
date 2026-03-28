@@ -13,6 +13,10 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - market-net
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-market_bot} -d ${POSTGRES_DB:-market_bot}"]
       interval: 10s
@@ -41,6 +45,10 @@ services:
         condition: service_healthy
     networks:
       - market-net
+    deploy:
+      resources:
+        limits:
+          memory: 200m
     healthcheck:
       test: ["CMD", "python", "-c",
         "import sqlite3, os; db=os.environ.get('DB_PATH','market_bot.db'); c=sqlite3.connect(db); c.execute('SELECT 1'); c.close()"]
@@ -73,6 +81,10 @@ services:
         condition: service_healthy
     networks:
       - market-net
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     healthcheck:
       test: ["CMD", "python", "-c",
         "import socket; s=socket.create_connection(('localhost',8000),timeout=5); s.close()"]
@@ -99,6 +111,10 @@ services:
       - redis_data:/data
     networks:
       - market-net
+    deploy:
+      resources:
+        limits:
+          memory: 160m
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
@@ -126,6 +142,10 @@ services:
       - "127.0.0.1:9090:9090"
     networks:
       - market-net
+    deploy:
+      resources:
+        limits:
+          memory: 96m
     logging:
       driver: "json-file"
       options:
@@ -151,6 +171,10 @@ services:
       - prometheus
     networks:
       - market-net
+    deploy:
+      resources:
+        limits:
+          memory: 220m
     logging:
       driver: "json-file"
       options:
