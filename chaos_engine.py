@@ -43,8 +43,18 @@ class ChaosEngine:
     def __init__(self):
         self._active_chaos: Optional[ChaosType] = None
         self._chaos_task: Optional[asyncio.Task] = None
-        self._chaos_lock = asyncio.Lock()
+        # Lazy-init: asyncio.Lock must be created inside a running event loop.
+        # Creating it at module import time (before any loop starts) binds it
+        # to the wrong loop context on Python < 3.10.
+        self._chaos_lock: Optional[asyncio.Lock] = None
         self._thread_lock = threading.Lock()  # Для cross-lock deadlock
+
+    @property
+    def _lock(self) -> asyncio.Lock:
+        """Return asyncio.Lock, creating it lazily inside the running loop."""
+        if self._chaos_lock is None:
+            self._chaos_lock = asyncio.Lock()
+        return self._chaos_lock
         
     async def inject_chaos(self, chaos_type: ChaosType, duration: float = 300.0) -> str:
         """
@@ -60,7 +70,7 @@ class ChaosEngine:
         import uuid
         incident_id = f"chaos-{uuid.uuid4().hex[:8]}"
         
-        async with self._chaos_lock:
+        async with self._lock:
             if self._active_chaos is not None:
                 raise RuntimeError(f"Chaos already active: {self._active_chaos.value}")
             
@@ -96,7 +106,7 @@ class ChaosEngine:
     
     async def stop_chaos(self) -> bool:
         """Остановка активной chaos-инъекции"""
-        async with self._chaos_lock:
+        async with self._lock:
             if self._active_chaos is None:
                 return False
             

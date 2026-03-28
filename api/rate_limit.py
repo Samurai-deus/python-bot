@@ -84,19 +84,34 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             else f"rl:r:{ip}:{bucket}"
         )
 
+        # Sliding-window approximation using two adjacent fixed windows.
+        # Prevents the 2× burst that a pure fixed-window allows at the boundary:
+        #   approx_count = prev_window_count * (1 - elapsed/window) + curr_count
+        prev_key = (
+            f"rl:w:{ip}:{request.url.path}:{bucket - 1}"
+            if is_write
+            else f"rl:r:{ip}:{bucket - 1}"
+        )
         try:
-            count = await self._client.incr(key)
+            async with self._client.pipeline(transaction=False) as pipe:
+                pipe.get(prev_key)
+                pipe.incr(key)
+                results = await pipe.execute()
+            prev_count = int(results[0] or 0)
+            count = int(results[1])
             if count == 1:
-                # First hit in this window — set expiry
                 await self._client.expire(key, window + 5)
         except Exception as exc:
             logger.error("Rate limit Redis error (fail-open): %s", exc)
             return await call_next(request)
 
-        remaining = max(0, limit - count)
+        elapsed_in_window = time.time() % window
+        approx_count = int(prev_count * (1.0 - elapsed_in_window / window) + count)
+
+        remaining = max(0, limit - approx_count)
         retry_after = window - (int(time.time()) % window)
 
-        if count > limit:
+        if approx_count > limit:
             logger.warning(
                 "Rate limit exceeded: ip=%s method=%s path=%s count=%d limit=%d",
                 ip,

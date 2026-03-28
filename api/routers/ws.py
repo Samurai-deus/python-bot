@@ -88,6 +88,9 @@ async def _build_snapshot() -> dict:
     }
 
 
+_PING_INTERVAL = 30  # seconds — send server-side ping if client is silent
+
+
 @router.websocket("/api/ws")
 async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
     if not verify_ws_token(token):
@@ -96,9 +99,17 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
     await manager.connect(ws)
     task = asyncio.create_task(_push_loop(ws))
     try:
-        # Keep alive: wait for client disconnect
+        # Keep-alive loop: detect stale connections via receive timeout.
+        # If no message from client in _PING_INTERVAL seconds, send a ping frame
+        # and wait for any response. Stale connections are closed on next timeout.
         while True:
-            await ws.receive_text()
+            try:
+                await asyncio.wait_for(ws.receive_text(), timeout=_PING_INTERVAL)
+            except asyncio.TimeoutError:
+                try:
+                    await ws.send_json({"type": "ping"})
+                except Exception:
+                    break  # client unreachable — exit cleanly
     except WebSocketDisconnect:
         pass
     finally:
