@@ -28,6 +28,22 @@ TOKEN = _token
 CHAT_ID = _chat_id
 
 # ---------------------------------------------------------------------------
+# Markdown helpers
+# ---------------------------------------------------------------------------
+
+def escape_markdown(text: str) -> str:
+    """
+    Экранирует спецсимволы Telegram Markdown v1 в пользовательских данных.
+
+    Telegram Markdown v1 спецсимволы: _ * ` [
+    Используется для предотвращения двойного API-вызова (send→fail→retry without md).
+    """
+    # Экранируем только `_` — самый частый источник ошибок (имена, числа).
+    # `*`, `` ` ``, `[` используются нами как форматирование намеренно.
+    return text.replace("_", "\\_")
+
+
+# ---------------------------------------------------------------------------
 # Rate limiter: не более ~3 сообщений/сек в один чат (Telegram 429 prevention)
 # ---------------------------------------------------------------------------
 _rate_lock = asyncio.Lock()
@@ -74,7 +90,8 @@ async def _send(text, parse_mode=None, retry_count=2):
             # что может повредить пул соединений httpx.
             if parse_mode:
                 try:
-                    result = await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=parse_mode)
+                    safe_text = escape_markdown(text) if parse_mode == "Markdown" else text
+                    result = await bot.send_message(chat_id=CHAT_ID, text=safe_text, parse_mode=parse_mode)
                     logger.debug("Сообщение отправлено в Telegram с %s (message_id: %d)", parse_mode, result.message_id)
                     return result
                 except Exception as parse_error:

@@ -153,7 +153,57 @@ class OrderExecutor:
             dry_run=True,
         )
 
+    def _validate_and_fix_sl(self, request: TradeRequest) -> TradeRequest:
+        """
+        Валидирует SL против текущей mark price и корректирует при необходимости.
+
+        Bybit error 10001: "StopLoss set for Sell position should greater base_price"
+        Для Market ордера base_price = mark price в момент подачи.
+
+        - SHORT (Sell): SL должен быть > mark_price
+        - LONG (Buy): SL должен быть < mark_price
+
+        Если SL неверный — добавляем буфер 0.5%.
+        """
+        if not request.stop_loss:
+            return request
+
+        try:
+            mark_price = self._client.get_mark_price(request.symbol)
+        except Exception:
+            return request  # не можем получить цену — пропускаем валидацию
+
+        if mark_price <= 0:
+            return request
+
+        sl = request.stop_loss
+        symbol = request.symbol
+
+        if request.side == "SHORT":
+            # SL должен быть строго выше mark_price
+            if sl <= mark_price:
+                adjusted = mark_price * 1.005
+                logger.warning(
+                    "[SL-FIX] SHORT %s: sl=%.4f <= mark=%.4f, adjusting to %.4f (+0.5%%)",
+                    symbol, sl, mark_price, adjusted,
+                )
+                from dataclasses import replace
+                return replace(request, stop_loss=adjusted)
+        elif request.side == "LONG":
+            # SL должен быть строго ниже mark_price
+            if sl >= mark_price:
+                adjusted = mark_price * 0.995
+                logger.warning(
+                    "[SL-FIX] LONG %s: sl=%.4f >= mark=%.4f, adjusting to %.4f (-0.5%%)",
+                    symbol, sl, mark_price, adjusted,
+                )
+                from dataclasses import replace
+                return replace(request, stop_loss=adjusted)
+
+        return request
+
     def _live_execute(self, request: TradeRequest) -> TradeResult:
+        request = self._validate_and_fix_sl(request)
         bybit_side = "Buy" if request.side == "LONG" else "Sell"
         order_type = "Limit" if request.entry_price else "Market"
         try:

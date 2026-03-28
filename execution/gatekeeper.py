@@ -20,7 +20,8 @@ from core.risk_core import (
 )
 from trade_manager import get_open_trades
 from capital import get_current_balance, get_available_capital, INITIAL_BALANCE, RISK_PERCENT, MIN_POSITION_SIZE
-from telegram_bot import send_message, send_chart
+from telegram_bot import send_message, send_chart, send_message_async, send_chart_async
+from core.system_guardian import AsyncToSyncAdapter
 from datetime import datetime, UTC, timedelta
 from bot_statistics import get_trade_statistics
 import logging
@@ -463,8 +464,8 @@ class Gatekeeper:
             # Отправляем
             logger.info(f"Отправка сигнала через Gatekeeper для {symbol}...")
             try:
-                send_message(msg + extra)
-                send_chart(symbol)
+                AsyncToSyncAdapter.call_async(send_message_async(msg + extra), timeout=15.0)
+                AsyncToSyncAdapter.call_async(send_chart_async(symbol), timeout=15.0)
                 logger.info(f"Сигнал отправлен для {symbol}")
                 # Логируем финальное решение - SEND
                 logger.info(f"[TRACE] FINAL → SEND → signal sent to user")
@@ -571,8 +572,9 @@ class Gatekeeper:
                 "[EXECUTOR] Unexpected error placing order for %s: %s: %s",
                 symbol, type(e).__name__, e, exc_info=True,
             )
-            send_message(
-                f"❌ Ошибка размещения ордера {symbol} {side}: внутренняя ошибка исполнителя."
+            AsyncToSyncAdapter.call_async(
+                send_message_async(f"❌ Ошибка размещения ордера {symbol} {side}: внутренняя ошибка исполнителя."),
+                timeout=15.0,
             )
             return
 
@@ -621,19 +623,25 @@ class Gatekeeper:
                 )
 
             tp_str = f"{take_profit:.4f}" if take_profit else "N/A"
-            send_message(
-                f"✅ Ордер размещён [{mode.value}]\n"
-                f"📈 {symbol} {side}\n"
-                f"💰 Qty: {qty} | Size: ${position_size_usd:.1f}\n"
-                f"🎯 Entry: {entry_price:.4f}\n"
-                f"🛡 SL: {stop_loss:.4f} | TP: {tp_str}\n"
-                f"🆔 {order_id}"
+            AsyncToSyncAdapter.call_async(
+                send_message_async(
+                    f"✅ Ордер размещён [{mode.value}]\n"
+                    f"📈 {symbol} {side}\n"
+                    f"💰 Qty: {qty} | Size: ${position_size_usd:.1f}\n"
+                    f"🎯 Entry: {entry_price:.4f}\n"
+                    f"🛡 SL: {stop_loss:.4f} | TP: {tp_str}\n"
+                    f"🆔 {order_id}"
+                ),
+                timeout=15.0,
             )
         else:
             logger.error("[EXECUTOR] Order failed for %s: %s", symbol, result.error)
-            send_message(
-                f"❌ Ордер не исполнен: {symbol} {side}\n"
-                f"Причина: {result.error or 'unknown'}"
+            AsyncToSyncAdapter.call_async(
+                send_message_async(
+                    f"❌ Ордер не исполнен: {symbol} {side}\n"
+                    f"Причина: {result.error or 'unknown'}"
+                ),
+                timeout=15.0,
             )
 
     def _check_portfolio(self, snapshot: SignalSnapshot) -> Optional[PortfolioAnalysis]:

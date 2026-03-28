@@ -161,6 +161,26 @@ class BybitClient:
         candles = data.get("list", [])
         return list(reversed(candles))  # Bybit: новые → старые; нам нужно старые → новые
 
+    def get_mark_price(self, symbol: str) -> float:
+        """
+        Получить текущую mark price символа (публичный endpoint).
+
+        Используется для валидации SL перед размещением ордера:
+        - SHORT (Sell): stop_loss должен быть > mark_price
+        - LONG (Buy): stop_loss должен быть < mark_price
+
+        Returns 0.0 при ошибке (caller должен обработать).
+        """
+        try:
+            params = {"category": "linear", "symbol": symbol}
+            data = self._get("/v5/market/tickers", params=params, signed=False)
+            items = data.get("list", [])
+            if items:
+                return float(items[0].get("markPrice") or 0)
+        except Exception as e:
+            logger.warning("get_mark_price(%s) failed: %s", symbol, e)
+        return 0.0
+
     def get_instruments_info(self, symbol: str) -> Dict:
         """Получить параметры инструмента (min qty, step, tick size и т.д.)."""
         params = {"category": "linear", "symbol": symbol}
