@@ -96,13 +96,15 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
     if candles_map and momentum_data:
         # 4. RSI анализ (10 баллов)
         rsi_15m = momentum_data.get("rsi_15m", 50)
-        if 30 < rsi_15m < 70:  # Не перекуплен/перепродан
-            score += 5
-            reasons.append(f"RSI в нормальной зоне ({rsi_15m:.1f})")
-        elif (directions.get("30m") == "UP" and 40 < rsi_15m < 60) or \
-             (directions.get("30m") == "DOWN" and 40 < rsi_15m < 60):
+        direction_30m_rsi = directions.get("30m", "FLAT")
+        if (direction_30m_rsi == "UP" and 40 < rsi_15m < 60) or \
+           (direction_30m_rsi == "DOWN" and 40 < rsi_15m < 60):
+            # Идеальная зона: RSI по центру, тренд подтверждён
             score += 10
             reasons.append(f"RSI оптимален для входа ({rsi_15m:.1f})")
+        elif 30 < rsi_15m < 70:  # Не перекуплен/перепродан
+            score += 5
+            reasons.append(f"RSI в нормальной зоне ({rsi_15m:.1f})")
         details["rsi_15m"] = rsi_15m
         
         # 5. MACD тренд (10 баллов)

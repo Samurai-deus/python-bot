@@ -113,6 +113,7 @@ class DecisionCore:
             risk_level = "LOW"
             max_position_size = None
             max_leverage = None
+            _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
             recommendations = []
             
             # Проверка safe-mode (критично - блокирует торговлю при ошибках)
@@ -182,11 +183,13 @@ class DecisionCore:
             # 3. Проверка режима рынка
             if market_regime:
                 if market_regime.risk_sentiment == "RISK_OFF":
-                    risk_level = max(risk_level, "MEDIUM")
+                    if _RISK_ORDER.get("MEDIUM", 1) > _RISK_ORDER.get(risk_level, 0):
+                        risk_level = "MEDIUM"
                     reasons.append("📉 Режим RISK-OFF: повышенная осторожность")
-                
+
                 if market_regime.volatility_level == "HIGH":
-                    risk_level = max(risk_level, "MEDIUM")
+                    if _RISK_ORDER.get("MEDIUM", 1) > _RISK_ORDER.get(risk_level, 0):
+                        risk_level = "MEDIUM"
                     reasons.append("📊 Высокая волатильность: уменьшите размер позиций")
             
             # 4. Проверка возможностей (если указан символ)
