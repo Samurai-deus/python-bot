@@ -260,8 +260,9 @@ def generate_signals_for_symbols(
 
             # Расширяем стоп если он слишком близко к entry.
             # Стоп от low/high последней 5m свечи часто слишком тесный в trending market.
-            # Используем 1 ATR — стандартный технический стоп, заведомо > 0.5 ATR (избегаем FP).
-            min_stop_dist = max(atr_15m, entry * 0.003)  # 1 ATR или 0.3% — что больше
+            # Используем 1.5 ATR — крипта регулярно проходит 1 ATR внутри «шума»,
+            # поэтому 1 ATR давал слишком частые стоп-ауты до отработки сигнала.
+            min_stop_dist = max(atr_15m * 1.5, entry * 0.005)  # 1.5 ATR или 0.5% — что больше
             if side == "LONG" and (entry - stop) < min_stop_dist:
                 stop = entry - min_stop_dist
                 logger.debug("%s: stop widened to minimum: %.4f (%.2f%%)", symbol, stop, min_stop_dist / entry * 100)
@@ -296,7 +297,17 @@ def generate_signals_for_symbols(
                 volatility_pct, trend_strength_val, risk
             )
             target = rr_result["target"]
-            
+
+            # Минимальный R:R = 1.5: без этого даже 60% win rate даёт убыток.
+            # При R:R < 1.5 потенциальная награда не оправдывает риск — пропускаем.
+            MIN_RR = 1.5
+            if rr_result["rr_ratio"] < MIN_RR:
+                logger.debug(
+                    "%s: R:R %.2f < %.1f minimum, skipping signal",
+                    symbol, rr_result["rr_ratio"], MIN_RR
+                )
+                continue
+
             zone = {"entry": entry, "stop": stop, "target": target}
             pos_size = position_size(entry, stop, side)
             lev = calculate_leverage(states, atr_15m, entry, stop, side)
