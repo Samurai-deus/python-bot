@@ -33,7 +33,9 @@ from api.routers import analytics, positions, settings, signals, system, ws
 async def lifespan(app: FastAPI):
     # Startup: nothing to initialise (DB is created lazily on first query)
     yield
-    # Shutdown: nothing to clean up for now
+    # Graceful shutdown: close PostgreSQL connection pool if open
+    from database import close_pg_pool
+    close_pg_pool()
 
 
 app = FastAPI(

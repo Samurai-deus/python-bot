@@ -22,7 +22,7 @@ sentry-sdk[fastapi]>=2.0.0
 redis>=5.0.0
 
 # PostgreSQL (Phase 6)
-psycopg2-binary>=2.9.9
+psycopg2-binary>=2.9.10
 
 # Encryption (Phase 6)
 cryptography>=42.0.0

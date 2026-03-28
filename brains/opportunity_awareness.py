@@ -31,6 +31,7 @@ class OpportunityAwareness:
         # Кэш для результатов анализа
         self._cache: Dict[str, tuple] = {}  # {cache_key: (opportunity, timestamp)}
         self._cache_ttl = timedelta(minutes=5)  # Время жизни кэша - 5 минут
+        self._MAX_CACHE_SIZE = 200  # предел записей; старые вытесняются при превышении
         # Явное состояние (последний проанализированный символ)
         self.state: Optional[Dict[str, Opportunity]] = {}  # {symbol: Opportunity}
     
@@ -140,7 +141,7 @@ class OpportunityAwareness:
         return result
     
     def _cleanup_cache(self):
-        """Очищает устаревшие записи из кэша"""
+        """Очищает устаревшие записи из кэша и вытесняет лишние по размеру."""
         now = datetime.now(UTC)
         keys_to_remove = [
             key for key, (_, timestamp) in self._cache.items()
@@ -148,6 +149,12 @@ class OpportunityAwareness:
         ]
         for key in keys_to_remove:
             del self._cache[key]
+        # Size-based eviction: remove oldest entries if still over limit
+        if len(self._cache) > self._MAX_CACHE_SIZE:
+            sorted_keys = sorted(self._cache, key=lambda k: self._cache[k][1])
+            excess = len(self._cache) - self._MAX_CACHE_SIZE
+            for key in sorted_keys[:excess]:
+                del self._cache[key]
     
     def _check_volatility_squeeze(self, candles: List) -> bool:
         """

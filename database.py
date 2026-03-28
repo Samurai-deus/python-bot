@@ -45,8 +45,10 @@ if _PG_MODE:
         import psycopg2.pool
         import psycopg2.extras
 
-        _pg_pool = psycopg2.pool.ThreadedConnectionPool(2, 10, _DATABASE_URL)
-        logger.info("PostgreSQL connection pool initialized (min=2 max=10)")
+        _PG_POOL_MIN = int(os.environ.get("PG_POOL_MIN", "2"))
+        _PG_POOL_MAX = int(os.environ.get("PG_POOL_MAX", "10"))
+        _pg_pool = psycopg2.pool.ThreadedConnectionPool(_PG_POOL_MIN, _PG_POOL_MAX, _DATABASE_URL)
+        logger.info("PostgreSQL connection pool initialized (min=%d max=%d)", _PG_POOL_MIN, _PG_POOL_MAX)
     except Exception as _pg_init_err:
         logger.critical(
             "FATAL: DATABASE_URL set but psycopg2 pool init failed: %s", _pg_init_err

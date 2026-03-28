@@ -378,7 +378,7 @@ class _TimeoutLock:
         self._lock.release()
 
 
-_metrics_lock = _TimeoutLock(timeout=5.0)
+_metrics_lock = _TimeoutLock(timeout=1.0)
 
 def _get_admin_lock():
     """Returns the admin command lock, initializing it if needed"""
