@@ -338,22 +338,19 @@ class Gatekeeper:
                         self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
                         return False  # Early exit - не вызываем DecisionCore, PortfolioBrain
             
-            # Проверяем через Gatekeeper
+            # Получаем решение DecisionCore один раз — используем для trace и quality check
+            pre_decision = self.decision_core.should_i_trade(symbol=symbol, system_state=system_state)
             decision_core_result = self.check_signal(symbol, signal_data, system_state=system_state)
             if not decision_core_result:
-                # Логируем решение DecisionCore
-                decision = self.decision_core.should_i_trade(symbol=symbol, system_state=system_state)
-                trace_entries.append(("DecisionCore", False, decision.reason if decision else "Signal blocked", TraceBlockLevel.NONE))
-                logger.info(f"[TRACE] DecisionCore → BLOCK → reason={decision.reason if decision else 'Signal blocked'}")
+                trace_entries.append(("DecisionCore", False, pre_decision.reason if pre_decision else "Signal blocked", TraceBlockLevel.NONE))
+                logger.info(f"[TRACE] DecisionCore → BLOCK → reason={pre_decision.reason if pre_decision else 'Signal blocked'}")
                 logger.warning("Gatekeeper blocked signal for %s", symbol)
                 # Сохраняем trace ПОСЛЕ принятия решения
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
                 return False
 
-            # Логируем решение DecisionCore (если прошло)
-            decision = self.decision_core.should_i_trade(symbol=symbol, system_state=system_state)
-            trace_entries.append(("DecisionCore", True, decision.reason if decision else "Signal approved", TraceBlockLevel.NONE))
-            logger.info(f"[TRACE] DecisionCore → ALLOW → reason={decision.reason if decision else 'Signal approved'}")
+            trace_entries.append(("DecisionCore", True, pre_decision.reason if pre_decision else "Signal approved", TraceBlockLevel.NONE))
+            logger.info(f"[TRACE] DecisionCore → ALLOW → reason={pre_decision.reason if pre_decision else 'Signal approved'}")
             
             # Портфельный анализ (если есть snapshot)
             portfolio_analysis = None
