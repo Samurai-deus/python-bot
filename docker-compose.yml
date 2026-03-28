@@ -48,7 +48,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 200m
+          memory: 512m
     healthcheck:
       test: ["CMD", "python", "-c",
         "import sqlite3, os; db=os.environ.get('DB_PATH','market_bot.db'); c=sqlite3.connect(db); c.execute('SELECT 1'); c.close()"]
@@ -174,7 +174,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 220m
+          memory: 350m
     logging:
       driver: "json-file"
       options:
