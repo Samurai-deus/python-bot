@@ -380,6 +380,33 @@ def _init_pg_schema(conn) -> None:
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS signal_journal (
+            id BIGSERIAL PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            state_1h TEXT,
+            state_30m TEXT,
+            state_15m TEXT,
+            state_5m TEXT,
+            risk TEXT,
+            entry REAL,
+            tp REAL,
+            sl REAL,
+            rr_ratio REAL,
+            decision TEXT,
+            confidence REAL,
+            direction TEXT,
+            created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        )
+    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_journal_symbol ON signal_journal(symbol)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_journal_timestamp ON signal_journal(timestamp DESC)"
+    )
+
     conn.commit()
 
 
@@ -558,6 +585,33 @@ def _init_database(conn) -> None:
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS signal_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            state_1h TEXT,
+            state_30m TEXT,
+            state_15m TEXT,
+            state_5m TEXT,
+            risk TEXT,
+            entry REAL,
+            tp REAL,
+            sl REAL,
+            rr_ratio REAL,
+            decision TEXT,
+            confidence REAL,
+            direction TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_journal_symbol ON signal_journal(symbol)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_journal_timestamp ON signal_journal(timestamp)"
+    )
 
     conn.commit()
 
@@ -1413,6 +1467,73 @@ def get_outcomes_for_analysis(days: int = 30) -> List[Dict]:
         )
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# SIGNAL JOURNAL
+# ============================================================================
+
+
+def log_signal_to_db(snapshot) -> None:
+    """Записывает SignalSnapshot в signal_journal."""
+    from core.market_state import state_to_string
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        direction = snapshot.side or (
+            "LONG"
+            if (snapshot.entry and snapshot.tp and snapshot.tp > snapshot.entry)
+            else "SHORT"
+            if (snapshot.entry and snapshot.tp)
+            else ""
+        )
+        cursor.execute(
+            _q(
+                """INSERT INTO signal_journal
+                (timestamp, symbol, state_1h, state_30m, state_15m, state_5m,
+                 risk, entry, tp, sl, rr_ratio, decision, confidence, direction)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            ),
+            (
+                snapshot.timestamp.isoformat(),
+                snapshot.symbol,
+                state_to_string(snapshot.states.get("1h")),
+                state_to_string(snapshot.states.get("30m")),
+                state_to_string(snapshot.states.get("15m")),
+                state_to_string(snapshot.states.get("5m")),
+                snapshot.risk_level.value if snapshot.risk_level else None,
+                snapshot.entry,
+                snapshot.tp,
+                snapshot.sl,
+                snapshot.rr_ratio,
+                snapshot.decision.value if snapshot.decision else None,
+                snapshot.confidence,
+                direction,
+            ),
+        )
+        conn.commit()
+    except Exception as e:
+        logger.warning("log_signal_to_db failed: %s", e)
+    finally:
+        conn.close()
+
+
+def get_signals_from_db(since_iso: str, limit: int = 200) -> List[Dict]:
+    """Возвращает сигналы из signal_journal начиная с since_iso."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q(
+                "SELECT * FROM signal_journal WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?"
+            ),
+            (since_iso, limit),
+        )
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
