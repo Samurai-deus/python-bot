@@ -190,10 +190,6 @@ class CognitiveFilter:
         if overtrading_score > self.overtrading_threshold:
             return True
         
-        # Пауза при слишком частых сделках
-        if recent_trades_count > self.max_trades_per_day:
-            return True
-        
         # Пауза при множественных FOMO паттернах
         if fomo_patterns > 3:
             return True
