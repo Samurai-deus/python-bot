@@ -19,8 +19,7 @@ class ConnectionManager:
         self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
 
-    async def connect(self, ws: WebSocket):
-        await ws.accept()
+    async def add(self, ws: WebSocket):
         async with self._lock:
             self._connections.add(ws)
 
@@ -89,14 +88,37 @@ async def _build_snapshot() -> dict:
 
 
 _PING_INTERVAL = 30  # seconds — send server-side ping if client is silent
+_AUTH_TIMEOUT = 10   # seconds — wait for auth message before closing
 
 
 @router.websocket("/api/ws")
 async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
+    # Accept first so we can send a close frame on auth failure
+    await ws.accept()
+
+    # Auth: prefer first message (token not exposed in URL/logs),
+    # fall back to query param for backward compatibility.
+    if not token:
+        try:
+            msg = await asyncio.wait_for(ws.receive_json(), timeout=_AUTH_TIMEOUT)
+            if isinstance(msg, dict) and msg.get("type") == "auth":
+                token = str(msg.get("token", ""))
+            else:
+                logger.warning("WS: unexpected first message type '%s'", msg.get("type") if isinstance(msg, dict) else type(msg))
+        except asyncio.TimeoutError:
+            logger.warning("WS: auth timeout — closing connection")
+            await ws.close(code=4001, reason="Auth timeout")
+            return
+        except Exception as exc:
+            logger.warning("WS: error waiting for auth message: %s", exc)
+            await ws.close(code=4001, reason="Auth error")
+            return
+
     if not verify_ws_token(token):
         await ws.close(code=4001, reason="Unauthorized")
         return
-    await manager.connect(ws)
+
+    await manager.add(ws)
     task = asyncio.create_task(_push_loop(ws))
     try:
         # Keep-alive loop: detect stale connections via receive timeout.

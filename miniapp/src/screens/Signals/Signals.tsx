@@ -5,13 +5,22 @@ import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { formatDate, formatSymbol } from '../../lib/formatters'
 
-const SYMBOLS = [
-  'ALL', 'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
-  'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'MATICUSDT',
-  'LINKUSDT', 'UNIUSDT', 'AAVEUSDT', 'MKRUSDT', 'ARBUSDT',
-  'OPUSDT', 'SUIUSDT', 'APTUSDT', 'SHIBUSDT', 'ATOMUSDT',
-  'NEARUSDT', 'FTMUSDT', 'ALGOUSDT',
-]
+// Must match SYMBOLS in config.py
+const KNOWN_SYMBOLS = [
+  'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
+  'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'POLUSDT',
+  'LINKUSDT', 'UNIUSDT', 'AAVEUSDT', 'ARBUSDT', 'OPUSDT',
+  'SUIUSDT', 'APTUSDT', 'SHIB1000USDT', '1000PEPEUSDT',
+  'ATOMUSDT', 'NEARUSDT', 'TONUSDT', 'INJUSDT', 'WLDUSDT',
+  'TIAUSDT', 'RENDERUSDT', 'EIGENUSDT', 'JUPUSDT',
+] as const
+
+type KnownSymbol = typeof KNOWN_SYMBOLS[number]
+const SYMBOLS: readonly string[] = ['ALL', ...KNOWN_SYMBOLS]
+
+function isKnownSymbol(s: string): s is KnownSymbol {
+  return KNOWN_SYMBOLS.includes(s as KnownSymbol)
+}
 
 function ConfidenceBar({ value }: { value: number | null }) {
   if (value === null) {
@@ -34,7 +43,9 @@ export function Signals() {
   const { data: signals, isLoading, error } = useLatestSignals(50)
 
   const filtered = signals
-    ? filter === 'ALL' ? signals : signals.filter(s => s.symbol === filter)
+    ? filter === 'ALL'
+      ? signals
+      : signals.filter(s => isKnownSymbol(s.symbol) && s.symbol === filter)
     : []
 
   return (

@@ -1,8 +1,10 @@
+import { useQuery } from '@tanstack/react-query'
 import { useSystemStore } from '../../store/useSystemStore'
 import { useAnalyticsSummary } from '../../hooks/useAnalytics'
+import { fetchHealth } from '../../api/endpoints'
 import { Badge } from '../../components/Badge'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
-import { formatUSDT, formatPnl, formatPct } from '../../lib/formatters'
+import { formatUSDT, formatPnl, formatPct, formatRelative } from '../../lib/formatters'
 
 function stateVariant(state: string): 'running' | 'degraded' | 'halt' | 'recovery' | 'neutral' {
   if (state === 'RUNNING') return 'running'
@@ -12,8 +14,20 @@ function stateVariant(state: string): 'running' | 'degraded' | 'halt' | 'recover
 }
 
 export function Dashboard() {
-  const { snapshot, wsStatus } = useSystemStore()
+  const { snapshot, wsStatus, lastSnapshotAt } = useSystemStore()
   const { data: summary, isLoading } = useAnalyticsSummary(1)
+
+  // HTTP fallback: poll /api/system/health when WS is fully disconnected
+  const { data: healthFallback } = useQuery({
+    queryKey: ['health-fallback'],
+    queryFn: fetchHealth,
+    enabled: wsStatus === 'disconnected',
+    refetchInterval: wsStatus === 'disconnected' ? 30_000 : false,
+  })
+
+  const balance = snapshot?.balance_usdt ?? healthFallback?.balance_usdt
+  const systemState = snapshot?.system_state ?? healthFallback?.state
+  const tradingPaused = snapshot?.trading_paused ?? healthFallback?.trading_paused ?? false
 
   return (
     <div className="px-4 pt-4 space-y-4">
@@ -23,12 +37,16 @@ export function Dashboard() {
       {wsStatus !== 'connected' && (
         <div className="flex items-center gap-2 text-sm text-[var(--tg-hint)]">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-          {wsStatus === 'connecting' ? 'Connecting...' : wsStatus === 'reconnecting' ? 'Reconnecting...' : 'Disconnected'}
+          {wsStatus === 'connecting' ? 'Connecting...'
+            : wsStatus === 'reconnecting' ? 'Reconnecting...'
+            : lastSnapshotAt
+              ? `Disconnected · data from ${formatRelative(lastSnapshotAt.toISOString())}`
+              : 'Disconnected'}
         </div>
       )}
 
       {/* Trading paused warning */}
-      {snapshot?.trading_paused && (
+      {tradingPaused && (
         <div className="p-3 bg-red-900/30 border border-red-700 rounded-xl text-red-300 text-sm">
           Trading is PAUSED
         </div>
@@ -38,11 +56,11 @@ export function Dashboard() {
       <div className="bg-[var(--tg-secondary)] rounded-2xl p-4 space-y-1">
         <p className="text-sm text-[var(--tg-hint)]">Balance</p>
         <p className="text-3xl font-bold">
-          {snapshot ? formatUSDT(snapshot.balance_usdt) : '—'}
+          {balance != null ? formatUSDT(balance) : '—'}
         </p>
-        {snapshot && (
+        {systemState && (
           <div className="flex items-center gap-2 pt-1">
-            <Badge label={snapshot.system_state} variant={stateVariant(snapshot.system_state)} />
+            <Badge label={systemState} variant={stateVariant(systemState)} />
           </div>
         )}
       </div>
