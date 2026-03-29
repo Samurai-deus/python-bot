@@ -1176,17 +1176,30 @@ def close_position_by_order_id(
 
 
 def get_open_positions() -> List[Dict]:
-    """Список всех открытых позиций."""
+    """Список всех открытых позиций из таблицы trades."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
         cursor.execute(
-            _q("SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at DESC")
+            _q("SELECT * FROM trades WHERE status = 'OPEN' ORDER BY timestamp DESC")
         )
         rows = cursor.fetchall()
     finally:
         conn.close()
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        d = dict(row)
+        result.append({
+            "id": d["id"],
+            "symbol": d["symbol"],
+            "side": d["side"],
+            "qty": d.get("position_size") or 0.0,
+            "entry_price": d.get("entry") or 0.0,
+            "stop_loss": d.get("stop"),
+            "take_profit": d.get("target"),
+            "opened_at": d.get("timestamp") or d.get("created_at") or "",
+        })
+    return result
 
 
 # ============================================================================
@@ -1290,8 +1303,8 @@ def insert_pnl_record(
 
 def get_closed_trades(days: int = 30) -> List[Dict]:
     """
-    Возвращает закрытые сделки из pnl_records за последние N дней.
-    Ключ 'pnl' является алиасом net_pnl для совместимости.
+    Возвращает закрытые сделки из таблицы trades за последние N дней.
+    Поля нормализованы для совместимости с PerformanceTracker и API.
     """
     try:
         conn = get_db_connection()
@@ -1299,7 +1312,11 @@ def get_closed_trades(days: int = 30) -> List[Dict]:
             cursor = conn.cursor()
             since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
             cursor.execute(
-                _q("SELECT * FROM pnl_records WHERE closed_at >= ? ORDER BY closed_at ASC"),
+                _q("""
+                SELECT * FROM trades
+                WHERE status = 'CLOSED' AND timestamp >= ?
+                ORDER BY updated_at ASC
+                """),
                 (since,),
             )
             rows = cursor.fetchall()
@@ -1308,8 +1325,21 @@ def get_closed_trades(days: int = 30) -> List[Dict]:
         result = []
         for row in rows:
             d = dict(row)
-            d["pnl"] = d["net_pnl"]
-            result.append(d)
+            net_pnl = d.get("pnl") or 0.0
+            result.append({
+                "id": d["id"],
+                "symbol": d["symbol"],
+                "side": d["side"],
+                "entry_price": d.get("entry") or 0.0,
+                "exit_price": d.get("close_price") or 0.0,
+                "quantity": d.get("position_size") or 0.0,
+                "net_pnl": net_pnl,
+                "pnl": net_pnl,           # alias for legacy code
+                "gross_pnl": net_pnl,     # no commission data in trades
+                "commission": 0.0,
+                "market_regime": d.get("market_regime"),
+                "closed_at": d.get("updated_at") or d.get("created_at") or "",
+            })
         return result
     except Exception as e:
         logger.error(f"get_closed_trades error: {e}")
@@ -1317,25 +1347,39 @@ def get_closed_trades(days: int = 30) -> List[Dict]:
 
 
 def get_equity_curve_points(days: int = 30) -> List[Dict]:
-    """Возвращает точки equity curve из pnl_records за последние N дней."""
+    """Возвращает точки equity curve из таблицы trades за последние N дней.
+    Баланс вычисляется нарастающим итогом от начального значения 10000 USDT."""
     try:
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
             since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+            # Sum PnL of all closed trades BEFORE the period to get starting balance
+            cursor.execute(
+                _q("SELECT COALESCE(SUM(pnl), 0) FROM trades WHERE status = 'CLOSED' AND timestamp < ?"),
+                (since,),
+            )
+            pnl_before = float(cursor.fetchone()[0] or 0.0)
+            running_balance = 10000.0 + pnl_before
+
             cursor.execute(
                 _q("""
-                SELECT closed_at AS timestamp, balance_after AS balance
-                FROM pnl_records
-                WHERE closed_at >= ? AND balance_after IS NOT NULL
-                ORDER BY closed_at ASC
+                SELECT updated_at AS timestamp, pnl
+                FROM trades
+                WHERE status = 'CLOSED' AND timestamp >= ? AND pnl IS NOT NULL
+                ORDER BY updated_at ASC
                 """),
                 (since,),
             )
             rows = cursor.fetchall()
         finally:
             conn.close()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            d = dict(row)
+            running_balance += d["pnl"] or 0.0
+            result.append({"timestamp": d["timestamp"], "balance": round(running_balance, 4)})
+        return result
     except Exception as e:
         logger.error(f"get_equity_curve_points error: {e}")
         return []
