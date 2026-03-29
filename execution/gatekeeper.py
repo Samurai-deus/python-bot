@@ -539,6 +539,19 @@ class Gatekeeper:
         from exchange.bybit_client import get_bybit_client
         from decimal import Decimal, ROUND_DOWN
         client = get_bybit_client()
+
+        # Проверяем что контракт активен на бирже
+        try:
+            contract_status = client.get_contract_status(symbol)
+            if contract_status and contract_status != "Trading":
+                logger.warning(
+                    "[EXECUTOR] Skipping order for %s: contract status=%s (not Trading)",
+                    symbol, contract_status,
+                )
+                return
+        except Exception as _st_err:
+            logger.warning("[EXECUTOR] Could not check contract status for %s: %s", symbol, _st_err)
+
         try:
             qty_step = client.get_qty_step(symbol)
         except Exception:

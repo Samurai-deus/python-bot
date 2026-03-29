@@ -186,6 +186,14 @@ class BybitClient:
         params = {"category": "linear", "symbol": symbol}
         return self._get("/v5/market/instruments-info", params=params, signed=False)
 
+    def get_contract_status(self, symbol: str) -> str:
+        """Возвращает статус контракта: 'Trading', 'Closed', 'PreLaunch' и т.д."""
+        data = self.get_instruments_info(symbol)
+        items = data.get("list", [])
+        if items:
+            return items[0].get("status", "")
+        return ""
+
     def get_qty_step(self, symbol: str) -> float:
         """
         Получить qtyStep для символа (с кэшированием).
