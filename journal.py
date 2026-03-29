@@ -67,17 +67,26 @@ def log_signal(symbol, states, risk):
 
 def log_signal_snapshot(snapshot: SignalSnapshot):
     """
-    Логирует SignalSnapshot в CSV.
-    
+    Логирует SignalSnapshot в БД (PG-режим) и CSV (fallback).
+
     Это IO-операция: преобразует domain-объект в строки для записи.
-    
+
     Args:
         snapshot: SignalSnapshot для логирования
-    
+
     Note:
         Fault injection проверяется в SignalSnapshotStore.save() - entry point.
         Эта функция вызывается только после проверки fault injection.
     """
+    from database import _PG_MODE, log_signal_to_db
+
+    if _PG_MODE:
+        try:
+            log_signal_to_db(snapshot)
+        except Exception as _db_err:
+            import logging as _log
+            _log.getLogger(__name__).warning("DB journal write failed: %s", _db_err)
+
     file_exists = os.path.exists("signals_log.csv")
     with open("signals_log.csv", "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -180,16 +189,51 @@ def log_signal_snapshot_from_legacy(symbol: str, states: Dict[str, Optional[Mark
 
 def get_recent_signals(since: Optional[datetime] = None) -> List[Dict]:
     """
-    Получает недавние сигналы.
-    
+    Получает недавние сигналы из БД (PG-режим) или CSV.
+
     Args:
         since: Временная метка начала периода (опционально)
-        
+
     Returns:
         list: Список сигналов
     """
+    from database import _PG_MODE, get_signals_from_db
+
+    if _PG_MODE:
+        since_iso = since.isoformat() if since else "1970-01-01T00:00:00"
+        rows = get_signals_from_db(since_iso, limit=200)
+        result = []
+        for r in rows:
+            try:
+                ts_str = r.get("timestamp", "")
+                if "Z" in ts_str:
+                    ts_str = ts_str.replace("Z", "+00:00")
+                signal_time = datetime.fromisoformat(ts_str)
+                if signal_time.tzinfo is None:
+                    signal_time = signal_time.replace(tzinfo=UTC)
+                result.append({
+                    "timestamp": signal_time,
+                    "symbol": r.get("symbol", ""),
+                    "states": {
+                        "1h": r.get("state_1h"),
+                        "30m": r.get("state_30m"),
+                        "15m": r.get("state_15m"),
+                        "5m": r.get("state_5m"),
+                    },
+                    "risk": r.get("risk"),
+                    "decision": r.get("decision", ""),
+                    "confidence": r.get("confidence"),
+                    "direction": r.get("direction", ""),
+                    "entry": r.get("entry"),
+                    "tp": r.get("tp"),
+                    "sl": r.get("sl"),
+                })
+            except (ValueError, TypeError):
+                continue
+        return result
+
     signals = []
-    
+
     try:
         with open("signals_log.csv", "r", newline="") as f:
             reader = csv.reader(f)
