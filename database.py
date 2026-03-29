@@ -1356,10 +1356,11 @@ def get_equity_curve_points(days: int = 30) -> List[Dict]:
             since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
             # Sum PnL of all closed trades BEFORE the period to get starting balance
             cursor.execute(
-                _q("SELECT COALESCE(SUM(pnl), 0) FROM trades WHERE status = 'CLOSED' AND timestamp < ?"),
+                _q("SELECT COALESCE(SUM(pnl), 0) AS pnl_before FROM trades WHERE status = 'CLOSED' AND timestamp < ?"),
                 (since,),
             )
-            pnl_before = float(cursor.fetchone()[0] or 0.0)
+            row0 = cursor.fetchone()
+            pnl_before = float((dict(row0).get("pnl_before") or 0.0) if row0 else 0.0)
             running_balance = 10000.0 + pnl_before
 
             cursor.execute(
