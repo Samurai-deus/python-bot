@@ -19,9 +19,6 @@ export const fetchPositionHistory = (days = 30) =>
 export const fetchLatestSignals = (limit = 20) =>
   apiClient.get<Signal[]>('/api/signals/latest', { params: { limit } }).then(r => r.data)
 
-export const fetchSignalHistory = (symbol: string, days = 30) =>
-  apiClient.get<Signal[]>('/api/signals/history', { params: { symbol, days } }).then(r => r.data)
-
 export const fetchAnalyticsSummary = (days = 30) =>
   apiClient.get<AnalyticsSummary>('/api/analytics/summary', { params: { days } }).then(r => r.data)
 
