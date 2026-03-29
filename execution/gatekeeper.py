@@ -538,8 +538,9 @@ class Gatekeeper:
 
         from exchange.bybit_client import get_bybit_client
         from decimal import Decimal, ROUND_DOWN
+        client = get_bybit_client()
         try:
-            qty_step = get_bybit_client().get_qty_step(symbol)
+            qty_step = client.get_qty_step(symbol)
         except Exception:
             qty_step = 0.001  # conservative fallback
         qty_step_d = Decimal(str(qty_step))
@@ -548,6 +549,31 @@ class Gatekeeper:
         if qty <= 0:
             logger.error("[EXECUTOR] Calculated qty=%.4f invalid for %s", qty, symbol)
             return
+
+        # Корректируем SL/TP по текущей рыночной цене.
+        # Сигнал генерируется по историческим свечам, цена может уйти.
+        # Для LONG: TP должен быть > mark_price; для SHORT: TP < mark_price.
+        try:
+            mark_price = client.get_mark_price(symbol)
+            if mark_price > 0 and entry_price > 0:
+                sl_pct = abs(entry_price - stop_loss) / entry_price if stop_loss else 0
+                tp_pct = abs(take_profit - entry_price) / entry_price if take_profit else 0
+                if side == "LONG":
+                    adjusted_sl = mark_price * (1 - sl_pct)
+                    adjusted_tp = mark_price * (1 + tp_pct) if take_profit else None
+                else:  # SHORT
+                    adjusted_sl = mark_price * (1 + sl_pct)
+                    adjusted_tp = mark_price * (1 - tp_pct) if take_profit else None
+                logger.info(
+                    "[EXECUTOR] Price adjusted for %s: entry=%.5f mark=%.5f sl=%.5f→%.5f tp=%.5f→%.5f",
+                    symbol, entry_price, mark_price,
+                    stop_loss, adjusted_sl,
+                    take_profit or 0, adjusted_tp or 0,
+                )
+                stop_loss = adjusted_sl
+                take_profit = adjusted_tp
+        except Exception as _adj_err:
+            logger.warning("[EXECUTOR] Could not adjust SL/TP for %s: %s", symbol, _adj_err)
 
         from execution.order_executor import get_order_executor, TradeRequest
         from database import save_order, open_position
