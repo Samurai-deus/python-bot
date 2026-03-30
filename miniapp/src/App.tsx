@@ -14,9 +14,9 @@ function WsInit() {
 
 export function App() {
   return (
-    <div className="min-h-screen bg-[var(--tg-bg)] text-[var(--tg-text)]">
+    <div style={{ minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)' }}>
       <WsInit />
-      <div className="pb-16">
+      <div style={{ paddingBottom: 64 }}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/positions" element={<Positions />} />
