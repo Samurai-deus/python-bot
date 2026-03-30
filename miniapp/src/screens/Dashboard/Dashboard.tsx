@@ -189,7 +189,7 @@ export function Dashboard() {
                 <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13 }}>
                   {p.symbol.replace('USDT', '')}<span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>/USDT</span>
                 </span>
-                <Badge label={p.side} variant={p.side === 'BUY' ? 'buy' : 'sell'} />
+                <Badge label={p.side} variant={p.side === 'BUY' || p.side === 'LONG' ? 'buy' : 'sell'} />
               </div>
             ))}
           </div>
