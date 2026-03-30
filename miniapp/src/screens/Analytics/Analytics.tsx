@@ -79,7 +79,7 @@ export function Analytics() {
       {loadingSum ? <LoadingSpinner /> : summary && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <StatCard label="Win Rate"     value={formatPct(summary.win_rate)}
-            color={summary.win_rate >= 0.5 ? 'var(--green)' : 'var(--red)'} />
+            color={summary.win_rate >= 50 ? 'var(--green)' : 'var(--red)'} />
           <StatCard label="Max Drawdown" value={formatPct(summary.max_drawdown_pct)}
             color="var(--red)" />
           <StatCard label="Profit Factor"
@@ -139,7 +139,7 @@ export function Analytics() {
                   <td style={{
                     padding: '7px 0', textAlign: 'right',
                     fontFamily: 'monospace', fontSize: 11,
-                    color: row.win_rate >= 0.5 ? 'var(--green)' : 'var(--red)',
+                    color: row.win_rate >= 50 ? 'var(--green)' : 'var(--red)',
                   }}>
                     {formatPct(row.win_rate)}
                   </td>
