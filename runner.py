@@ -1743,10 +1743,10 @@ async def run_market_analysis():
         
         if not global_decision.can_trade:
             logger.info(f"⏸ Decision Core блокирует торговлю: {global_decision.reason}")
-            try:
-                await send_message_async(f"🧠 Decision Core: {global_decision.reason}\n\nРекомендации:\n" + "\n".join(f"• {r}" for r in global_decision.recommendations))
-            except Exception:
-                pass
+            asyncio.create_task(
+                send_message_async(f"🧠 Decision Core: {global_decision.reason}\n\nРекомендации:\n" + "\n".join(f"• {r}" for r in global_decision.recommendations)),
+                name="TelegramNotify",
+            )
             return True
         
         # Check budget and yield after decision core check (shutdown-aware)
@@ -2060,9 +2060,12 @@ async def market_analysis_loop():
                                 "[TRACKER] Position closed: %s %s pnl=%.2f",
                                 _closed.symbol, _closed.side, _pnl,
                             )
-                            await send_message_async(
-                                f"📉 Позиция закрыта: {_closed.symbol} {_closed.side}\n"
-                                f"💰 PnL: {_pnl:+.2f} USDT"
+                            asyncio.create_task(
+                                send_message_async(
+                                    f"📉 Позиция закрыта: {_closed.symbol} {_closed.side}\n"
+                                    f"💰 PnL: {_pnl:+.2f} USDT"
+                                ),
+                                name="TelegramNotify",
                             )
             except Exception as _e:
                 logger.warning("Position tracker poll error: %s: %s", type(_e).__name__, _e)
@@ -2197,10 +2200,10 @@ async def market_analysis_loop():
                             _adaptive_system_state["recovery_cycles"] = 0
                             logger.info(f"🔄 Trading auto-resumed after {AUTO_RESUME_SUCCESS_CYCLES} successful cycles")
                             # Отправляем уведомление
-                            try:
-                                await send_message_async(f"✅ **Trading resumed**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} successful analysis cycles. Trading is now active.")
-                            except Exception:
-                                pass
+                            asyncio.create_task(
+                                send_message_async(f"✅ **Trading resumed**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} successful analysis cycles. Trading is now active."),
+                                name="TelegramNotify",
+                            )
                     else:
                         # Ошибка или неуспешный цикл - сбрасываем счетчик
                         if _adaptive_system_state["recovery_cycles"] > 0:
@@ -2238,10 +2241,10 @@ async def market_analysis_loop():
                         adaptive_state["safe_mode_exit_time"] = None
                         logger.info(f"🔄 Trading auto-resumed after safe_mode exit (delay: {AUTO_RESUME_SAFE_MODE_DELAY}s)")
                         # Отправляем уведомление
-                        try:
-                            await send_message_async("✅ **Trading resumed**\n\nSystem recovered from safe mode. Trading is now active.")
-                        except Exception:
-                            pass
+                        asyncio.create_task(
+                            send_message_async("✅ **Trading resumed**\n\nSystem recovered from safe mode. Trading is now active."),
+                            name="TelegramNotify",
+                        )
             
             # Обновляем состояние для следующей итерации
             adaptive_state["last_safe_mode_state"] = system_state.system_health.safe_mode
