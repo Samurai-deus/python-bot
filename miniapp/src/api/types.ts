@@ -22,6 +22,7 @@ export interface OpenPosition {
   entry_price: number
   stop_loss: number | null
   take_profit: number | null
+  current_price: number | null
   opened_at: string
 }
 

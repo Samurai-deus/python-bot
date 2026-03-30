@@ -126,6 +126,7 @@ function OpenPositionsList({ positions }: { positions: OpenPosition[] }) {
             <InfoRow label="Stop Loss" value={p.stop_loss ? formatUSDT(p.stop_loss) : '—'} accent="var(--red)" />
             <InfoRow label="Take Profit" value={p.take_profit ? formatUSDT(p.take_profit) : '—'} accent="var(--green)" />
           </div>
+          <ProgressToTarget position={p} />
         </div>
       ))}
     </div>
@@ -191,6 +192,51 @@ function HistoryList({ items }: { items: TradeHistory[] }) {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function ProgressToTarget({ position: p }: { position: OpenPosition }) {
+  const { entry_price, stop_loss, take_profit, current_price } = p
+  if (!stop_loss || !take_profit) return null
+
+  const isLong = p.side === 'LONG' || p.side === 'BUY'
+  const price = current_price ?? entry_price
+  const totalRange = Math.abs(take_profit - stop_loss)
+  if (totalRange === 0) return null
+
+  // Progress: 0% = at stop, 100% = at target
+  const rawPct = isLong
+    ? (price - stop_loss) / totalRange
+    : (stop_loss - price) / totalRange
+  const pct = Math.max(0, Math.min(1, rawPct))
+
+  // Color: red < 33%, amber 33-66%, green > 66%
+  const color = pct >= 0.66 ? 'var(--green)' : pct >= 0.33 ? 'var(--amber)' : 'var(--red)'
+  const shadow = pct >= 0.66
+    ? 'rgba(0,255,157,0.6)'
+    : pct >= 0.33 ? 'rgba(255,170,0,0.6)' : 'rgba(255,68,102,0.6)'
+
+  return (
+    <div style={{ paddingLeft: 8, marginTop: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+          Progress to Target
+        </span>
+        <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color }}>
+          {Math.round(pct * 100)}%
+        </span>
+      </div>
+      <div style={{ height: 4, borderRadius: 2, background: 'rgba(78,96,112,0.2)', overflow: 'hidden' }}>
+        <div style={{
+          width: `${pct * 100}%`,
+          height: '100%',
+          borderRadius: 2,
+          background: color,
+          boxShadow: `0 0 8px ${shadow}`,
+          transition: 'width 0.6s ease, background 0.4s ease',
+        }} />
+      </div>
     </div>
   )
 }

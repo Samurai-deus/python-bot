@@ -227,11 +227,18 @@ function EquityCurveChart({ data }: { data: { points: number[]; timestamps: stri
       lineWidth: 2,
     })
 
-    const chartData = data.points.map((value, i) => ({
+    // Deduplicate and sort by time (lightweight-charts requires strictly ascending times)
+    const rawData = data.points.map((value, i) => ({
       time: Math.floor(new Date(data.timestamps[i]).getTime() / 1000) as Time,
       value,
     }))
+    rawData.sort((a, b) => (a.time as number) - (b.time as number))
+    // Remove duplicates (keep last value for same timestamp)
+    const seen = new Map<number, number>()
+    for (const d of rawData) seen.set(d.time as number, d.value)
+    const chartData = Array.from(seen.entries()).map(([time, value]) => ({ time: time as Time, value }))
 
+    if (chartData.length === 0) return
     series.setData(chartData)
     chart.timeScale().fitContent()
 
