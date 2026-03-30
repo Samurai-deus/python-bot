@@ -95,7 +95,7 @@ function OpenPositionsList({ positions }: { positions: OpenPosition[] }) {
             borderRadius: 16,
             padding: '14px 16px',
             background: 'var(--surface)',
-            border: `1px solid ${p.side === 'BUY' ? 'rgba(0,255,157,0.14)' : 'rgba(255,68,102,0.14)'}`,
+            border: `1px solid ${p.side === 'BUY' || p.side === 'LONG' ? 'rgba(0,255,157,0.14)' : 'rgba(255,68,102,0.14)'}`,
             position: 'relative',
             overflow: 'hidden',
           }}
@@ -103,8 +103,8 @@ function OpenPositionsList({ positions }: { positions: OpenPosition[] }) {
           {/* Side accent */}
           <div style={{
             position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-            background: p.side === 'BUY' ? 'var(--green)' : 'var(--red)',
-            boxShadow: p.side === 'BUY' ? '0 0 8px rgba(0,255,157,0.5)' : '0 0 8px rgba(255,68,102,0.5)',
+            background: p.side === 'BUY' || p.side === 'LONG' ? 'var(--green)' : 'var(--red)',
+            boxShadow: p.side === 'BUY' || p.side === 'LONG' ? '0 0 8px rgba(0,255,157,0.5)' : '0 0 8px rgba(255,68,102,0.5)',
             borderRadius: '3px 0 0 3px',
           }} />
 
@@ -117,7 +117,7 @@ function OpenPositionsList({ positions }: { positions: OpenPosition[] }) {
                 {formatDate(p.opened_at)}
               </p>
             </div>
-            <Badge label={p.side} variant={p.side === 'BUY' ? 'buy' : 'sell'} />
+            <Badge label={p.side} variant={p.side === 'BUY' || p.side === 'LONG' ? 'buy' : 'sell'} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingLeft: 8 }}>
@@ -154,7 +154,7 @@ function HistoryList({ items }: { items: TradeHistory[] }) {
             borderRadius: 16,
             padding: '14px 16px',
             background: 'var(--surface)',
-            border: `1px solid ${t.net_pnl >= 0 ? 'rgba(0,255,157,0.12)' : 'rgba(255,68,102,0.12)'}`,
+            border: `1px solid ${t.side === 'BUY' || t.side === 'LONG' ? 'rgba(0,255,157,0.12)' : 'rgba(255,68,102,0.12)'}`,
             position: 'relative',
             overflow: 'hidden',
             animationDelay: `${Math.min(i * 0.03, 0.3)}s`,
