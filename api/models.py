@@ -29,6 +29,7 @@ class PositionResponse(BaseModel):
     entry_price: float
     stop_loss: Optional[float]
     take_profit: Optional[float]
+    current_price: Optional[float] = None
     opened_at: str
 
 

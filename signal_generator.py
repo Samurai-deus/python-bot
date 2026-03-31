@@ -236,6 +236,13 @@ def generate_signals_for_symbols(
             entry = float(last_5m[4])
             high = float(last_5m[2])
             low = float(last_5m[3])
+
+            # Обновляем кэш последней цены (используется WS-снапшотом для current_price)
+            try:
+                import price_cache as _pc
+                _pc.update(symbol, entry)
+            except Exception:
+                pass
             
             bias = directions.get("30m", "FLAT")
             zone = None
@@ -444,14 +451,23 @@ def generate_signals_for_symbols(
                         # Открываем демо-сделку только если сигнал реально отправлен
                         try:
                             from demo_trades import log_demo_trade
+                            from trade_manager import get_open_trades
                             zone = signal_data.get("zone")
-                            if zone and entry and stop and target:
+                            effective_pos_size = signal_data.get("position_size", pos_size)
+                            already_open = any(
+                                t["symbol"] == symbol for t in get_open_trades()
+                            )
+                            if zone and entry and stop and target and effective_pos_size and not already_open:
                                 log_demo_trade(
                                     symbol, side, entry, stop, target,
-                                    position_size=signal_data.get("position_size", pos_size),
+                                    position_size=effective_pos_size,
                                     leverage=lev
                                 )
                                 logger.info("%s: demo trade opened", symbol)
+                            elif already_open:
+                                logger.info("%s: skipping demo trade — already has open position", symbol)
+                            elif not effective_pos_size:
+                                logger.info("%s: skipping demo trade — position_size is zero (no available capital)", symbol)
                         except Exception as trade_error:
                             logger.warning(
                                 "%s: failed to open demo trade: %s: %s",

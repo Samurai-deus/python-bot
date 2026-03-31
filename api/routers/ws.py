@@ -64,6 +64,13 @@ async def _build_snapshot() -> dict:
     positions_raw = await asyncio.wait_for(loop.run_in_executor(None, get_open_positions), timeout=5.0)
     balance = await asyncio.wait_for(loop.run_in_executor(None, get_current_balance_from_db), timeout=5.0)
 
+    # Подтягиваем последние цены из кэша (обновляется signal_generator каждые ~5 мин)
+    try:
+        import price_cache as _pc
+        _cached_prices = _pc.snapshot()
+    except Exception:
+        _cached_prices = {}
+
     positions = [
         {
             "id": p["id"],
@@ -73,6 +80,7 @@ async def _build_snapshot() -> dict:
             "entry_price": p["entry_price"],
             "stop_loss": p.get("stop_loss"),
             "take_profit": p.get("take_profit"),
+            "current_price": _cached_prices.get(p["symbol"]),
             "opened_at": p["opened_at"],
         }
         for p in positions_raw
