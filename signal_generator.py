@@ -477,7 +477,7 @@ def generate_signals_for_symbols(
                     "risk": risk,
                     "score": score,
                     "mode": mode,
-                    "rr_ratio": rr_result['rr_ratio'],
+                    "rr_ratio": abs(target - entry) / abs(stop - entry) if abs(stop - entry) > 0 else 0,
                     "volatility_pct": volatility_pct
                 }
                 
