@@ -26,7 +26,7 @@ class PositionSizingConfig:
     max_risk_per_trade: float = POSITION_ALLOCATION_PERCENT  # 10.0% base allocation
     
     # Минимальный порог риска (если итоговый риск меньше — позиция не разрешена)
-    min_risk_threshold: float = 0.5  # 0.5% от баланса
+    min_risk_threshold: float = 0.1  # 0.1% от баланса (Kelly уже консервативен)
     
     # Ограничения для факторов
     confidence_min: float = 0.2  # Минимальная confidence для использования
@@ -168,8 +168,8 @@ class PositionSizer:
             perf = get_rolling_performance()
             kelly = kelly_fraction(perf["win_rate"], perf["avg_win"], perf["avg_loss"])
             base_risk = kelly * 100  # fraction → %
-            # Clamp между 0.5% и config max
-            base_risk = max(0.5, min(base_risk, self.config.max_risk_per_trade))
+            # Clamp между 1.0% и config max (quarter-Kelly floor)
+            base_risk = max(1.0, min(base_risk, self.config.max_risk_per_trade))
         except Exception:
             base_risk = self.config.max_risk_per_trade
         
