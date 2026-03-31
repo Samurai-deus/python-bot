@@ -56,21 +56,39 @@ def entry_trigger_5m(candles):
 
     return None
 
-def market_direction(candles):
-    if len(candles) < 10:
+def market_direction(candles, period=20):
+    """
+    Определяет направление рынка через EMA(period) slope + позицию цены.
+    Требует совпадения наклона EMA и положения цены относительно EMA,
+    что устойчивее к шуму чем сравнение средних 5 свечей.
+    """
+    min_candles = period + 5
+    if len(candles) < min_candles:
         return "FLAT"
-    highs = [float(c[2]) for c in candles[-10:]]
-    lows = [float(c[3]) for c in candles[-10:]]
 
-    # Сравниваем среднее первых и вторых 5 свечей — устойчиво к шуму одной свечи
-    avg_high_early = sum(highs[:5]) / 5
-    avg_high_late = sum(highs[5:]) / 5
-    avg_low_early = sum(lows[:5]) / 5
-    avg_low_late = sum(lows[5:]) / 5
+    closes = [float(c[4]) for c in candles[-(min_candles):]]
 
-    if avg_high_late > avg_high_early and avg_low_late > avg_low_early:
+    # EMA
+    multiplier = 2.0 / (period + 1)
+    ema = [closes[0]]
+    for price in closes[1:]:
+        ema.append(price * multiplier + ema[-1] * (1 - multiplier))
+
+    ema_now = ema[-1]
+    ema_prev = ema[-6]  # 5 свечей назад
+    current_price = closes[-1]
+
+    if ema_prev == 0:
+        return "FLAT"
+
+    slope_pct = (ema_now - ema_prev) / ema_prev * 100
+    price_vs_ema = (current_price - ema_now) / ema_now * 100
+
+    SLOPE_THRESHOLD = 0.1  # минимальный наклон 0.1%
+
+    if slope_pct > SLOPE_THRESHOLD and price_vs_ema > 0:
         return "UP"
-    if avg_high_late < avg_high_early and avg_low_late < avg_low_early:
+    elif slope_pct < -SLOPE_THRESHOLD and price_vs_ema < 0:
         return "DOWN"
     return "FLAT"
 

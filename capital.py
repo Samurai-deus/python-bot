@@ -73,6 +73,97 @@ def position_size(entry_price, stop_price, side="LONG"):
     return round(position_usd, 2)
 
 
+def get_rolling_performance(strategy_name: str = None, lookback: int = 50) -> dict:
+    """
+    Получает win rate и avg win/loss из последних закрытых сделок.
+    Если strategy_name указан — только для этой стратегии.
+
+    Returns:
+        {"win_rate": float, "avg_win": float, "avg_loss": float}
+    """
+    from database import get_db_connection, _q
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if strategy_name and strategy_name != "legacy":
+            cursor.execute(
+                _q("SELECT pnl FROM trades WHERE status = 'CLOSED' AND strategy_name = ? ORDER BY id DESC LIMIT ?"),
+                (strategy_name, lookback),
+            )
+        else:
+            cursor.execute(
+                _q("SELECT pnl FROM trades WHERE status = 'CLOSED' ORDER BY id DESC LIMIT ?"),
+                (lookback,),
+            )
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    if len(rows) < 10:
+        return {"win_rate": 0.5, "avg_win": 10.0, "avg_loss": 5.0}
+
+    pnls = [float(r["pnl"]) for r in rows if r["pnl"] is not None]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p <= 0]
+
+    win_rate = len(wins) / len(pnls) if pnls else 0.5
+    avg_win = sum(wins) / len(wins) if wins else 10.0
+    avg_loss = abs(sum(losses) / len(losses)) if losses else 5.0
+
+    return {"win_rate": win_rate, "avg_win": avg_win, "avg_loss": avg_loss}
+
+
+def kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
+                   safety_factor: float = 0.25) -> float:
+    """
+    Quarter-Kelly sizing на основе скользящей статистики.
+    Возвращает долю капитала для риска (0.005 .. 0.05).
+    """
+    if avg_loss == 0 or win_rate <= 0:
+        return 0.005
+
+    b = avg_win / avg_loss  # win/loss ratio
+    p = win_rate
+    q = 1.0 - p
+
+    kelly = (b * p - q) / b
+
+    if kelly <= 0:
+        return 0.005  # минимум даже при отрицательном ожидании
+
+    adjusted = kelly * safety_factor
+    return max(0.005, min(0.05, adjusted))
+
+
+def get_peak_balance() -> float:
+    """Возвращает максимальный баланс (для drawdown расчёта)."""
+    from database import get_db_connection, _q
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        # Кумулятивный PnL: максимальная сумма закрытых PnL
+        cursor.execute(
+            _q("SELECT COALESCE(SUM(pnl), 0) as total_pnl FROM trades WHERE status = 'CLOSED'")
+        )
+        row = cursor.fetchone()
+        total_pnl = float(row["total_pnl"]) if row else 0.0
+    finally:
+        conn.close()
+    return INITIAL_BALANCE + total_pnl
+
+
+def current_drawdown_pct() -> float:
+    """Текущий drawdown в % от пикового баланса."""
+    peak = get_peak_balance()
+    current = get_current_balance()
+    if peak <= 0:
+        return 0.0
+    return max(0.0, (peak - current) / peak * 100)
+
+
+DRAWDOWN_CUTOFF_PCT = 15.0
+
+
 def calculate_quantity(position_usd, entry_price):
     """
     Рассчитывает количество контрактов/монет для позиции.

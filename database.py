@@ -236,6 +236,19 @@ def _init_pg_schema(conn) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
 
+    # Phase 2: колонки для trailing stop, partial TP, strategy tracking
+    for col_name, col_type in [
+        ("trailing_stop", "REAL"),
+        ("breakeven_set", "INTEGER DEFAULT 0"),
+        ("partial_closed", "INTEGER DEFAULT 0"),
+        ("partial_pnl", "REAL"),
+        ("strategy_name", "TEXT"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass  # колонка уже существует
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_state_snapshots (
             id BIGSERIAL PRIMARY KEY,
@@ -442,6 +455,19 @@ def _init_database(conn) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
 
+    # Phase 2: колонки для trailing stop, partial TP, strategy tracking
+    for col_name, col_type in [
+        ("trailing_stop", "REAL"),
+        ("breakeven_set", "INTEGER DEFAULT 0"),
+        ("partial_closed", "INTEGER DEFAULT 0"),
+        ("partial_pnl", "REAL"),
+        ("strategy_name", "TEXT"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass  # колонка уже существует
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_state_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -642,6 +668,7 @@ def add_trade(
     target: float,
     position_size: Optional[float] = None,
     leverage: Optional[float] = None,
+    strategy_name: Optional[str] = None,
 ) -> int:
     """Добавляет новую сделку в базу данных. Возвращает ID."""
     conn = get_db_connection()
@@ -651,15 +678,15 @@ def add_trade(
         trade_id = _exec_insert(
             cursor,
             """
-            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage)
-            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage, strategy_name)
+            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
             """,
-            (timestamp, symbol, side, entry, stop, target, position_size, leverage),
+            (timestamp, symbol, side, entry, stop, target, position_size, leverage, strategy_name),
         )
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Добавлена сделка #{trade_id}: {symbol} {side} @ {entry}")
+    logger.info(f"Добавлена сделка #{trade_id}: {symbol} {side} @ {entry} [strategy={strategy_name}]")
     return trade_id
 
 
@@ -686,6 +713,10 @@ def get_open_trades() -> List[Dict]:
             "status": row["status"],
             "position_size": row["position_size"],
             "leverage": row["leverage"],
+            "trailing_stop": row["trailing_stop"] if "trailing_stop" in row.keys() else None,
+            "breakeven_set": row["breakeven_set"] if "breakeven_set" in row.keys() else 0,
+            "partial_closed": row["partial_closed"] if "partial_closed" in row.keys() else 0,
+            "partial_pnl": row["partial_pnl"] if "partial_pnl" in row.keys() else None,
         }
         for row in rows
     ]
@@ -709,6 +740,43 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
     finally:
         conn.close()
     logger.info(f"Закрыта сделка #{trade_id}: PnL={pnl:.2f} USDT, причина={close_reason}")
+
+
+def update_trade_stop(trade_id: int, new_stop: float, breakeven: bool = False):
+    """Обновляет стоп-лосс сделки (trailing stop / breakeven)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        updated_at = datetime.now(UTC).isoformat()
+        if breakeven:
+            cursor.execute(
+                _q("UPDATE trades SET stop = ?, trailing_stop = ?, breakeven_set = 1, updated_at = ? WHERE id = ?"),
+                (new_stop, new_stop, updated_at, trade_id),
+            )
+        else:
+            cursor.execute(
+                _q("UPDATE trades SET stop = ?, trailing_stop = ?, updated_at = ? WHERE id = ?"),
+                (new_stop, new_stop, updated_at, trade_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_trade_partial(trade_id: int, partial_price: float, partial_pnl: float):
+    """Записывает частичное закрытие (50% позиции)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        updated_at = datetime.now(UTC).isoformat()
+        cursor.execute(
+            _q("UPDATE trades SET partial_closed = 1, partial_pnl = ?, updated_at = ? WHERE id = ?"),
+            (partial_pnl, updated_at, trade_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    logger.info(f"Частичное закрытие сделки #{trade_id}: PnL={partial_pnl:.2f} USDT @ {partial_price}")
 
 
 def force_cancel_open_trades() -> int:

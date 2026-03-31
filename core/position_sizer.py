@@ -161,8 +161,17 @@ class PositionSizer:
         if balance is None:
             balance = INITIAL_BALANCE
         
-        # ========== БАЗОВЫЙ РИСК ==========
-        base_risk = self.config.max_risk_per_trade
+        # ========== БАЗОВЫЙ РИСК (Kelly-based) ==========
+        # Используем Kelly criterion вместо фиксированного % если есть история
+        try:
+            from capital import get_rolling_performance, kelly_fraction
+            perf = get_rolling_performance()
+            kelly = kelly_fraction(perf["win_rate"], perf["avg_win"], perf["avg_loss"])
+            base_risk = kelly * 100  # fraction → %
+            # Clamp между 0.5% и config max
+            base_risk = max(0.5, min(base_risk, self.config.max_risk_per_trade))
+        except Exception:
+            base_risk = self.config.max_risk_per_trade
         
         # ========== CONFIDENCE FACTOR ==========
         confidence_factor = self._clamp(
