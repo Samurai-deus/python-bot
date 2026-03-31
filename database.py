@@ -237,6 +237,7 @@ def _init_pg_schema(conn) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
 
     # Phase 2: колонки для trailing stop, partial TP, strategy tracking
+    # PostgreSQL requires SAVEPOINT to recover from "column already exists" errors
     for col_name, col_type in [
         ("trailing_stop", "REAL"),
         ("breakeven_set", "INTEGER DEFAULT 0"),
@@ -245,9 +246,11 @@ def _init_pg_schema(conn) -> None:
         ("strategy_name", "TEXT"),
     ]:
         try:
+            cursor.execute("SAVEPOINT sp_alter")
             cursor.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
+            cursor.execute("RELEASE SAVEPOINT sp_alter")
         except Exception:
-            pass  # колонка уже существует
+            cursor.execute("ROLLBACK TO SAVEPOINT sp_alter")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_state_snapshots (
