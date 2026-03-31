@@ -116,6 +116,20 @@ class DecisionCore:
             _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
             recommendations = []
             
+            # Drawdown circuit breaker: блокировка при просадке > 15%
+            try:
+                from capital import current_drawdown_pct, DRAWDOWN_CUTOFF_PCT
+                dd = current_drawdown_pct()
+                if dd >= DRAWDOWN_CUTOFF_PCT:
+                    return TradingDecision(
+                        can_trade=False,
+                        reason=f"DRAWDOWN BREAKER: просадка {dd:.1f}% >= {DRAWDOWN_CUTOFF_PCT}%",
+                        risk_level="HIGH",
+                        recommendations=["Торговля остановлена до ручного сброса"]
+                    )
+            except Exception:
+                pass  # не блокируем если расчёт недоступен
+
             # Проверка safe-mode (критично - блокирует торговлю при ошибках)
             if system_state and system_state.system_health.safe_mode:
                 return TradingDecision(

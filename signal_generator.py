@@ -210,13 +210,6 @@ def generate_signals_for_symbols(
                 for closed_trade in closed_trades:
                     generate_trade_report(closed_trade)
 
-            # Расширенные условия входа
-            entry_conditions = get_entry_conditions(states, directions, score_details)
-            
-            if not entry_conditions:
-                logger.debug("%s: no entry conditions, skipping", symbol)
-                continue
-
             # Проверяем объемы для фильтрации
             candle_analysis = get_candle_analysis(candles_map.get("15m", []))
             volume_profile = candle_analysis.get("volume_profile", {})
@@ -227,101 +220,164 @@ def generate_signals_for_symbols(
                 logger.debug("%s: low liquidity, skipping", symbol)
                 continue
 
-            logger.debug("%s: entry conditions: %s, volume=%s", symbol, ", ".join(entry_conditions), volume_trend)
-            
             # Рассчитываем параметры входа
             if not candles_map.get("5m") or len(candles_map["5m"]) == 0:
                 continue
             last_5m = candles_map["5m"][-1]
-            entry = float(last_5m[4])
-            high = float(last_5m[2])
-            low = float(last_5m[3])
 
             # Обновляем кэш последней цены (используется WS-снапшотом для current_price)
             try:
                 import price_cache as _pc
-                _pc.update(symbol, entry)
+                _pc.update(symbol, float(last_5m[4]))
             except Exception:
                 pass
-            
-            bias = directions.get("30m", "FLAT")
-            zone = None
-            pos_size = None
-            lev = None
-            
-            if bias == "DOWN":
-                side = "SHORT"
-                stop = high
-            elif bias == "UP":
-                side = "LONG"
-                stop = low
-            else:
-                logger.debug("%s: bias FLAT, no direction, skipping", symbol)
-                continue
-            
-            # Рассчитываем ATR для адаптивного R:R
+
+            # ATR нужен и стратегиям, и fallback-логике
             atr_15m = atr(candles_map["15m"])
             atr_5m = atr(candles_map["5m"])
             volatility_pct = calculate_volatility_pct(candles_map["15m"])
             trend_strength_val = momentum_data.get("trend_strength_30m", 50) if momentum_data else 50
 
-            # Расширяем стоп если он слишком близко к entry.
-            # Стоп от low/high последней 5m свечи часто слишком тесный в trending market.
-            # Используем 1.5 ATR — крипта регулярно проходит 1 ATR внутри «шума»,
-            # поэтому 1 ATR давал слишком частые стоп-ауты до отработки сигнала.
-            min_stop_dist = max(atr_15m * 1.5, entry * 0.005)  # 1.5 ATR или 0.5% — что больше
-            if side == "LONG" and (entry - stop) < min_stop_dist:
-                stop = entry - min_stop_dist
-                logger.debug("%s: stop widened to minimum: %.4f (%.2f%%)", symbol, stop, min_stop_dist / entry * 100)
-            elif side == "SHORT" and (stop - entry) < min_stop_dist:
-                stop = entry + min_stop_dist
-                logger.debug("%s: stop widened to minimum: %.4f (%.2f%%)", symbol, stop, min_stop_dist / entry * 100)
+            # ── Multi-Strategy Engine ──
+            # Стратегии имеют приоритет; если ни одна не сработала — fallback на старую логику.
+            strategy_signal = None
+            strategy_name = None
+            try:
+                from strategies.strategy_manager import StrategyManager
+                _strategy_mgr = StrategyManager()
 
-            # Проверяем размер стопа
-            stop_info = calculate_stop_distance(entry, stop, atr_15m, entry)
-            if not stop_info.get("is_valid", True):
-                logger.debug("%s: invalid stop distance (%.2f%%), skipping", symbol, stop_info.get("stop_distance_pct", 0))
-                continue
-            
-            # Улучшенная оценка риска с учетом всех индикаторов
-            volume_info = {"volume_trend": volume_trend, "volume_ratio": volume_profile.get("volume_ratio", 1.0)}
-            risk = enhanced_risk_level(
-                states, 
-                stop_info=stop_info, 
-                volume_info=volume_info,
-                momentum_data=momentum_data,
-                candles_map=candles_map,
-                directions=directions
-            )
-            
-            if risk == "HIGH":
-                logger.debug("%s: high risk, skipping", symbol)
-                continue
-            
-            # Адаптивный расчет R:R
-            rr_result = calculate_adaptive_rr(
-                entry, stop, atr_15m, atr_5m, 
-                volatility_pct, trend_strength_val, risk
-            )
-            target = rr_result["target"]
+                vol_level = volatility_metrics.get("volatility_level", "MEDIUM")
+                regime = "RANGE"
+                if system_state and hasattr(system_state, "market_regime") and system_state.market_regime:
+                    mr = system_state.market_regime
+                    regime = getattr(mr, "trend_type", "RANGE") or "RANGE"
 
-            # Минимальный R:R = 1.5: без этого даже 60% win rate даёт убыток.
-            # При R:R < 1.5 потенциальная награда не оправдывает риск — пропускаем.
-            MIN_RR = 1.5
-            if rr_result["rr_ratio"] < MIN_RR:
-                logger.debug(
-                    "%s: R:R %.2f < %.1f minimum, skipping signal",
-                    symbol, rr_result["rr_ratio"], MIN_RR
+                strategy_signal = _strategy_mgr.get_best_signal(
+                    symbol, candles_map, directions, momentum_data, states,
+                    market_regime=regime, volatility_level=vol_level,
                 )
-                continue
+            except Exception as e:
+                logger.warning("%s: strategy engine error: %s", symbol, e)
+
+            zone = None
+            pos_size = None
+            lev = None
+
+            if strategy_signal:
+                # Стратегия дала сигнал — используем её entry/stop/target/side
+                side = strategy_signal.side
+                entry = strategy_signal.entry
+                stop = strategy_signal.stop
+                target = strategy_signal.target
+                strategy_name = strategy_signal.strategy_name
+
+                risk_distance = abs(entry - stop)
+                rr_ratio = abs(target - entry) / risk_distance if risk_distance else 0
+                risk = "LOW"  # стратегия уже отфильтровала плохие условия
+                logger.info(
+                    "%s: STRATEGY %s → %s entry=%.4f stop=%.4f target=%.4f R:R=%.2f conf=%.2f",
+                    symbol, strategy_name, side, entry, stop, target, rr_ratio, strategy_signal.confidence,
+                )
+            else:
+                # ── Fallback: старая entry_conditions логика ──
+                entry_conditions = get_entry_conditions(states, directions, score_details)
+                if not entry_conditions:
+                    logger.debug("%s: no strategy signal and no entry conditions, skipping", symbol)
+                    continue
+
+                logger.debug("%s: fallback entry conditions: %s, volume=%s", symbol, ", ".join(entry_conditions), volume_trend)
+
+                entry = float(last_5m[4])
+                high = float(last_5m[2])
+                low = float(last_5m[3])
+
+                bias = directions.get("30m", "FLAT")
+
+                # HARD GATE: не открываем LONG если макро-тренд (1h/4h) DOWN, и наоборот.
+                direction_1h = directions.get("1h", "FLAT")
+                macro_trend = direction_4h if direction_4h != "FLAT" else direction_1h
+
+                if bias == "UP" and macro_trend == "DOWN":
+                    logger.debug("%s: LONG blocked — macro trend DOWN (1h=%s 4h=%s)", symbol, direction_1h, direction_4h)
+                    continue
+                if bias == "DOWN" and macro_trend == "UP":
+                    logger.debug("%s: SHORT blocked — macro trend UP (1h=%s 4h=%s)", symbol, direction_1h, direction_4h)
+                    continue
+
+                if bias == "DOWN":
+                    side = "SHORT"
+                    stop = high
+                elif bias == "UP":
+                    side = "LONG"
+                    stop = low
+                else:
+                    logger.debug("%s: bias FLAT, no direction, skipping", symbol)
+                    continue
+
+                # Расширяем стоп если он слишком близко к entry.
+                min_stop_dist = max(atr_15m * 1.0, entry * 0.003)
+                if side == "LONG" and (entry - stop) < min_stop_dist:
+                    stop = entry - min_stop_dist
+                elif side == "SHORT" and (stop - entry) < min_stop_dist:
+                    stop = entry + min_stop_dist
+
+                # Проверяем размер стопа
+                stop_info = calculate_stop_distance(entry, stop, atr_15m, entry)
+                if not stop_info.get("is_valid", True):
+                    logger.debug("%s: invalid stop distance (%.2f%%), skipping", symbol, stop_info.get("stop_distance_pct", 0))
+                    continue
+
+                # Оценка риска
+                volume_info = {"volume_trend": volume_trend, "volume_ratio": volume_profile.get("volume_ratio", 1.0)}
+                risk = enhanced_risk_level(
+                    states, stop_info=stop_info, volume_info=volume_info,
+                    momentum_data=momentum_data, candles_map=candles_map, directions=directions
+                )
+                if risk == "HIGH":
+                    logger.debug("%s: high risk, skipping", symbol)
+                    continue
+
+                # Адаптивный R:R
+                rr_result = calculate_adaptive_rr(
+                    entry, stop, atr_15m, atr_5m,
+                    volatility_pct, trend_strength_val, risk
+                )
+                target = rr_result["target"]
+
+                MIN_RR = 1.5
+                if rr_result["rr_ratio"] < MIN_RR:
+                    logger.debug("%s: R:R %.2f < %.1f minimum, skipping", symbol, rr_result["rr_ratio"], MIN_RR)
+                    continue
+
+                strategy_name = "legacy"
 
             zone = {"entry": entry, "stop": stop, "target": target}
             pos_size = position_size(entry, stop, side)
             lev = calculate_leverage(states, atr_15m, entry, stop, side)
-            
+
+            # ── Microstructure filter (OI + Funding) ──
+            try:
+                from market_data.bybit_market_data import get_open_interest, get_funding_rate
+                from market_data.microstructure_analyzer import analyze_microstructure
+                oi_data = get_open_interest(symbol)
+                funding_data = get_funding_rate(symbol, limit=5)
+                micro = analyze_microstructure(symbol, candles_map.get("15m", []), oi_data, funding_data)
+
+                if micro.get("block_long") and side == "LONG":
+                    logger.info("%s: LONG blocked by extreme positive funding", symbol)
+                    continue
+                if micro.get("block_short") and side == "SHORT":
+                    logger.info("%s: SHORT blocked by extreme negative funding", symbol)
+                    continue
+            except Exception as e:
+                logger.debug("Microstructure unavailable for %s: %s", symbol, e)
+                micro = {}
+
+            risk_distance = abs(entry - stop)
+            rr_ratio_final = abs(target - entry) / risk_distance if risk_distance else 0
             logger.debug(
-                "%s: %s entry=%.4f stop=%.4f target=%.4f R:R=%.2f risk=%s %s",
-                symbol, side, entry, stop, target, rr_result["rr_ratio"], risk, rr_result["reason"]
+                "%s: %s entry=%.4f stop=%.4f target=%.4f R:R=%.2f risk=%s strategy=%s",
+                symbol, side, entry, stop, target, rr_ratio_final, risk, strategy_name,
             )
 
             state_15m = states.get("15m", "")
@@ -461,9 +517,10 @@ def generate_signals_for_symbols(
                                 log_demo_trade(
                                     symbol, side, entry, stop, target,
                                     position_size=effective_pos_size,
-                                    leverage=lev
+                                    leverage=lev,
+                                    strategy_name=strategy_name,
                                 )
-                                logger.info("%s: demo trade opened", symbol)
+                                logger.info("%s: demo trade opened [%s]", symbol, strategy_name)
                             elif already_open:
                                 logger.info("%s: skipping demo trade — already has open position", symbol)
                             elif not effective_pos_size:
