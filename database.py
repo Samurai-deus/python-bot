@@ -244,6 +244,7 @@ def _init_pg_schema(conn) -> None:
         ("partial_closed", "INTEGER DEFAULT 0"),
         ("partial_pnl", "REAL"),
         ("strategy_name", "TEXT"),
+        ("original_stop", "REAL"),
     ]:
         try:
             cursor.execute("SAVEPOINT sp_alter")
@@ -251,6 +252,14 @@ def _init_pg_schema(conn) -> None:
             cursor.execute("RELEASE SAVEPOINT sp_alter")
         except Exception:
             cursor.execute("ROLLBACK TO SAVEPOINT sp_alter")
+
+    # Backfill original_stop for existing rows where it's NULL
+    try:
+        cursor.execute("SAVEPOINT sp_backfill")
+        cursor.execute("UPDATE trades SET original_stop = stop WHERE original_stop IS NULL AND breakeven_set = 0")
+        cursor.execute("RELEASE SAVEPOINT sp_backfill")
+    except Exception:
+        cursor.execute("ROLLBACK TO SAVEPOINT sp_backfill")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_state_snapshots (
@@ -465,11 +474,18 @@ def _init_database(conn) -> None:
         ("partial_closed", "INTEGER DEFAULT 0"),
         ("partial_pnl", "REAL"),
         ("strategy_name", "TEXT"),
+        ("original_stop", "REAL"),
     ]:
         try:
             cursor.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
         except Exception:
             pass  # колонка уже существует
+
+    # Backfill original_stop for existing rows
+    try:
+        cursor.execute("UPDATE trades SET original_stop = stop WHERE original_stop IS NULL AND breakeven_set = 0")
+    except Exception:
+        pass
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_state_snapshots (
@@ -681,10 +697,10 @@ def add_trade(
         trade_id = _exec_insert(
             cursor,
             """
-            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage, strategy_name)
-            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
+            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage, strategy_name, original_stop)
+            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
             """,
-            (timestamp, symbol, side, entry, stop, target, position_size, leverage, strategy_name),
+            (timestamp, symbol, side, entry, stop, target, position_size, leverage, strategy_name, stop),
         )
         conn.commit()
     finally:
@@ -720,13 +736,19 @@ def get_open_trades() -> List[Dict]:
             "breakeven_set": row["breakeven_set"] if "breakeven_set" in row.keys() else 0,
             "partial_closed": row["partial_closed"] if "partial_closed" in row.keys() else 0,
             "partial_pnl": row["partial_pnl"] if "partial_pnl" in row.keys() else None,
+            "original_stop": row["original_stop"] if "original_stop" in row.keys() else None,
         }
         for row in rows
     ]
 
 
-def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float):
-    """Закрывает сделку в базе данных."""
+def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float) -> bool:
+    """Закрывает сделку в базе данных.
+
+    Returns:
+        True если сделка была реально закрыта (status был OPEN),
+        False если уже была CLOSED (double-close guard).
+    """
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -735,14 +757,20 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
             _q("""
             UPDATE trades
             SET status = 'CLOSED', close_price = ?, close_reason = ?, pnl = ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND status = 'OPEN'
             """),
             (close_price, close_reason, pnl, updated_at, trade_id),
         )
+        affected = cursor.rowcount
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Закрыта сделка #{trade_id}: PnL={pnl:.2f} USDT, причина={close_reason}")
+    if affected > 0:
+        logger.info(f"Закрыта сделка #{trade_id}: PnL={pnl:.2f} USDT, причина={close_reason}")
+        return True
+    else:
+        logger.warning(f"Сделка #{trade_id} уже закрыта (double-close prevented)")
+        return False
 
 
 def update_trade_stop(trade_id: int, new_stop: float, breakeven: bool = False):

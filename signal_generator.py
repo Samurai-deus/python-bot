@@ -16,8 +16,6 @@ from monitor_log import log_monitor
 from capital import position_size
 from leverage import calculate_leverage
 from candle_analysis import get_candle_analysis
-from trade_manager import check_trades
-from trade_reporter import generate_trade_report
 from adaptive_rr import calculate_adaptive_rr, calculate_volatility_pct
 from volatility_filter import calculate_volatility_metrics, get_volatility_score
 from correlation_analysis import get_correlation_score
@@ -30,10 +28,14 @@ from core.signal_snapshot import (
 )
 from core.market_state import normalize_states_dict
 from core.cognitive_engine import calculate_confidence, calculate_entropy
+from strategies.strategy_manager import StrategyManager
 from datetime import datetime, UTC
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Singleton: создаём один раз, используем для всех символов
+_strategy_manager = StrategyManager()
 
 
 def generate_signals_for_symbols(
@@ -201,14 +203,9 @@ def generate_signals_for_symbols(
             direction_4h = directions.get("4h", "FLAT")
             logger.debug("%s: base_risk=%s state_15m=%s 4h=%s", symbol, base_risk, states.get("15m"), direction_4h)
             
-            # Проверяем открытые сделки и закрываем при достижении TP/SL
-            if candles_map.get("5m") and len(candles_map["5m"]) > 0:
-                current_price = float(candles_map["5m"][-1][4])
-                closed_trades = check_trades(symbol, current_price)
-                
-                # Отправляем отчеты по закрытым сделкам
-                for closed_trade in closed_trades:
-                    generate_trade_report(closed_trade)
+            # NOTE: check_trades вызывается ТОЛЬКО из paper_trading_monitor_loop (runner.py)
+            # каждые 60 секунд. Вызов здесь удалён — он приводил к дублированию
+            # сообщений о закрытии сделок (race condition между двумя циклами).
 
             # Проверяем объемы для фильтрации
             candle_analysis = get_candle_analysis(candles_map.get("15m", []))
@@ -243,16 +240,13 @@ def generate_signals_for_symbols(
             strategy_signal = None
             strategy_name = None
             try:
-                from strategies.strategy_manager import StrategyManager
-                _strategy_mgr = StrategyManager()
-
                 vol_level = volatility_metrics.get("volatility_level", "MEDIUM")
                 regime = "RANGE"
                 if system_state and hasattr(system_state, "market_regime") and system_state.market_regime:
                     mr = system_state.market_regime
                     regime = getattr(mr, "trend_type", "RANGE") or "RANGE"
 
-                strategy_signal = _strategy_mgr.get_best_signal(
+                strategy_signal = _strategy_manager.get_best_signal(
                     symbol, candles_map, directions, momentum_data, states,
                     market_regime=regime, volatility_level=vol_level,
                 )

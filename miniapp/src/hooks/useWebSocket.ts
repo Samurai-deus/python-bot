@@ -72,7 +72,14 @@ export function useWebSocket() {
         setWsStatus('reconnecting')
         if (retryRef.current >= MAX_RETRIES) {
           setWsStatus('disconnected')
-          logger.warn('WS max retries reached — giving up')
+          logger.warn('WS max retries reached — will retry in 60s')
+          // Instead of giving up forever, schedule one more attempt after 60s.
+          // This handles transient server restarts that last > backoff window.
+          timerRef.current = setTimeout(() => {
+            if (destroyed) return
+            retryRef.current = 0
+            connect()
+          }, 60_000)
           return
         }
         const delay = Math.min(BASE_DELAY * 2 ** retryRef.current, MAX_DELAY)

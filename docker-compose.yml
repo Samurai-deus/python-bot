@@ -50,8 +50,7 @@ services:
         limits:
           memory: 512m
     healthcheck:
-      test: ["CMD", "python", "-c",
-        "import sqlite3, os; db=os.environ.get('DB_PATH','market_bot.db'); c=sqlite3.connect(db); c.execute('SELECT 1'); c.close()"]
+      test: ["CMD", "python", "scripts/healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 3

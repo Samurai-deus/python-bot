@@ -697,8 +697,11 @@ async def evaluate_and_send_alerts(duration: float):
                 logger.info(f"Alert sent: {alert['level']} - {alert['type']}")
                 
                 # HARDENING: CRITICAL alerts: приостанавливаем торговлю через manual pause
+                # FIX: используем _metrics_lock для thread-safe мутации (как в pause_trading_manually)
                 if alert.get("pause_trading") and alert["level"] == "CRITICAL":
-                    _control_plane_state["manual_pause_active"] = True
+                    with _metrics_lock:
+                        _control_plane_state["manual_pause_active"] = True
+                        _adaptive_system_state["recovery_cycles"] = 0
                     state_machine = get_state_machine()
                     state_machine.sync_to_system_state(system_state, manual_pause_active=True)
                     logger.error(f"Trading paused due to CRITICAL alert: {alert['type']}")
@@ -2890,16 +2893,28 @@ async def paper_trading_monitor_loop():
                         candles = await asyncio.to_thread(get_candles, symbol, "5", 1)
                         if candles:
                             current_price = float(candles[-1][4])  # close price
+                            # Обновляем кэш цен для WS snapshot (Mini App progress bar)
+                            try:
+                                import price_cache as _pc
+                                _pc.update(symbol, current_price)
+                            except Exception:
+                                pass
                             closed = check_trades(symbol, current_price)
                             for closed_trade in closed:
+                                trade_pnl = closed_trade.get("pnl", 0)
                                 logger.info(
                                     "[PAPER] Trade closed: %s %s @ %.4f (%s) pnl=%.2f",
                                     symbol, closed_trade.get("side"), current_price,
-                                    closed_trade.get("close_reason"), closed_trade.get("pnl", 0),
+                                    closed_trade.get("close_reason"), trade_pnl,
                                 )
                                 # Сбрасываем кэш сигнала для символа, чтобы следующий цикл
                                 # мог снова генерировать сигналы на тот же символ
                                 system_state.reset_signal_cache(symbol)
+                                # Не отправляем отчёт если PnL фактически нулевой
+                                # (breakeven exit или time exit при ~0 движении)
+                                if abs(trade_pnl) < 0.01:
+                                    logger.info("[PAPER] Skipping report for %s: PnL=%.4f (negligible)", symbol, trade_pnl)
+                                    continue
                                 try:
                                     await asyncio.to_thread(generate_trade_report, closed_trade)
                                 except Exception as report_err:
