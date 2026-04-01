@@ -167,8 +167,8 @@ def bollinger_bands(candles, period=20, std_dev=2):
     # SMA (средняя линия)
     sma = sum(closes) / len(closes)
     
-    # Стандартное отклонение
-    variance = sum((x - sma) ** 2 for x in closes) / len(closes)
+    # Стандартное отклонение (sample std, n-1 — стандарт для Bollinger Bands)
+    variance = sum((x - sma) ** 2 for x in closes) / (len(closes) - 1)
     std = variance ** 0.5
     
     # Верхняя и нижняя полосы

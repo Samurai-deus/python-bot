@@ -164,11 +164,15 @@ class Gatekeeper:
             bool: True если сигнал был отправлен, False если заблокирован
         """
         try:
+            # Defensive copy: modules below mutate position_size, so we must
+            # not modify the caller's dict (prevents cross-module interference).
+            signal_data = dict(signal_data)
+
             # Получаем system_state если не передан
             if system_state is None:
                 from system_state import get_system_state
                 system_state = get_system_state()
-            
+
             # ========== SYSTEM GUARDIAN - ОБЯЗАТЕЛЬНЫЙ ГЛОБАЛЬНЫЙ БАРЬЕР ==========
             # АРХИТЕКТУРНЫЙ ИНВАРИАНТ: Невозможно отправить сигнал без прохождения SystemGuardian
             # SystemGuardian - абсолютный системный барьер перед торговлей
@@ -339,19 +343,33 @@ class Gatekeeper:
                         self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
                         return False  # Early exit - не вызываем DecisionCore, PortfolioBrain
             
-            # Получаем решение DecisionCore один раз — используем для trace и quality check
-            pre_decision = self.decision_core.should_i_trade(symbol=symbol, system_state=system_state)
-            decision_core_result = self.check_signal(symbol, signal_data, system_state=system_state)
-            if not decision_core_result:
-                trace_entries.append(("DecisionCore", False, pre_decision.reason if pre_decision else "Signal blocked", TraceBlockLevel.NONE))
-                logger.info(f"[TRACE] DecisionCore → BLOCK → reason={pre_decision.reason if pre_decision else 'Signal blocked'}")
+            # Получаем решение DecisionCore ОДИН РАЗ — используем для trace, quality check и сообщения
+            decision = self.decision_core.should_i_trade(symbol=symbol, system_state=system_state)
+
+            if not decision.can_trade:
+                self.blocked_signals_count += 1
+                self._update_state()
+                trace_entries.append(("DecisionCore", False, decision.reason, TraceBlockLevel.NONE))
+                logger.info(f"[TRACE] DecisionCore → BLOCK → reason={decision.reason}")
                 logger.warning("Gatekeeper blocked signal for %s", symbol)
-                # Сохраняем trace ПОСЛЕ принятия решения
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
                 return False
 
-            trace_entries.append(("DecisionCore", True, pre_decision.reason if pre_decision else "Signal approved", TraceBlockLevel.NONE))
-            logger.info(f"[TRACE] DecisionCore → ALLOW → reason={pre_decision.reason if pre_decision else 'Signal approved'}")
+            # Дополнительная проверка качества сигнала (размер, плечо)
+            if not self._check_signal_quality(signal_data, decision):
+                self.blocked_signals_count += 1
+                self._update_state()
+                trace_entries.append(("DecisionCore", False, "Signal quality check failed", TraceBlockLevel.NONE))
+                logger.info("[TRACE] DecisionCore → BLOCK → signal quality check failed")
+                logger.debug("Gatekeeper: signal %s blocked due to quality (size or leverage)", symbol)
+                self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
+                return False
+
+            self.approved_signals_count += 1
+            self._update_state()
+
+            trace_entries.append(("DecisionCore", True, decision.reason, TraceBlockLevel.NONE))
+            logger.info(f"[TRACE] DecisionCore → ALLOW → reason={decision.reason}")
             
             # Портфельный анализ (если есть snapshot)
             portfolio_analysis = None
@@ -411,9 +429,8 @@ class Gatekeeper:
                             signal_data["position_size"] = sizing_result.position_size_usd
                             logger.info(f"[SIZER] position_size={sizing_result.position_size_usd:.2f} USDT, final_risk={sizing_result.final_risk:.2f}%")
             
-            # Получаем решение для контекста
-            decision = self.decision_core.should_i_trade(symbol=symbol, system_state=system_state)
-            
+            # decision уже получен выше (единственный вызов should_i_trade)
+
             # Формируем сообщение
             try:
                 msg = build_signal(

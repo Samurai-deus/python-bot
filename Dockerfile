@@ -10,6 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Create non-root user for security
+RUN groupadd -r botuser && useradd -r -g botuser -d /app -s /sbin/nologin botuser \
+    && mkdir -p /data/db /data/logs \
+    && chown -R botuser:botuser /app /data
+
+COPY --chown=botuser:botuser . .
+
+USER botuser
 
 CMD ["python", "runner.py"]

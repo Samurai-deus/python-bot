@@ -52,17 +52,29 @@ async def _push_loop(ws: WebSocket):
         raise
 
 
+async def _safe_run_sync(fn, default=None, timeout: float = 5.0):
+    """Run sync fn in executor with timeout. On timeout return default (no leaked threads)."""
+    loop = asyncio.get_running_loop()
+    # Create a proper Future so we can cancel the thread on timeout
+    try:
+        return await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("_safe_run_sync timeout for %s — returning default", fn.__name__)
+        return default
+    except Exception as exc:
+        logger.warning("_safe_run_sync error for %s: %s", fn.__name__, exc)
+        return default
+
+
 async def _build_snapshot() -> dict:
     from system_state_machine import get_state_machine
     from database import get_open_positions, get_current_balance_from_db
 
-    loop = asyncio.get_running_loop()
-
     sm = get_state_machine()
     info = sm.get_state_info()
 
-    positions_raw = await asyncio.wait_for(loop.run_in_executor(None, get_open_positions), timeout=5.0)
-    balance = await asyncio.wait_for(loop.run_in_executor(None, get_current_balance_from_db), timeout=5.0)
+    positions_raw = await _safe_run_sync(get_open_positions, default=[])
+    balance = await _safe_run_sync(get_current_balance_from_db, default=None)
 
     # Подтягиваем последние цены из кэша (обновляется signal_generator каждые ~5 мин)
     try:

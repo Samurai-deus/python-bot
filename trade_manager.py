@@ -33,7 +33,7 @@ def _calc_r_multiple(trade: Dict, current_price: float) -> float:
     entry = trade["entry"]
     # Используем ОРИГИНАЛЬНЫЙ стоп для расчёта risk distance,
     # а не текущий (который мог быть сдвинут trailing'ом)
-    original_stop = trade.get("_original_stop", trade["stop"])
+    original_stop = trade.get("original_stop") or trade["stop"]
     risk_distance = abs(entry - original_stop)
     if risk_distance == 0:
         return 0.0
@@ -96,19 +96,11 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
         target = trade["target"]
         side = trade["side"]
 
-        # Для R-расчёта используем оригинальную дистанцию (entry - первоначальный stop)
-        # Если trailing_stop установлен, stop мог измениться, но risk distance — нет
-        # Берём расстояние от entry до target для вычисления оригинального risk_distance
-        # через R:R (target = entry ± risk_dist × R:R), но проще: если breakeven не стоял,
-        # stop ещё оригинальный
-        risk_distance = abs(entry - stop)
-        if trade.get("breakeven_set") or trade.get("trailing_stop"):
-            # stop уже сдвинут — восстанавливаем original risk distance из target
-            # target = entry + risk_dist * R:R (примерно), но R:R неизвестен
-            # Безопаснее: используем trailing_stop как floor, а risk_dist = |entry - original_stop|
-            # Для корректности сохраняем original risk в trade
-            # Workaround: risk_dist = |target - entry| / 2.0 (R:R ~= 2.0 по умолчанию)
-            risk_distance = abs(target - entry) / 2.0
+        # Для R-расчёта используем ОРИГИНАЛЬНЫЙ стоп (сохранён при открытии сделки).
+        # original_stop гарантирует правильный risk_distance независимо от
+        # того, был ли стоп сдвинут breakeven/trailing.
+        original_stop = trade.get("original_stop") or stop
+        risk_distance = abs(entry - original_stop)
 
         if risk_distance == 0:
             risk_distance = entry * 0.003  # fallback 0.3%
@@ -125,8 +117,8 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
             pnl = _calc_pnl(trade, current_price)
             # Добавляем partial_pnl если была частичная фиксация
             total_pnl = pnl + (trade.get("partial_pnl") or 0.0)
-            db_close_trade(trade["id"], current_price, "STOP_LOSS", total_pnl)
-            closed_trades.append({**trade, "close_price": current_price, "close_reason": "STOP_LOSS", "pnl": total_pnl})
+            if db_close_trade(trade["id"], current_price, "STOP_LOSS", total_pnl):
+                closed_trades.append({**trade, "close_price": current_price, "close_reason": "STOP_LOSS", "pnl": total_pnl})
             continue
 
         # --- Stage 2: Breakeven stop (после +1R) ---
@@ -176,10 +168,10 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
         if duration_min > 360 and abs(current_r) < 0.3:
             pnl = _calc_pnl(trade, current_price)
             total_pnl = pnl + (trade.get("partial_pnl") or 0.0)
-            db_close_trade(trade["id"], current_price, "TIME_EXIT", total_pnl)
-            closed_trades.append({**trade, "close_price": current_price, "close_reason": "TIME_EXIT", "pnl": total_pnl})
-            logger.info("Trade #%d %s: time exit after %.0fmin (R=%.2f), PnL=%.2f",
-                        trade["id"], symbol, duration_min, current_r, total_pnl)
+            if db_close_trade(trade["id"], current_price, "TIME_EXIT", total_pnl):
+                closed_trades.append({**trade, "close_price": current_price, "close_reason": "TIME_EXIT", "pnl": total_pnl})
+                logger.info("Trade #%d %s: time exit after %.0fmin (R=%.2f), PnL=%.2f",
+                            trade["id"], symbol, duration_min, current_r, total_pnl)
             continue
 
         # --- Stage 6: Full Take Profit ---
@@ -188,8 +180,8 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
         if hit_tp:
             pnl = _calc_pnl(trade, current_price)
             total_pnl = pnl + (trade.get("partial_pnl") or 0.0)
-            db_close_trade(trade["id"], current_price, "TAKE_PROFIT", total_pnl)
-            closed_trades.append({**trade, "close_price": current_price, "close_reason": "TAKE_PROFIT", "pnl": total_pnl})
+            if db_close_trade(trade["id"], current_price, "TAKE_PROFIT", total_pnl):
+                closed_trades.append({**trade, "close_price": current_price, "close_reason": "TAKE_PROFIT", "pnl": total_pnl})
             continue
 
     return closed_trades

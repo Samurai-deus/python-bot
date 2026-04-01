@@ -134,6 +134,14 @@ function OpenPositionsList({ positions }: { positions: OpenPosition[] }) {
 }
 
 function HistoryList({ items }: { items: TradeHistory[] }) {
+  const [symbolFilter, setSymbolFilter] = useState('ALL')
+
+  const symbols = ['ALL', ...Array.from(new Set(items.map(t => t.symbol))).sort()]
+  const sorted = [...items].sort((a, b) =>
+    new Date(b.closed_at).getTime() - new Date(a.closed_at).getTime()
+  )
+  const filtered = symbolFilter === 'ALL' ? sorted : sorted.filter(t => t.symbol === symbolFilter)
+
   if (items.length === 0) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 60, gap: 12 }}>
@@ -147,7 +155,37 @@ function HistoryList({ items }: { items: TradeHistory[] }) {
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 16 }}>
-      {items.map((t, i) => (
+      {/* Symbol filter */}
+      <div style={{ position: 'relative' }}>
+        <select
+          value={symbolFilter}
+          onChange={e => setSymbolFilter(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '9px 32px 9px 12px',
+            borderRadius: 12,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            color: symbolFilter !== 'ALL' ? 'var(--cyan)' : 'var(--text)',
+            fontSize: 12,
+            outline: 'none',
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            fontFamily: 'monospace',
+            fontWeight: symbolFilter !== 'ALL' ? 700 : 400,
+          }}
+        >
+          {symbols.map(s => (
+            <option key={s} value={s}>{s === 'ALL' ? 'All Pairs' : s.replace('USDT', '/USDT')}</option>
+          ))}
+        </select>
+        <svg viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.5"
+          style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', width: 10, height: 10, pointerEvents: 'none', color: 'var(--cyan)' }}>
+          <path d="M1 1l4 4 4-4" />
+        </svg>
+      </div>
+
+      {filtered.map((t, i) => (
         <div
           key={i}
           className="fade-up"
@@ -181,7 +219,7 @@ function HistoryList({ items }: { items: TradeHistory[] }) {
               }}>
                 {formatPnl(t.net_pnl)}
               </p>
-              <Badge label={t.side} variant={t.side === 'BUY' ? 'buy' : 'sell'} />
+              <Badge label={t.side} variant={t.side === 'BUY' || t.side === 'LONG' ? 'buy' : 'sell'} />
             </div>
           </div>
 
