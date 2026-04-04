@@ -861,21 +861,19 @@ class Gatekeeper:
                     system_health = SystemHealthStatus.DEGRADED
 
             # H-19: Get recent trade outcomes for loss-streak detection
+            # MetaDecisionBrain expects List[float] (PnL values), not strings
             recent_outcomes = None
             try:
                 import database as _db
                 closed_recent = _db.get_closed_trades(days=7)
                 if closed_recent:
-                    # Take last 10, map to WIN/LOSS/NEUTRAL
                     recent_outcomes = []
                     for t in closed_recent[-10:]:
                         pnl = t.get("pnl", 0) or t.get("net_pnl", 0)
-                        if pnl > 0:
-                            recent_outcomes.append("WIN")
-                        elif pnl < 0:
-                            recent_outcomes.append("LOSS")
-                        else:
-                            recent_outcomes.append("NEUTRAL")
+                        try:
+                            recent_outcomes.append(float(pnl))
+                        except (TypeError, ValueError):
+                            recent_outcomes.append(0.0)
             except Exception:
                 recent_outcomes = None
 
