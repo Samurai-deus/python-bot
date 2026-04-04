@@ -1306,12 +1306,16 @@ def get_open_positions() -> List[Dict]:
     result = []
     for row in rows:
         d = dict(row)
+        entry = d.get("entry") or 0.0
+        position_size = d.get("position_size") or 0.0
+        # position_size is in USDT; qty = position_size / entry_price
+        qty = (position_size / entry) if entry > 0 else 0.0
         result.append({
             "id": d["id"],
             "symbol": d["symbol"],
             "side": d["side"],
-            "qty": d.get("position_size") or 0.0,
-            "entry_price": d.get("entry") or 0.0,
+            "qty": round(qty, 4),
+            "entry_price": entry,
             "stop_loss": d.get("stop"),
             "take_profit": d.get("target"),
             "opened_at": d.get("timestamp") or d.get("created_at") or "",
@@ -1443,13 +1447,17 @@ def get_closed_trades(days: int = 30) -> List[Dict]:
         for row in rows:
             d = dict(row)
             net_pnl = d.get("pnl") or 0.0
+            entry = d.get("entry") or 0.0
+            position_size = d.get("position_size") or 0.0
+            # position_size is in USDT; quantity = position_size / entry_price
+            quantity = (position_size / entry) if entry > 0 else 0.0
             result.append({
                 "id": d["id"],
                 "symbol": d["symbol"],
                 "side": d["side"],
-                "entry_price": d.get("entry") or 0.0,
+                "entry_price": entry,
                 "exit_price": d.get("close_price") or 0.0,
-                "quantity": d.get("position_size") or 0.0,
+                "quantity": round(quantity, 4),
                 "net_pnl": net_pnl,
                 "pnl": net_pnl,           # alias for legacy code
                 "gross_pnl": net_pnl,     # no commission data in trades

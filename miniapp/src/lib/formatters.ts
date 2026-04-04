@@ -31,6 +31,14 @@ export function formatRelative(iso: string): string {
   try { return formatDistanceToNow(new Date(iso), { addSuffix: true }) } catch { return iso }
 }
 
+export function formatQty(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
+  if (value >= 10_000) return `${(value / 1_000).toFixed(1)}K`
+  if (value >= 100) return value.toFixed(1)
+  if (value >= 1) return value.toFixed(2)
+  return value.toFixed(4)
+}
+
 export function formatSymbol(symbol: string): string {
   if (symbol.endsWith('USDT')) {
     return symbol.slice(0, -4) + '/USDT'
