@@ -3,7 +3,6 @@ import {
   fetchAnalyticsSummary,
   fetchEquityCurve,
   fetchBySymbol,
-  fetchPnlHistory,
   fetchMonthlyTarget,
 } from '../api/endpoints'
 
@@ -28,13 +27,6 @@ export function useBySymbol(days: number) {
     queryKey: ['by-symbol', days],
     queryFn: () => fetchBySymbol(days),
     refetchInterval: 120_000,
-  })
-}
-
-export function usePnlHistory(days: number) {
-  return useQuery({
-    queryKey: ['pnl-history', days],
-    queryFn: () => fetchPnlHistory(days),
   })
 }
 

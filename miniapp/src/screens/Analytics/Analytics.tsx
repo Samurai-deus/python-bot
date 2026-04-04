@@ -6,6 +6,7 @@ import { useAnalyticsSummary, useEquityCurve, useBySymbol } from '../../hooks/us
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { formatPnl, formatPct, formatSymbol } from '../../lib/formatters'
+import { logger } from '../../lib/logger'
 
 const DAYS_OPTIONS = [7, 30, 90]
 
@@ -255,7 +256,7 @@ function EquityCurveChart({ data }: { data: { points: number[]; timestamps: stri
       })
       observer.observe(containerRef.current)
     } catch (err) {
-      console.error('[EquityCurveChart] Failed to create chart:', err)
+      logger.error('[EquityCurveChart] Failed to create chart:', err)
     }
 
     return () => {

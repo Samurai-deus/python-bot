@@ -15,11 +15,6 @@ export function formatPct(value: number): string {
   return `${value.toFixed(2)}%`
 }
 
-// For 0-1 values (e.g. confidence)
-export function formatPct01(value: number): string {
-  return `${(value * 100).toFixed(0)}%`
-}
-
 export function formatPnl(value: number): string {
   const sign = value >= 0 ? '+' : ''
   return `${sign}${formatUSDT(value)}`
