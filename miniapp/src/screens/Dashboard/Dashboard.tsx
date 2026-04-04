@@ -8,7 +8,9 @@ import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { formatUSDT, formatPnl, formatPct, formatRelative } from '../../lib/formatters'
 import type { MonthlyTarget } from '../../api/types'
 
-const SUMMARY_DAYS = [1, 7, 30] as const
+// 0 = MTD (month-to-date, calendar month via monthly-target endpoint)
+const SUMMARY_DAYS = [1, 7, 30, 0] as const
+const SUMMARY_LABELS: Record<number, string> = { 1: '1D', 7: '7D', 30: '30D', 0: 'MTD' }
 
 function stateVariant(state: string): 'running' | 'degraded' | 'halt' | 'recovery' | 'neutral' {
   if (state === 'RUNNING') return 'running'
@@ -33,7 +35,8 @@ const WS_LABELS: Record<string, string> = {
 export function Dashboard() {
   const { snapshot, wsStatus, lastSnapshotAt } = useSystemStore()
   const [summaryDays, setSummaryDays] = useState<number>(1)
-  const { data: summary, isLoading } = useAnalyticsSummary(summaryDays)
+  // When MTD (0) is selected, we still fetch 30D summary for win_rate etc.
+  const { data: summary, isLoading } = useAnalyticsSummary(summaryDays === 0 ? 30 : summaryDays)
   const { data: monthlyTarget } = useMonthlyTarget()
 
   const { data: healthFallback } = useQuery({
@@ -184,7 +187,7 @@ export function Dashboard() {
               cursor: 'pointer',
             }}
           >
-            {d}D
+            {SUMMARY_LABELS[d] ?? `${d}D`}
           </button>
         ))}
       </div>
@@ -205,9 +208,9 @@ export function Dashboard() {
             color={summary.win_rate >= 50 ? 'var(--green)' : 'var(--red)'}
           />
           <StatTile
-            label={summaryDays === 1 ? 'P&L Today' : `P&L ${summaryDays}D`}
-            value={formatPnl(summary.net_pnl)}
-            color={summary.net_pnl >= 0 ? 'var(--green)' : 'var(--red)'}
+            label={summaryDays === 0 ? 'P&L Month' : summaryDays === 1 ? 'P&L Today' : `P&L ${summaryDays}D`}
+            value={formatPnl(summaryDays === 0 && monthlyTarget ? monthlyTarget.current_pnl : summary.net_pnl)}
+            color={(summaryDays === 0 && monthlyTarget ? monthlyTarget.current_pnl : summary.net_pnl) >= 0 ? 'var(--green)' : 'var(--red)'}
           />
         </div>
       ) : null}
