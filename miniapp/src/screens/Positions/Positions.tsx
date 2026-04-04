@@ -4,7 +4,7 @@ import { usePositionHistory } from '../../hooks/usePositions'
 import { Badge } from '../../components/Badge'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { formatUSDT, formatPnl, formatDate, formatSymbol } from '../../lib/formatters'
+import { formatUSDT, formatPnl, formatDate, formatSymbol, formatQty } from '../../lib/formatters'
 import type { OpenPosition, TradeHistory } from '../../api/types'
 
 export function Positions() {
@@ -122,7 +122,7 @@ function OpenPositionsList({ positions }: { positions: OpenPosition[] }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingLeft: 8 }}>
             <InfoRow label="Entry" value={formatUSDT(p.entry_price)} />
-            <InfoRow label="Qty" value={String(p.qty)} />
+            <InfoRow label="Qty" value={formatQty(p.qty)} />
             <InfoRow label="Stop Loss" value={p.stop_loss ? formatUSDT(p.stop_loss) : '—'} accent="var(--red)" />
             <InfoRow label="Take Profit" value={p.take_profit ? formatUSDT(p.take_profit) : '—'} accent="var(--green)" />
           </div>
@@ -226,7 +226,7 @@ function HistoryList({ items }: { items: TradeHistory[] }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
             <InfoRow label="Entry" value={formatUSDT(t.entry_price)} />
             <InfoRow label="Exit" value={formatUSDT(t.exit_price)} />
-            <InfoRow label="Qty" value={String(t.quantity)} />
+            <InfoRow label="Qty" value={formatQty(t.quantity)} />
           </div>
         </div>
       ))}
