@@ -9,7 +9,6 @@ Cognitive Filter Bot - фильтр человеческих ошибок
 from typing import Dict, List, Optional
 from datetime import datetime, UTC, timedelta
 from core.decision_core import CognitiveState
-from journal import get_recent_signals
 from trade_manager import get_open_trades
 
 
@@ -21,8 +20,8 @@ class CognitiveFilter:
     """
     
     def __init__(self):
-        self.max_trades_per_hour = 3  # Максимум сделок в час
-        self.max_trades_per_day = 10  # Максимум сделок в день
+        self.max_trades_per_hour = 8  # Максимум новых сделок в час (бот сканирует 28 символов)
+        self.max_trades_per_day = 30  # Максимум сделок в день
         self.overtrading_threshold = 0.7  # Порог пере-торговли
         # Состояние теперь хранится в SystemState, не здесь
     
@@ -74,112 +73,115 @@ class CognitiveFilter:
     def _analyze_overtrading(self) -> float:
         """
         Анализирует пере-торговлю (0.0 - 1.0).
-        
+
         Проверяет:
-        - Частоту входов
+        - Частоту открытых сделок (не сигналов — бот сканирует 28 символов)
         - Количество открытых позиций
         - Серии убыточных сделок
         """
         score = 0.0
-        
-        # Проверяем частоту входов за последний час
+
+        # Считаем реально открытые сделки за час (не сигналы из журнала)
+        open_trades = get_open_trades()
+
+        # Проверяем количество открытых позиций
+        open_count = len(open_trades)
+        if open_count > 5:
+            score += 0.3
+        if open_count > 10:
+            score += 0.4
+
+        # Проверяем частоту новых сделок за последний час по таблице trades
         now = datetime.now(UTC)
         hour_ago = now - timedelta(hours=1)
-        
-        recent_signals = get_recent_signals(since=hour_ago)
-        signals_count = len(recent_signals)
-        
-        if signals_count > self.max_trades_per_hour:
-            score += 0.5
-            score += min(0.3, (signals_count - self.max_trades_per_hour) * 0.1)
-        
-        # Проверяем количество открытых позиций
-        open_trades = get_open_trades()
-        if len(open_trades) > 5:
-            score += 0.2
-        if len(open_trades) > 10:
-            score += 0.3
-        
-        # Проверяем серии убыточных сделок (упрощенно)
-        # В будущем можно добавить анализ закрытых сделок
-        
+        hour_ago_iso = hour_ago.isoformat()
+        try:
+            from database import get_db_connection, _q
+            conn = get_db_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    _q("SELECT count(*) as cnt FROM trades WHERE created_at > ?"),
+                    (hour_ago_iso,)
+                )
+                row = cursor.fetchone()
+                new_trades_hour = row["cnt"] if row else 0
+            finally:
+                conn.close()
+        except Exception:
+            new_trades_hour = 0
+
+        if new_trades_hour > self.max_trades_per_hour:
+            score += 0.4
+            score += min(0.3, (new_trades_hour - self.max_trades_per_hour) * 0.1)
+
         return min(1.0, score)
     
+    def _get_recent_trades_from_db(self, hours: int = 24) -> list:
+        """Получает реальные сделки из таблицы trades за указанный период."""
+        since_iso = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+        try:
+            from database import get_db_connection, _q
+            conn = get_db_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    _q("SELECT id, created_at, symbol, side, pnl FROM trades WHERE created_at > ? ORDER BY created_at"),
+                    (since_iso,)
+                )
+                return [dict(row) for row in cursor.fetchall()]
+            finally:
+                conn.close()
+        except Exception:
+            return []
+
     def _count_emotional_entries(self) -> int:
         """
-        Подсчитывает эмоциональные входы.
-        
-        Признаки эмоционального входа:
-        - Вход сразу после убыточной сделки
-        - Вход в неподходящее время
-        - Вход без четкого сигнала
-        - Слишком частые входы
+        Подсчитывает эмоциональные входы по реальным сделкам.
+
+        Признаки:
+        - Сделка сразу после убыточной
+        - Две сделки за < 2 минуты
         """
-        recent_signals = get_recent_signals(since=datetime.now(UTC) - timedelta(hours=24))
-        
-        if len(recent_signals) < 2:
+        trades = self._get_recent_trades_from_db(hours=6)
+        if len(trades) < 2:
             return 0
-        
+
         emotional_count = 0
-        
-        # Проверяем частоту входов
-        signals_by_time = sorted(recent_signals, key=lambda x: x.get("timestamp", datetime.min.replace(tzinfo=UTC)))
-        
-        for i in range(1, len(signals_by_time)):
-            prev_signal = signals_by_time[i-1]
-            curr_signal = signals_by_time[i]
-            
-            prev_time = prev_signal.get("timestamp", datetime.min.replace(tzinfo=UTC))
-            curr_time = curr_signal.get("timestamp", datetime.min.replace(tzinfo=UTC))
-            
-            time_diff = (curr_time - prev_time).total_seconds()
-            
-            # Если сигналы пришли менее чем за 5 минут - возможен эмоциональный вход
-            if time_diff < 300:  # 5 минут
+        for i in range(1, len(trades)):
+            prev_t = trades[i - 1].get("created_at", "")
+            curr_t = trades[i].get("created_at", "")
+            try:
+                prev_dt = datetime.fromisoformat(prev_t.replace("Z", "+00:00"))
+                curr_dt = datetime.fromisoformat(curr_t.replace("Z", "+00:00"))
+                diff = (curr_dt - prev_dt).total_seconds()
+            except (ValueError, TypeError):
+                continue
+
+            # Две сделки за < 2 минуты — подозрительно
+            if diff < 120:
                 emotional_count += 1
-            
-            # Если сигналы пришли менее чем за 1 минуту - точно эмоциональный
-            if time_diff < 60:  # 1 минута
+
+            # Вход сразу после убытка
+            prev_pnl = trades[i - 1].get("pnl")
+            if prev_pnl is not None and prev_pnl < 0 and diff < 300:
                 emotional_count += 1
-        
-        # Проверяем входы в неподходящее время (ночью UTC)
-        for signal in recent_signals:
-            signal_time = signal.get("timestamp", datetime.now(UTC))
-            hour = signal_time.hour
-            
-            # Входы между 0:00 и 6:00 UTC могут быть эмоциональными
-            if 0 <= hour < 6:
-                emotional_count += 1
-        
+
         return emotional_count
-    
+
     def _count_fomo_patterns(self) -> int:
         """
-        Подсчитывает FOMO паттерны.
-        
-        Признаки FOMO:
-        - Вход после резкого движения
-        - Вход на пике/дне
-        - Вход без подтверждения
+        Подсчитывает FOMO паттерны по реальным сделкам.
+        Много сделок за 6 часов — признак FOMO.
         """
-        # Упрощенная логика
-        # В будущем можно добавить анализ резких движений перед входом
-        
-        fomo_count = 0
-        
-        # Проверяем недавние сигналы
-        recent_signals = get_recent_signals(since=datetime.now(UTC) - timedelta(hours=6))
-        
-        # Если много сигналов за короткое время - возможен FOMO
-        if len(recent_signals) > 5:
-            fomo_count += len(recent_signals) - 5
-        
-        return fomo_count
-    
+        trades = self._get_recent_trades_from_db(hours=6)
+        if len(trades) > 15:
+            return len(trades) - 15
+        return 0
+
     def _count_recent_trades(self) -> int:
-        """Подсчитывает количество сделок за последние 24 часа"""
-        recent_signals = get_recent_signals(since=datetime.now(UTC) - timedelta(hours=24))
-        return len(recent_signals)
+        """Подсчитывает количество реальных сделок за последние 24 часа."""
+        return len(self._get_recent_trades_from_db(hours=24))
     
     def _should_pause(self, overtrading_score: float, emotional_entries: int,
                      fomo_patterns: int, recent_trades_count: int) -> bool:
