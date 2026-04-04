@@ -105,7 +105,9 @@ async def verify_auth(request: Request) -> Optional[dict]:
         auth_date = int(params.get("auth_date", 0))
     except (ValueError, TypeError):
         raise HTTPException(status_code=401, detail="Invalid auth_date in InitData")
-    if abs(time.time() - auth_date) > 300:
+    # InitData is retrieved once at Mini App launch and cannot be refreshed
+    # without closing/reopening the app. Use 24h expiry (same as WS).
+    if abs(time.time() - auth_date) > 86400:
         raise HTTPException(status_code=401, detail="InitData expired")
 
     # Build check string
