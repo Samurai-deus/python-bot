@@ -187,6 +187,19 @@ class SystemState:
                 if symbol in self.signal_cache:
                     del self.signal_cache[symbol]
 
+    def reset_signal_cooldown(self, symbol: str):
+        """Reset signal cooldown when a trade closes (allow re-entry).
+
+        Without this, a closed trade's symbol stays blocked by the 4h
+        TREND_CONTINUATION cooldown, preventing timely re-entry.
+        """
+        with self._lock:
+            if symbol in self._trend_signal_timestamps:
+                del self._trend_signal_timestamps[symbol]
+            # Also reset regular signal cache so new state is seen as fresh
+            if symbol in self.signal_cache:
+                del self.signal_cache[symbol]
+
     def update_open_positions(self, positions: List[Dict]):
         """Обновляет список открытых позиций"""
         with self._lock:

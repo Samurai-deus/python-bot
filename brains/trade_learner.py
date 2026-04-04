@@ -148,8 +148,8 @@ def get_symbol_adjustment(symbol: str, side: str) -> float:
                 if wr < 0.25:
                     adjustment -= 0.10
 
-        # Clamp to range
-        adjustment = max(-0.15, min(0.10, adjustment))
+        # Clamp to symmetric range (was asymmetric: -0.15/+0.10)
+        adjustment = max(-0.15, min(0.15, adjustment))
         return adjustment
 
     except Exception as e:

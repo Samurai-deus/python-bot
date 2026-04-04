@@ -25,7 +25,7 @@ MIN_ADX = 20
 # R:R для трендовых сделок (тренд = бОльший ход)
 TARGET_RR = 2.5
 # Максимальное расстояние цены от EMA для пуллбэка (в ATR)
-MAX_PULLBACK_DIST_ATR = 0.5
+MAX_PULLBACK_DIST_ATR = 1.5
 
 
 def _calc_ema(closes: list, period: int = EMA_PERIOD) -> list:
@@ -97,7 +97,7 @@ class TrendFollowingStrategy(BaseStrategy):
 
         dist_to_ema = abs(current_price - ema_now)
 
-        # Пуллбэк = цена близко к EMA (в пределах 0.5 ATR)
+        # Пуллбэк = цена близко к EMA (в пределах 1.5 ATR)
         if dist_to_ema > MAX_PULLBACK_DIST_ATR * atr_val:
             return None
 
@@ -115,24 +115,32 @@ class TrendFollowingStrategy(BaseStrategy):
         entry = float(candles_5m[-1][4])
 
         if trend_dir == "UP":
-            if rsi_val < 40:
+            # H-3: RSI floor depends on trend strength
+            rsi_floor = 30 if adx_val and adx_val > 30 else 38
+            if rsi_val < rsi_floor:
                 return None  # пуллбэк слишком глубокий
-            if current_price < ema_now:
-                return None  # цена должна быть у/над EMA для LONG pullback
+            # H-1: Price can be slightly below EMA (that IS the pullback)
+            if current_price < ema_now - MAX_PULLBACK_DIST_ATR * atr_val:
+                return None  # too far below EMA
             side = "LONG"
-            stop = max(_swing_low(candles_15m, 10), entry - atr_val * 1.0)
-            # Защита: стоп не дальше 2 ATR
-            if entry - stop > atr_val * 2.0:
-                stop = entry - atr_val * 2.0
+            # H-2: Use swing structure, ensure minimum distance
+            stop = min(_swing_low(candles_15m, 10), entry - atr_val * 1.0)
+            # Cap max risk at 2.5 ATR
+            if entry - stop > atr_val * 2.5:
+                stop = entry - atr_val * 2.5
         else:  # DOWN
-            if rsi_val > 60:
+            rsi_ceil = 70 if adx_val and adx_val > 30 else 62
+            if rsi_val > rsi_ceil:
                 return None
-            if current_price > ema_now:
-                return None
+            # H-1: Price can be slightly above EMA for SHORT pullback
+            if current_price > ema_now + MAX_PULLBACK_DIST_ATR * atr_val:
+                return None  # too far above EMA
             side = "SHORT"
-            stop = min(_swing_high(candles_15m, 10), entry + atr_val * 1.0)
-            if stop - entry > atr_val * 2.0:
-                stop = entry + atr_val * 2.0
+            # H-2: Use swing structure, ensure minimum distance
+            stop = max(_swing_high(candles_15m, 10), entry + atr_val * 1.0)
+            # Cap max risk at 2.5 ATR
+            if stop - entry > atr_val * 2.5:
+                stop = entry + atr_val * 2.5
 
         risk_distance = abs(entry - stop)
         if risk_distance == 0:

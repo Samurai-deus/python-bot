@@ -22,7 +22,7 @@ FAULT_INJECT_DECISION_EXCEPTION = os.environ.get("FAULT_INJECT_DECISION_EXCEPTIO
 @dataclass
 class MarketRegime:
     """Состояние рынка от Market Regime Brain"""
-    trend_type: str  # "TREND" | "RANGE"
+    trend_type: str  # "TREND" | "RANGE" | "MIXED" (consumers treat MIXED as RANGE)
     volatility_level: str  # "HIGH" | "MEDIUM" | "LOW"
     risk_sentiment: str  # "RISK_ON" | "RISK_OFF" | "NEUTRAL"
     macro_pressure: Optional[str] = None
@@ -88,14 +88,26 @@ class DecisionCore:
         Состояние хранится в SystemState.
         Decision Core только читает из SystemState и принимает решения.
         """
-        pass
+        self._drawdown_size_multiplier = 1.0
+
+    @property
+    def drawdown_size_multiplier(self) -> float:
+        """Returns position size multiplier based on current drawdown level.
+
+        1.0 = no drawdown reduction
+        0.5 = 10%+ drawdown, reduce size by 50%
+        0.25 = 15%+ drawdown, reduce size by 75%
+        0.0 = 20%+ drawdown, trading halted (24h pause)
+        25%+ drawdown = trading halted, requires manual reset
+        """
+        return self._drawdown_size_multiplier
     
     def reset(self):
         """
         Сбрасывает состояние Decision Core (теперь не нужно - состояние в SystemState).
         Оставлено для обратной совместимости.
         """
-        pass
+        self._drawdown_size_multiplier = 1.0
     
     def should_i_trade(self, symbol: Optional[str] = None, system_state=None) -> TradingDecision:
         """
@@ -116,17 +128,41 @@ class DecisionCore:
             _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
             recommendations = []
             
-            # Drawdown circuit breaker: блокировка при просадке > 15%
+            # Graduated drawdown response
             try:
-                from capital import current_drawdown_pct, DRAWDOWN_CUTOFF_PCT
+                from capital import current_drawdown_pct
                 dd = current_drawdown_pct()
-                if dd >= DRAWDOWN_CUTOFF_PCT:
+                if dd >= 25.0:
                     return TradingDecision(
                         can_trade=False,
-                        reason=f"DRAWDOWN BREAKER: просадка {dd:.1f}% >= {DRAWDOWN_CUTOFF_PCT}%",
+                        reason=f"DRAWDOWN BREAKER: просадка {dd:.1f}% >= 25% — требуется ручной сброс",
                         risk_level="HIGH",
                         recommendations=["Торговля остановлена до ручного сброса"]
                     )
+                elif dd >= 20.0:
+                    # 20%+ drawdown: halt for 24h then auto-resume at 50% size
+                    # Store multiplier for consumers; trading halted
+                    self._drawdown_size_multiplier = 0.0
+                    return TradingDecision(
+                        can_trade=False,
+                        reason=f"DRAWDOWN BREAKER: просадка {dd:.1f}% >= 20% — торговля приостановлена на 24ч",
+                        risk_level="HIGH",
+                        recommendations=[
+                            "Торговля приостановлена на 24 часа",
+                            "После возобновления размер позиций = 50%"
+                        ]
+                    )
+                elif dd >= 15.0:
+                    self._drawdown_size_multiplier = 0.25
+                    recommendations.append(f"Просадка {dd:.1f}%: размер позиций снижен на 75%")
+                    risk_level = "HIGH"
+                elif dd >= 10.0:
+                    self._drawdown_size_multiplier = 0.5
+                    recommendations.append(f"Просадка {dd:.1f}%: размер позиций снижен на 50%")
+                    if _RISK_ORDER.get("MEDIUM", 1) > _RISK_ORDER.get(risk_level, 0):
+                        risk_level = "MEDIUM"
+                else:
+                    self._drawdown_size_multiplier = 1.0
             except Exception as e:
                 logger.error("Drawdown check failed: %s — blocking trade (fail-closed)", e)
                 return TradingDecision(

@@ -531,15 +531,27 @@ class RiskCore:
                 key=lambda s: self._state_severity(s)
             )
         
-        # Loss retry suppression
-        if behavioral.consecutive_losses > 0:
+        # Loss retry suppression — only after 3+ consecutive losses
+        if behavioral.consecutive_losses >= 3:
             now = datetime.now(UTC)
             if behavioral.last_loss_timestamp:
+                # Proportional cooldown: 3 losses=30min, 4=45min, 5+=60min
+                cooldown_minutes = min(
+                    self.config.loss_retry_cooldown_minutes,
+                    15 * behavioral.consecutive_losses  # 3→45 capped at config max
+                )
+                if behavioral.consecutive_losses == 3:
+                    cooldown_minutes = 30
+                elif behavioral.consecutive_losses == 4:
+                    cooldown_minutes = 45
+                else:
+                    cooldown_minutes = 60
                 time_since_loss = (now - behavioral.last_loss_timestamp).total_seconds() / 60
-                if time_since_loss < self.config.loss_retry_cooldown_minutes:
+                if time_since_loss < cooldown_minutes:
                     violation_report.violations.append(
                         f"Behavioral invariant violated: Loss retry cooldown active "
-                        f"({time_since_loss:.1f}min < {self.config.loss_retry_cooldown_minutes}min)"
+                        f"({time_since_loss:.1f}min < {cooldown_minutes}min, "
+                        f"{behavioral.consecutive_losses} consecutive losses)"
                     )
                     violation_report.violated_invariants.append("BEHAVIORAL_LOSS_RETRY_SUPPRESSION")
                     violation_report.highest_severity_state = max(

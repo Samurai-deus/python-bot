@@ -98,14 +98,13 @@ class MomentumBreakoutStrategy(BaseStrategy):
         macro_aligned = (side == "LONG" and dir_1h != "DOWN") or \
                         (side == "SHORT" and dir_1h != "UP")
 
-        # Stop: за тело свечи пробоя
+        # H-6: Stop behind the range level being broken (not candle body)
         if side == "LONG":
-            # Стоп под open свечи пробоя (или low если тело маленькое)
-            stop = min(current_open, current_low + atr_val * 0.2)
-            stop = min(stop, entry - atr_val * 1.0)  # минимум 1 ATR
+            stop = range_low - atr_val * 0.2  # below the range
+            stop = max(stop, entry - atr_val * 2.5)  # cap risk
         else:
-            stop = max(current_open, current_high - atr_val * 0.2)
-            stop = max(stop, entry + atr_val * 1.0)
+            stop = range_high + atr_val * 0.2  # above the range
+            stop = min(stop, entry + atr_val * 2.5)  # cap risk
 
         risk_distance = abs(entry - stop)
         if risk_distance == 0:

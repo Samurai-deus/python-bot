@@ -86,7 +86,7 @@ def calculate_adaptive_rr(entry, stop, atr_15m, atr_5m, volatility_pct, trend_st
     final_rr = base_rr * volatility_multiplier * trend_multiplier * risk_multiplier
     
     # Ограничиваем R:R разумными пределами
-    final_rr = max(1.0, min(3.5, final_rr))  # От 1:1 до 1:3.5
+    final_rr = max(1.0, min(5.0, final_rr))  # От 1:1 до 1:5.0
     
     # Рассчитываем цель
     if entry > stop:  # LONG

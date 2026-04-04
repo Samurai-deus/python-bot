@@ -46,7 +46,7 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
         alignment_score -= 5
         alignment_reasons.append("⚠️ Конфликт с 4H трендом")
     
-    score += max(0, alignment_score)  # Не даем отрицательных баллов
+    score += alignment_score  # Allow negative alignment to penalize contradictions
     if alignment_reasons:
         reasons.extend(alignment_reasons)
     details["timeframe_alignment"] = alignment_score > 0
@@ -94,7 +94,7 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
     # ========== MOMENTUM И СИЛА ТРЕНДА (макс 35 баллов) ==========
     
     if candles_map and momentum_data:
-        # 4. RSI анализ (10 баллов)
+        # 4. RSI анализ (10 баллов / -5 penalty)
         rsi_15m = momentum_data.get("rsi_15m", 50)
         direction_30m_rsi = directions.get("30m", "FLAT")
 
@@ -111,6 +111,10 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
                  (direction_30m_rsi == "DOWN" and rsi_15m > 55):
                 score += 5
                 reasons.append(f"RSI в зоне разворота ({rsi_15m:.1f})")
+            else:
+                # RSI contradicts rejection direction
+                score -= 5
+                reasons.append(f"⚠️ RSI противоречит направлению ({rsi_15m:.1f})")
         else:
             # Тренд (A, C, TREND_CONTINUATION): RSI должен быть в центре —
             # не перегрет, есть запас для продолжения движения.
@@ -121,6 +125,11 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
             elif 30 < rsi_15m < 70:
                 score += 5
                 reasons.append(f"RSI в нормальной зоне ({rsi_15m:.1f})")
+            elif (direction_30m_rsi == "UP" and rsi_15m > 70) or \
+                 (direction_30m_rsi == "DOWN" and rsi_15m < 30):
+                # RSI contradicts trend direction (overbought on UP, oversold on DOWN)
+                score -= 5
+                reasons.append(f"⚠️ RSI противоречит тренду ({rsi_15m:.1f})")
         details["rsi_15m"] = rsi_15m
         
         # 5. MACD тренд (10 баллов)
@@ -135,6 +144,10 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
         elif macd_trend != "NEUTRAL":
             score += 5
             reasons.append(f"MACD показывает {macd_trend}")
+        else:
+            # MACD NEUTRAL — no momentum confirmation
+            score -= 3
+            reasons.append(f"⚠️ MACD нейтрален — нет подтверждения импульса")
         details["macd_trend"] = macd_trend
         
         # 6. Сила тренда (10 баллов)
@@ -173,6 +186,11 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
            (stoch_signal == "OVERBOUGHT" and direction_30m == "DOWN"):
             score += 7
             reasons.append(f"Stochastic: {stoch_signal} (K={stoch_k:.1f})")
+        elif (stoch_signal == "OVERBOUGHT" and direction_30m == "UP") or \
+             (stoch_signal == "OVERSOLD" and direction_30m == "DOWN"):
+            # Stochastic contradicts direction
+            score -= 5
+            reasons.append(f"⚠️ Stochastic противоречит направлению: {stoch_signal} (K={stoch_k:.1f})")
         elif stoch_signal == "NEUTRAL" and 30 < stoch_k < 70:
             score += 3
             reasons.append(f"Stochastic: нейтрально (K={stoch_k:.1f})")
@@ -190,7 +208,7 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
             score += 6
             reasons.append(f"ADX: умеренный тренд ({adx_value:.1f})")
         elif adx_strength == "WEAK":
-            score += 0
+            score -= 5
             reasons.append(f"⚠️ ADX: слабый тренд ({adx_value:.1f})")
         details["adx_strength"] = adx_strength
         details["adx_value"] = adx_value
@@ -203,6 +221,11 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
            (ema_signal == "BEARISH" and direction_30m == "DOWN"):
             score += 8
             reasons.append(f"EMA кроссовер: {ema_signal}")
+        elif (ema_signal == "BEARISH" and direction_30m == "UP") or \
+             (ema_signal == "BULLISH" and direction_30m == "DOWN"):
+            # EMA crossover against direction
+            score -= 5
+            reasons.append(f"⚠️ EMA кроссовер против направления: {ema_signal}")
         elif ema_signal != "NONE":
             score += 4
             reasons.append(f"EMA кроссовер: {ema_signal}")
@@ -248,12 +271,10 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
     else:
         details["state_alignment"] = False
     
-    # 9. Торговое время (5 баллов) - всегда True сейчас
-    if good_time:
-        score += 5
-        reasons.append("Торговое время")
-        details["good_time"] = True
+    # 9. Торговое время — disabled until proper time filtering is implemented
+    details["good_time"] = bool(good_time)
     
+    score = max(0, score)  # clamp final score to non-negative
     details["total_score"] = score
     return score, reasons, details
 

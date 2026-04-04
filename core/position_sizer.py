@@ -23,7 +23,7 @@ class PositionSizingConfig:
     """Конфигурация для PositionSizer"""
     
     # Базовый риск на сделку (% от баланса)
-    max_risk_per_trade: float = POSITION_ALLOCATION_PERCENT  # 10.0% base allocation
+    max_risk_per_trade: float = POSITION_ALLOCATION_PERCENT  # 3.0% base allocation
     
     # Минимальный порог риска (если итоговый риск меньше — позиция не разрешена)
     min_risk_threshold: float = 0.1  # 0.1% от баланса (Kelly уже консервативен)
@@ -167,11 +167,25 @@ class PositionSizer:
             from capital import get_rolling_performance, kelly_fraction
             perf = get_rolling_performance()
             kelly = kelly_fraction(perf["win_rate"], perf["avg_win"], perf["avg_loss"])
+            if kelly <= 0:
+                # Negative expectancy — block the trade
+                return PositionSizingResult(
+                    position_allowed=False,
+                    final_risk=0.0,
+                    base_risk=0.0,
+                    confidence_factor=0.0,
+                    entropy_factor=0.0,
+                    portfolio_factor=0.0,
+                    reason="Kelly fraction <= 0: negative expectancy, trade blocked",
+                    position_size_usd=None
+                )
             base_risk = kelly * 100  # fraction → %
-            # Clamp между 1.0% и config max (quarter-Kelly floor)
-            base_risk = max(1.0, min(base_risk, self.config.max_risk_per_trade))
-        except Exception:
-            base_risk = self.config.max_risk_per_trade
+            # Clamp между min_risk и config max (quarter-Kelly floor)
+            base_risk = max(self.config.min_risk_threshold, min(base_risk, self.config.max_risk_per_trade))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("PositionSizer error, using conservative fallback: %s", e)
+            base_risk = 1.0  # conservative fallback, not maximum
         
         # ========== CONFIDENCE FACTOR ==========
         confidence_factor = self._clamp(

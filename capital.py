@@ -32,6 +32,9 @@ def get_available_capital() -> float:
     """
     equity = get_current_balance_from_db(INITIAL_BALANCE)
     locked = get_total_open_positions_size()
+    # TODO: subtract unrealized losses from open positions once real-time
+    # price feed is available (requires current prices for each open trade
+    # to compute mark-to-market PnL — not feasible without major refactoring)
     return max(equity - locked, 0.0)
 
 
@@ -53,7 +56,7 @@ def position_size(entry_price, stop_price, side="LONG"):
     if available < MIN_POSITION_SIZE:
         return 0.0  # Нет доступного капитала
 
-    risk_amount = balance * (RISK_PERCENT / 100.0)
+    risk_amount = available * (RISK_PERCENT / 100.0)
 
     if side == "LONG":
         risk_per_unit = abs(entry_price - stop_price)
@@ -100,7 +103,7 @@ def get_rolling_performance(strategy_name: str = None, lookback: int = 50) -> di
         conn.close()
 
     if len(rows) < 10:
-        return {"win_rate": 0.5, "avg_win": 10.0, "avg_loss": 5.0}
+        return {"win_rate": 0.4, "avg_win": 5.0, "avg_loss": 5.0}
 
     pnls = [float(r["pnl"]) for r in rows if r["pnl"] is not None]
     wins = [p for p in pnls if p > 0]
@@ -117,10 +120,11 @@ def kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
                    safety_factor: float = 0.25) -> float:
     """
     Quarter-Kelly sizing на основе скользящей статистики.
-    Возвращает долю капитала для риска (0.005 .. 0.05).
+    Возвращает долю капитала для риска (0.0 .. 0.05).
+    Returns 0.0 on negative expectancy (don't trade).
     """
     if avg_loss == 0 or win_rate <= 0:
-        return 0.005
+        return 0.0
 
     b = avg_win / avg_loss  # win/loss ratio
     p = win_rate
@@ -129,7 +133,7 @@ def kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
     kelly = (b * p - q) / b
 
     if kelly <= 0:
-        return 0.005  # минимум даже при отрицательном ожидании
+        return 0.0  # negative expectancy = don't trade
 
     adjusted = kelly * safety_factor
     return max(0.005, min(0.05, adjusted))

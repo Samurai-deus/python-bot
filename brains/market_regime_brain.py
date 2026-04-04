@@ -7,6 +7,7 @@ Market Regime Brain - определяет режим рынка
 - risk-on / risk-off
 - macro pressure
 """
+import random
 from typing import Dict, List, Optional
 from core.decision_core import MarketRegime
 from indicators import atr, adx
@@ -88,8 +89,9 @@ class MarketRegimeBrain:
         """
         trend_scores = []
         range_scores = []
-        
-        for symbol in symbols[:5]:  # Анализируем топ-5 символов
+
+        sample = self._sample_symbols(symbols)
+        for symbol in sample:
             candles_15m = candles_map.get(symbol, {}).get("15m", [])
             candles_30m = candles_map.get(symbol, {}).get("30m", [])
             candles_4h = candles_map.get(symbol, {}).get("4h", [])
@@ -131,16 +133,17 @@ class MarketRegimeBrain:
             else:
                 range_scores.append(1)
         
-        # Принимаем решение
-        total_trend = sum(trend_scores)
-        total_range = sum(range_scores)
-        
-        if total_trend > total_range * 1.5:
+        # Принимаем решение — use counts (not weighted sums) to avoid
+        # bias from a single strong-ADX symbol dominating the vote.
+        trend_count = len(trend_scores)
+        range_count = len(range_scores)
+
+        if trend_count > range_count:
             return "TREND"
-        elif total_range > total_trend * 1.5:
+        elif range_count > trend_count:
             return "RANGE"
         else:
-            return "RANGE"  # По умолчанию range, если неясно
+            return "MIXED"  # Ambiguous — consumers treat as RANGE for safety
     
     def _determine_volatility(self, symbols: List[str],
                              candles_map: Dict[str, Dict[str, List]]) -> str:
@@ -148,8 +151,9 @@ class MarketRegimeBrain:
         Определяет уровень волатильности: HIGH, MEDIUM, LOW
         """
         volatility_levels = []
-        
-        for symbol in symbols[:5]:  # Топ-5 символов
+
+        sample = self._sample_symbols(symbols)
+        for symbol in sample:
             candles_15m = candles_map.get(symbol, {}).get("15m", [])
             if not candles_15m:
                 continue
@@ -256,7 +260,8 @@ class MarketRegimeBrain:
         # Если большинство активов движутся в одном направлении - макро-давление
         directions_count = {"UP": 0, "DOWN": 0, "FLAT": 0}
         
-        for symbol in symbols[:10]:  # Топ-10 символов
+        sample = self._sample_symbols(symbols, size=10)
+        for symbol in sample:
             candles = candles_map.get(symbol, {}).get("15m", [])
             if candles:
                 direction = market_direction(candles)
@@ -276,6 +281,16 @@ class MarketRegimeBrain:
         
         return None
     
+    @staticmethod
+    def _sample_symbols(symbols: List[str], size: int = 7) -> List[str]:
+        """Sample a mix of top symbols + random from the rest to reduce bias."""
+        if len(symbols) <= size:
+            return symbols
+        top = symbols[:3]
+        rest = symbols[3:]
+        n_random = min(size - 3, len(rest))
+        return top + random.sample(rest, n_random)
+
     def _calculate_confidence(self, trend_type: str, volatility_level: str,
                               risk_sentiment: str, symbols: List[str],
                               candles_map: Dict[str, Dict[str, List]]) -> float:

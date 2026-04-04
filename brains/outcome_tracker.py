@@ -102,6 +102,7 @@ def _determine_outcome(
 
     for i, candle in enumerate(candles):
         try:
+            open_price = float(candle[1])
             high = float(candle[2])
             low = float(candle[3])
         except (IndexError, ValueError, TypeError):
@@ -112,19 +113,42 @@ def _determine_outcome(
             adv = (entry - low) / entry * 100
             max_favorable = max(max_favorable, fav)
             max_adverse = max(max_adverse, adv)
-            # SL check first (conservative: if both in same candle, SL wins)
-            if low <= sl:
+
+            hit_sl = low <= sl
+            hit_tp = high >= tp
+
+            if hit_sl and hit_tp:
+                # Both SL and TP hit in same candle — use proximity to open
+                dist_to_sl = abs(open_price - sl)
+                dist_to_tp = abs(open_price - tp)
+                if dist_to_sl < dist_to_tp:
+                    return "LOSS", i + 1, max_favorable, max_adverse
+                else:
+                    return "WIN", i + 1, max_favorable, max_adverse
+            elif hit_sl:
                 return "LOSS", i + 1, max_favorable, max_adverse
-            if high >= tp:
+            elif hit_tp:
                 return "WIN", i + 1, max_favorable, max_adverse
         else:  # SHORT
             fav = (entry - low) / entry * 100
             adv = (high - entry) / entry * 100
             max_favorable = max(max_favorable, fav)
             max_adverse = max(max_adverse, adv)
-            if high >= sl:
+
+            hit_sl = high >= sl
+            hit_tp = low <= tp
+
+            if hit_sl and hit_tp:
+                # Both SL and TP hit in same candle — use proximity to open
+                dist_to_sl = abs(open_price - sl)
+                dist_to_tp = abs(open_price - tp)
+                if dist_to_sl < dist_to_tp:
+                    return "LOSS", i + 1, max_favorable, max_adverse
+                else:
+                    return "WIN", i + 1, max_favorable, max_adverse
+            elif hit_sl:
                 return "LOSS", i + 1, max_favorable, max_adverse
-            if low <= tp:
+            elif hit_tp:
                 return "WIN", i + 1, max_favorable, max_adverse
 
     return "NEUTRAL", len(candles), max_favorable, max_adverse

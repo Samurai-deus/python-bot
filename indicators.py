@@ -65,29 +65,39 @@ def macd(candles, fast_period=12, slow_period=26, signal_period=9):
         return {"macd": 0, "signal": 0, "histogram": 0, "trend": "NEUTRAL"}
     
     closes = [float(c[4]) for c in candles]
-    
-    # EMA быстрая
+
+    # EMA с правильным seed: SMA первых period значений
     def ema(data, period):
-        multiplier = 2 / (period + 1)
-        ema_values = [data[0]]
-        for price in data[1:]:
-            ema_values.append((price * multiplier) + (ema_values[-1] * (1 - multiplier)))
+        if len(data) < period:
+            return data[:]
+        multiplier = 2.0 / (period + 1)
+        seed = sum(data[:period]) / period
+        ema_values = [seed]
+        for price in data[period:]:
+            ema_values.append(price * multiplier + ema_values[-1] * (1 - multiplier))
         return ema_values
-    
-    fast_ema = ema(closes, fast_period)
-    slow_ema = ema(closes, slow_period)
-    
+
+    fast_ema = ema(closes, fast_period)   # len = len(closes) - fast_period + 1
+    slow_ema = ema(closes, slow_period)   # len = len(closes) - slow_period + 1
+
+    # Align: fast_ema is longer than slow_ema by (slow_period - fast_period).
+    # Trim fast_ema so both arrays end at the same candle.
+    offset = len(fast_ema) - len(slow_ema)
+    fast_ema_aligned = fast_ema[offset:]  # same length as slow_ema
+
     # MACD линия
-    macd_line = [fast_ema[i] - slow_ema[i] for i in range(len(slow_ema))]
-    
-    # Signal линия (EMA от полной истории MACD)
-    # Прошлая версия: ema(macd_line[-9:], 9) — EMA от 9 точек = фактически SMA.
-    # Правильно: строим EMA по всей MACD-линии, берём последнее значение.
+    macd_line = [fast_ema_aligned[i] - slow_ema[i] for i in range(len(slow_ema))]
+
+    if len(macd_line) < signal_period:
+        return {"macd": 0, "signal": 0, "histogram": 0, "trend": "NEUTRAL"}
+
+    # Signal линия (EMA от MACD-линии)
     signal_line = ema(macd_line, signal_period)
-    
-    # Histogram
+
+    # Histogram: macd_line and signal_line both end at the same candle.
+    # signal_line is shorter by (signal_period - 1), so use last elements.
     histogram = macd_line[-1] - signal_line[-1] if signal_line else 0
-    
+
     # Определение тренда
     if histogram > 0 and macd_line[-1] > signal_line[-1]:
         trend = "BULLISH"
@@ -95,7 +105,7 @@ def macd(candles, fast_period=12, slow_period=26, signal_period=9):
         trend = "BEARISH"
     else:
         trend = "NEUTRAL"
-    
+
     return {
         "macd": macd_line[-1] if macd_line else 0,
         "signal": signal_line[-1] if signal_line else 0,
@@ -322,8 +332,13 @@ def adx(candles, period=14):
         plus_di_last, minus_di_last, dx_val = _di_and_dx(smooth_tr, smooth_plus, smooth_minus)
         dx_list.append(dx_val)
 
-    # ADX = SMA последних period значений DX
-    adx_value = sum(dx_list[-period:]) / min(len(dx_list), period)
+    # ADX = Wilder's smoothing of DX (seed with SMA of first period values)
+    if len(dx_list) < period:
+        adx_value = sum(dx_list) / len(dx_list) if dx_list else 0
+    else:
+        adx_value = sum(dx_list[:period]) / period  # seed with SMA
+        for dx_val in dx_list[period:]:
+            adx_value = (adx_value * (period - 1) + dx_val) / period
 
     if adx_value >= 25:
         strength = "STRONG"
@@ -353,20 +368,28 @@ def ema_crossover(candles, fast_period=12, slow_period=26):
         }
     
     closes = [float(c[4]) for c in candles]
-    
+
+    # EMA с правильным seed: SMA первых period значений
     def ema(data, period):
-        multiplier = 2 / (period + 1)
-        ema_values = [data[0]]
-        for price in data[1:]:
-            ema_values.append((price * multiplier) + (ema_values[-1] * (1 - multiplier)))
+        if len(data) < period:
+            return data[:]
+        multiplier = 2.0 / (period + 1)
+        seed = sum(data[:period]) / period
+        ema_values = [seed]
+        for price in data[period:]:
+            ema_values.append(price * multiplier + ema_values[-1] * (1 - multiplier))
         return ema_values
-    
-    fast_ema_vals = ema(closes, fast_period)
-    slow_ema_vals = ema(closes, slow_period)
-    
-    # Берем последние значения
-    fast_current = fast_ema_vals[-1]
-    fast_prev = fast_ema_vals[-2] if len(fast_ema_vals) > 1 else fast_current
+
+    fast_ema_vals = ema(closes, fast_period)   # len = len(closes) - fast_period + 1
+    slow_ema_vals = ema(closes, slow_period)   # len = len(closes) - slow_period + 1
+
+    # Align: trim fast so both end at the same candle
+    offset = len(fast_ema_vals) - len(slow_ema_vals)
+    fast_aligned = fast_ema_vals[offset:]
+
+    # Берем последние значения (aligned)
+    fast_current = fast_aligned[-1]
+    fast_prev = fast_aligned[-2] if len(fast_aligned) > 1 else fast_current
     slow_current = slow_ema_vals[-1]
     slow_prev = slow_ema_vals[-2] if len(slow_ema_vals) > 1 else slow_current
     
@@ -386,7 +409,8 @@ def ema_crossover(candles, fast_period=12, slow_period=26):
 
 def volume_analysis(candles, period=20):
     """
-    Анализирует объемы (используя диапазон как прокси для объема).
+    Анализирует объемы торгов.
+    Bybit kline format: [timestamp, open, high, low, close, volume, turnover].
     Возвращает информацию о тренде объемов.
     """
     if len(candles) < period:
@@ -395,18 +419,16 @@ def volume_analysis(candles, period=20):
             "volume_ratio": 1.0,
             "is_high_volume": False
         }
-    
-    # Используем диапазон (high - low) как прокси для объема
-    ranges = []
+
+    # Используем реальный объём из candle[5]
+    volumes = []
     for c in candles[-period:]:
-        high = float(c[2])
-        low = float(c[3])
-        ranges.append(high - low)
-    
-    current_range = ranges[-1]
-    avg_range = sum(ranges[:-1]) / len(ranges[:-1]) if len(ranges) > 1 else current_range
-    
-    volume_ratio = current_range / avg_range if avg_range > 0 else 1.0
+        volumes.append(float(c[5]))
+
+    current_volume = volumes[-1]
+    avg_volume = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else current_volume
+
+    volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
     
     # Определение тренда
     if volume_ratio > 1.5:

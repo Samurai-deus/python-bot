@@ -245,6 +245,17 @@ def generate_signals_for_symbols(
                 if system_state and hasattr(system_state, "market_regime") and system_state.market_regime:
                     mr = system_state.market_regime
                     regime = getattr(mr, "trend_type", "RANGE") or "RANGE"
+                    # "MIXED" from MarketRegimeBrain = ambiguous, treat as RANGE
+                    if regime not in ("TREND", "RANGE"):
+                        regime = "RANGE"
+
+                # C-7: If regime is still RANGE (default), derive from ADX
+                if regime == "RANGE" and momentum_data:
+                    _adx_data = momentum_data.get("adx_15m", {})
+                    _adx_val = _adx_data.get("adx", 0) if isinstance(_adx_data, dict) else 0
+                    if _adx_val > 25:
+                        regime = "TREND"
+                    # elif _adx_val < 15: confirmed RANGE, keep as is
 
                 strategy_signal = _strategy_manager.get_best_signal(
                     symbol, candles_map, directions, momentum_data, states,
