@@ -1,18 +1,12 @@
 import { apiClient } from './client'
 import type {
-  SystemHealth, Balance, OpenPosition, TradeHistory,
-  Signal, AnalyticsSummary, EquityCurve, SymbolPnl, PnlHistoryItem,
+  SystemHealth, TradeHistory,
+  Signal, AnalyticsSummary, EquityCurve, SymbolPnl,
   MonthlyTarget
 } from './types'
 
 export const fetchHealth = () =>
   apiClient.get<SystemHealth>('/api/system/health').then(r => r.data)
-
-export const fetchBalance = () =>
-  apiClient.get<Balance>('/api/balance').then(r => r.data)
-
-export const fetchOpenPositions = () =>
-  apiClient.get<OpenPosition[]>('/api/positions/open').then(r => r.data)
 
 export const fetchPositionHistory = (days = 30) =>
   apiClient.get<TradeHistory[]>('/api/positions/history', { params: { days } }).then(r => r.data)
@@ -28,9 +22,6 @@ export const fetchEquityCurve = (days = 30) =>
 
 export const fetchBySymbol = (days = 30) =>
   apiClient.get<SymbolPnl[]>('/api/analytics/by-symbol', { params: { days } }).then(r => r.data)
-
-export const fetchPnlHistory = (days = 30) =>
-  apiClient.get<PnlHistoryItem[]>('/api/analytics/pnl-history', { params: { days } }).then(r => r.data)
 
 export const fetchMonthlyTarget = () =>
   apiClient.get<MonthlyTarget>('/api/analytics/monthly-target').then(r => r.data)

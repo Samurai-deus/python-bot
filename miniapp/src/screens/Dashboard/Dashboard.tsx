@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSystemStore } from '../../store/useSystemStore'
 import { useAnalyticsSummary, useMonthlyTarget } from '../../hooks/useAnalytics'
@@ -6,6 +7,8 @@ import { Badge } from '../../components/Badge'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { formatUSDT, formatPnl, formatPct, formatRelative } from '../../lib/formatters'
 import type { MonthlyTarget } from '../../api/types'
+
+const SUMMARY_DAYS = [1, 7, 30] as const
 
 function stateVariant(state: string): 'running' | 'degraded' | 'halt' | 'recovery' | 'neutral' {
   if (state === 'RUNNING') return 'running'
@@ -29,7 +32,8 @@ const WS_LABELS: Record<string, string> = {
 
 export function Dashboard() {
   const { snapshot, wsStatus, lastSnapshotAt } = useSystemStore()
-  const { data: summary, isLoading } = useAnalyticsSummary(1)
+  const [summaryDays, setSummaryDays] = useState<number>(1)
+  const { data: summary, isLoading } = useAnalyticsSummary(summaryDays)
   const { data: monthlyTarget } = useMonthlyTarget()
 
   const { data: healthFallback } = useQuery({
@@ -120,18 +124,30 @@ export function Dashboard() {
         <p style={{ fontSize: 9, letterSpacing: '0.3em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 6 }}>
           Balance · USDT
         </p>
-        <p style={{
-          fontSize: 38,
-          fontWeight: 700,
-          letterSpacing: '-0.02em',
-          color: balance != null ? '#fff' : 'var(--text-dim)',
-          fontVariantNumeric: 'tabular-nums',
-          lineHeight: 1,
-          marginBottom: 12,
-          fontFamily: 'monospace',
-        }}>
-          {balance != null ? formatUSDT(balance) : '—·——'}
-        </p>
+        {balance != null ? (
+          <p style={{
+            fontSize: 38,
+            fontWeight: 700,
+            letterSpacing: '-0.02em',
+            color: '#fff',
+            fontVariantNumeric: 'tabular-nums',
+            lineHeight: 1,
+            marginBottom: 12,
+            fontFamily: 'monospace',
+          }}>
+            {formatUSDT(balance)}
+          </p>
+        ) : (
+          <div style={{
+            height: 38,
+            width: 180,
+            borderRadius: 8,
+            marginBottom: 12,
+            background: 'linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%)',
+            backgroundSize: '200% 100%',
+            animation: 'shimmer 1.5s infinite',
+          }} />
+        )}
         {systemState && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Badge label={systemState} variant={stateVariant(systemState)} />
@@ -149,6 +165,30 @@ export function Dashboard() {
         <MonthlyProgressCard target={monthlyTarget} />
       )}
 
+      {/* ── Period selector ──────────────────── */}
+      <div style={{ display: 'flex', gap: 6 }}>
+        {SUMMARY_DAYS.map(d => (
+          <button
+            key={d}
+            onClick={() => setSummaryDays(d)}
+            style={{
+              flex: 1,
+              padding: '6px 0',
+              borderRadius: 8,
+              border: summaryDays === d ? '1px solid var(--cyan)' : '1px solid var(--border)',
+              background: summaryDays === d ? 'rgba(0,212,255,0.1)' : 'transparent',
+              color: summaryDays === d ? 'var(--cyan)' : 'var(--text-dim)',
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              cursor: 'pointer',
+            }}
+          >
+            {d}D
+          </button>
+        ))}
+      </div>
+
       {/* ── Stats grid ───────────────────────── */}
       {isLoading ? (
         <LoadingSpinner />
@@ -165,7 +205,7 @@ export function Dashboard() {
             color={summary.win_rate >= 50 ? 'var(--green)' : 'var(--red)'}
           />
           <StatTile
-            label="P&L Today"
+            label={summaryDays === 1 ? 'P&L Today' : `P&L ${summaryDays}D`}
             value={formatPnl(summary.net_pnl)}
             color={summary.net_pnl >= 0 ? 'var(--green)' : 'var(--red)'}
           />
