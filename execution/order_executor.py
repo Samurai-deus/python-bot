@@ -70,7 +70,7 @@ class OrderExecutor:
         self._client = client or get_bybit_client()
         self._dry_run = _is_dry_run()
         mode = "DRY_RUN" if self._dry_run else ("TESTNET" if self._client._testnet else "LIVE")
-        logger.info(f"OrderExecutor initialized [{mode}]")
+        logger.info("OrderExecutor initialized [%s]", mode)
 
     def execute(self, request: TradeRequest) -> TradeResult:
         """
@@ -100,7 +100,7 @@ class OrderExecutor:
             take_profit=None,
         )
         if self._dry_run:
-            logger.info(f"[DRY_RUN] Close position: {symbol} {close_side} qty={qty}")
+            logger.info("[DRY_RUN] Close position: %s %s qty=%s", symbol, close_side, qty)
             return TradeResult(
                 success=True, order_id="dry_close",
                 symbol=symbol, side=side, qty=qty,
@@ -114,14 +114,14 @@ class OrderExecutor:
                 order_type="Market",
                 reduce_only=True,
             )
-            logger.info(f"Position closed: {symbol} {close_side} qty={qty} order_id={result.order_id}")
+            logger.info("Position closed: %s %s qty=%s order_id=%s", symbol, close_side, qty, result.order_id)
             return TradeResult(
                 success=True, order_id=result.order_id,
                 symbol=symbol, side=side, qty=qty,
                 entry_price=None, stop_loss=0.0, take_profit=None, dry_run=False,
             )
         except BybitAPIError as e:
-            logger.error(f"Failed to close position {symbol}: {e}")
+            logger.error("Failed to close position %s: %s", symbol, e)
             return TradeResult(
                 success=False, order_id=None,
                 symbol=symbol, side=side, qty=qty,
@@ -218,8 +218,8 @@ class OrderExecutor:
                 client_order_id=request.client_order_id,
             )
             logger.info(
-                f"Order placed: {request.symbol} {bybit_side} {order_type} "
-                f"qty={request.qty} order_id={result.order_id}"
+                "Order placed: %s %s %s qty=%s order_id=%s",
+                request.symbol, bybit_side, order_type, request.qty, result.order_id,
             )
             return TradeResult(
                 success=True,
@@ -234,7 +234,7 @@ class OrderExecutor:
             )
         except BybitAPIError as e:
             # Ожидаемые ошибки API (недостаточный баланс, неверный qty)
-            logger.error(f"OrderExecutor API error for {request.symbol}: {e}")
+            logger.error("OrderExecutor API error for %s: %s", request.symbol, e)
             return TradeResult(
                 success=False,
                 order_id=None,

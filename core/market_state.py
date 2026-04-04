@@ -179,11 +179,11 @@ def validate_state(state, context: str = "") -> Optional[MarketState]:
     if isinstance(state, str):
         normalized = normalize_state(state)
         if normalized is not None:
-            logger.warning(f"Auto-normalized string '{state}' to MarketState enum (should be normalized earlier)")
+            logger.warning("Auto-normalized string '%s' to MarketState enum (should be normalized earlier)", state)
             return normalized
     
     # Если не удалось нормализовать - возвращаем None (безопасный fallback)
-    logger.warning(f"Could not normalize state '{state}', using None as fallback")
+    logger.warning("Could not normalize state '%s', using None as fallback", state)
     return None
 
 

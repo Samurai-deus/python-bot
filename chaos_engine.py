@@ -76,8 +76,9 @@ class ChaosEngine:
             
             self._active_chaos = chaos_type
             logger.critical(
-                f"CHAOS_INJECTION_START incident_id={incident_id} "
-                f"chaos_type={chaos_type.value} duration={duration}s"
+                "CHAOS_INJECTION_START incident_id=%s "
+                "chaos_type=%s duration=%ss",
+                incident_id, chaos_type.value, duration
             )
             
             # Создаём task для chaos
@@ -121,7 +122,7 @@ class ChaosEngine:
             self._active_chaos = None
             self._chaos_task = None
             
-            logger.critical(f"CHAOS_INJECTION_STOP chaos_type={chaos_type.value}")
+            logger.critical("CHAOS_INJECTION_STOP chaos_type=%s", chaos_type.value)
             return True
     
     def is_active(self) -> bool:
@@ -282,7 +283,7 @@ class ChaosEngine:
             await recursive_call(0)
         except RecursionError:
             # Stack overflow - это тоже stall
-            logger.critical(f"CHAOS_RECURSION_OVERFLOW incident_id={incident_id} depth={depth}")
+            logger.critical("CHAOS_RECURSION_OVERFLOW incident_id=%s depth=%s", incident_id, depth)
             # Продолжаем блокировать через busy wait
             remaining = duration - (time.monotonic() - start_time)
             if remaining > 0:

@@ -294,15 +294,15 @@ class RiskCore:
             # Log for observability
             if violation_report.violations:
                 logger.warning(
-                    f"Risk Core: {len(violation_report.violations)} violations detected, "
-                    f"state={new_state.value}, permission={permission.value}"
+                    "Risk Core: %d violations detected, state=%s, permission=%s",
+                    len(violation_report.violations), new_state.value, permission.value
                 )
             
             return permission, new_state, violation_report
             
         except Exception as e:
             # Fail-closed: any exception → DENY
-            logger.error(f"Risk Core evaluation failed: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Risk Core evaluation failed: %s: %s", type(e).__name__, e, exc_info=True)
             self._risk_state = RiskState.HALTED
             violation_report = ViolationReport(
                 violations=[f"Risk Core exception: {type(e).__name__}"],
@@ -651,7 +651,7 @@ class RiskCore:
             return TradingPermission.DENY
         else:
             # Unknown state → DENY (fail-closed)
-            logger.error(f"Risk Core: Unknown state {state} → DENY")
+            logger.error("Risk Core: Unknown state %s → DENY", state)
             return TradingPermission.DENY
     
     def _state_severity(self, state: RiskState) -> int:

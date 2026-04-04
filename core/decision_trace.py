@@ -236,7 +236,7 @@ class DecisionTrace:
             conn.commit()
             return record_id
         except Exception as e:
-            logger.error(f"Ошибка записи решения в DecisionTrace: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Ошибка записи решения в DecisionTrace: %s: %s", type(e).__name__, e, exc_info=True)
             # Не выбрасываем исключение - логирование не должно влиять на торговую логику
             return -1
         finally:
@@ -303,7 +303,7 @@ class DecisionTrace:
 
             return records
         except Exception as e:
-            logger.error(f"Ошибка получения решений из DecisionTrace: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Ошибка получения решений из DecisionTrace: %s: %s", type(e).__name__, e, exc_info=True)
             return []
         finally:
             if conn is not None:
@@ -336,10 +336,10 @@ class DecisionTrace:
 
             deleted_count = cursor.rowcount
             conn.commit()
-            logger.info(f"Удалено {deleted_count} старых записей из DecisionTrace (старше {days} дней)")
+            logger.info("Удалено %d старых записей из DecisionTrace (старше %d дней)", deleted_count, days)
             return deleted_count
         except Exception as e:
-            logger.error(f"Ошибка удаления старых записей из DecisionTrace: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Ошибка удаления старых записей из DecisionTrace: %s: %s", type(e).__name__, e, exc_info=True)
             return 0
         finally:
             if conn is not None:
@@ -370,15 +370,13 @@ class DecisionTrace:
 
             cutoff_date = (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
+            # Single query: per-source breakdown with allowed/blocked counts
             query = """
                 SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN allow_trading = 1 THEN 1 ELSE 0 END) as allowed,
-                    SUM(CASE WHEN allow_trading = 0 THEN 1 ELSE 0 END) as blocked,
-                    SUM(CASE WHEN block_level = 'HARD' THEN 1 ELSE 0 END) as hard_blocks,
-                    SUM(CASE WHEN block_level = 'SOFT' THEN 1 ELSE 0 END) as soft_blocks,
                     decision_source,
-                    COUNT(*) as count_by_source
+                    COUNT(*) as count_by_source,
+                    SUM(CASE WHEN allow_trading = 1 THEN 1 ELSE 0 END) as allowed,
+                    SUM(CASE WHEN allow_trading = 0 THEN 1 ELSE 0 END) as blocked
                 FROM decision_trace
                 WHERE timestamp >= ?
             """
@@ -394,40 +392,56 @@ class DecisionTrace:
             cursor.execute(query, params)
             rows = cursor.fetchall()
 
-            # Общая статистика
-            cursor.execute("""
+            # Aggregate totals from per-source rows (no second query needed)
+            total = 0
+            total_allowed = 0
+            total_blocked = 0
+            total_hard = 0
+            total_soft = 0
+            by_source = {}
+
+            for row in rows:
+                src = row["decision_source"]
+                cnt = row["count_by_source"]
+                allowed = row["allowed"] or 0
+                blocked = row["blocked"] or 0
+                total += cnt
+                total_allowed += allowed
+                total_blocked += blocked
+                by_source[src] = {
+                    "count": cnt,
+                    "allowed": allowed,
+                    "blocked": blocked,
+                }
+
+            # Hard/soft block totals (single query)
+            block_query = """
                 SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN allow_trading = 1 THEN 1 ELSE 0 END) as allowed,
-                    SUM(CASE WHEN allow_trading = 0 THEN 1 ELSE 0 END) as blocked,
                     SUM(CASE WHEN block_level = 'HARD' THEN 1 ELSE 0 END) as hard_blocks,
                     SUM(CASE WHEN block_level = 'SOFT' THEN 1 ELSE 0 END) as soft_blocks
                 FROM decision_trace
                 WHERE timestamp >= ?
-            """ + (" AND symbol = ?" if symbol else ""), params[:1] if not symbol else params)
-
-            total_row = cursor.fetchone()
+            """
+            block_params = [cutoff_date]
+            if symbol:
+                block_query += " AND symbol = ?"
+                block_params.append(symbol)
+            cursor.execute(block_query, block_params)
+            block_row = cursor.fetchone()
 
             stats = {
                 "period_days": days,
-                "total_decisions": total_row["total"] if total_row else 0,
-                "allowed": total_row["allowed"] if total_row else 0,
-                "blocked": total_row["blocked"] if total_row else 0,
-                "hard_blocks": total_row["hard_blocks"] if total_row else 0,
-                "soft_blocks": total_row["soft_blocks"] if total_row else 0,
-                "by_source": {}
+                "total_decisions": total,
+                "allowed": total_allowed,
+                "blocked": total_blocked,
+                "hard_blocks": (block_row["hard_blocks"] or 0) if block_row else 0,
+                "soft_blocks": (block_row["soft_blocks"] or 0) if block_row else 0,
+                "by_source": by_source,
             }
-            
-            for row in rows:
-                stats["by_source"][row["decision_source"]] = {
-                    "count": row["count_by_source"],
-                    "allowed": sum(1 for r in self.get_recent_decisions(limit=1000, decision_source=row["decision_source"]) if r.allow_trading),
-                    "blocked": sum(1 for r in self.get_recent_decisions(limit=1000, decision_source=row["decision_source"]) if not r.allow_trading)
-                }
             
             return stats
         except Exception as e:
-            logger.error(f"Ошибка получения статистики из DecisionTrace: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Ошибка получения статистики из DecisionTrace: %s: %s", type(e).__name__, e, exc_info=True)
             return {}
         finally:
             if conn is not None:

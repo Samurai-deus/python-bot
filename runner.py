@@ -574,7 +574,7 @@ async def evaluate_and_send_alerts(duration: float):
                     )
                 })
                 _mark_alert_sent(alert_key)
-                logger.warning(f"WARN alert: Analysis duration {duration:.2f}s > {ALERT_ANALYSIS_TIME:.2f}s")
+                logger.warning("WARN alert: Analysis duration %.2fs > %.2fs", duration, ALERT_ANALYSIS_TIME)
         
         # WARN: Consecutive errors >= WARN_ERROR_THRESHOLD
         if system_state.system_health.consecutive_errors >= WARN_ERROR_THRESHOLD:
@@ -592,7 +592,7 @@ async def evaluate_and_send_alerts(duration: float):
                     )
                 })
                 _mark_alert_sent(alert_key)
-                logger.warning(f"WARN alert: Consecutive errors {system_state.system_health.consecutive_errors} >= {WARN_ERROR_THRESHOLD}")
+                logger.warning("WARN alert: Consecutive errors %s >= %s", system_state.system_health.consecutive_errors, WARN_ERROR_THRESHOLD)
         
         # WARN: Volatility spike (placeholder - пока не отслеживается)
         # TODO: Реализовать отслеживание волатильности
@@ -611,7 +611,7 @@ async def evaluate_and_send_alerts(duration: float):
                     )
                 })
                 _mark_alert_sent(alert_key)
-                logger.warning(f"WARN alert: Volatility {volatility:.3f} > {VOLATILITY_THRESHOLD:.3f}")
+                logger.warning("WARN alert: Volatility %.3f > %.3f", volatility, VOLATILITY_THRESHOLD)
         
         # ========== CRITICAL ALERTS ==========
         
@@ -632,7 +632,7 @@ async def evaluate_and_send_alerts(duration: float):
                     "pause_trading": True
                 })
                 _mark_alert_sent(alert_key)
-                logger.error(f"CRITICAL alert: Analysis duration {duration:.2f}s > {MAX_ANALYSIS_TIME:.2f}s")
+                logger.error("CRITICAL alert: Analysis duration %.2fs > %.2fs", duration, MAX_ANALYSIS_TIME)
         
         # CRITICAL: Consecutive errors >= CRITICAL_ERROR_THRESHOLD
         if system_state.system_health.consecutive_errors >= CRITICAL_ERROR_THRESHOLD:
@@ -651,7 +651,7 @@ async def evaluate_and_send_alerts(duration: float):
                     "pause_trading": True
                 })
                 _mark_alert_sent(alert_key)
-                logger.error(f"CRITICAL alert: Consecutive errors {system_state.system_health.consecutive_errors} >= {CRITICAL_ERROR_THRESHOLD}")
+                logger.error("CRITICAL alert: Consecutive errors %s >= %s", system_state.system_health.consecutive_errors, CRITICAL_ERROR_THRESHOLD)
         
         # CRITICAL: System entered safe_mode
         if system_state.system_health.safe_mode:
@@ -669,7 +669,7 @@ async def evaluate_and_send_alerts(duration: float):
                     "pause_trading": True
                 })
                 _mark_alert_sent(alert_key)
-                logger.error(f"CRITICAL alert: System entered safe_mode")
+                logger.error("CRITICAL alert: System entered safe_mode")
         
         # CRITICAL: Scheduler stall detected (via heartbeat miss)
         # Пропускаем проверку во время стартового grace period — предотвращает ложные срабатывания при инициализации
@@ -694,14 +694,14 @@ async def evaluate_and_send_alerts(duration: float):
                         "pause_trading": True
                     })
                     _mark_alert_sent(alert_key)
-                    logger.error(f"CRITICAL alert: Scheduler stall detected (missed {missed_heartbeats} heartbeats)")
+                    logger.error("CRITICAL alert: Scheduler stall detected (missed %d heartbeats)", missed_heartbeats)
         
         # Отправляем все алерты (неблокирующе)
         for alert in alerts_to_send:
             try:
                 # Отправляем через Telegram (неблокирующе)
                 await send_message_async(alert["message"])
-                logger.info(f"Alert sent: {alert['level']} - {alert['type']}")
+                logger.info("Alert sent: %s - %s", alert['level'], alert['type'])
                 
                 # HARDENING: CRITICAL alerts: приостанавливаем торговлю через manual pause
                 # FIX: используем _metrics_lock для thread-safe мутации (как в pause_trading_manually)
@@ -711,16 +711,16 @@ async def evaluate_and_send_alerts(duration: float):
                         _adaptive_system_state["recovery_cycles"] = 0
                     state_machine = get_state_machine()
                     state_machine.sync_to_system_state(system_state, manual_pause_active=True)
-                    logger.error(f"Trading paused due to CRITICAL alert: {alert['type']}")
+                    logger.error("Trading paused due to CRITICAL alert: %s", alert['type'])
                     
             except asyncio.TimeoutError:
-                logger.warning(f"Timeout sending alert: {alert['level']} - {alert['type']}")
+                logger.warning("Timeout sending alert: %s - %s", alert['level'], alert['type'])
             except Exception as e:
-                logger.warning(f"Error sending alert {alert['level']} - {alert['type']}: {type(e).__name__}: {e}")
+                logger.warning("Error sending alert %s - %s: %s: %s", alert['level'], alert['type'], type(e).__name__, e)
                 
     except Exception as e:
         # Не блокируем analysis loop при ошибках в алертах
-        logger.warning(f"Error in alert evaluation: {type(e).__name__}: {e}")
+        logger.warning("Error in alert evaluation: %s: %s", type(e).__name__, e)
 
 # ========== SINGLE-INSTANCE PROTECTION ==========
 
@@ -745,14 +745,14 @@ def check_single_instance() -> bool:
             try:
                 os.kill(old_pid, 0)  # Signal 0 = проверка существования
                 # Процесс жив - другой экземпляр работает
-                logger.warning(f"Another instance is running (PID: {old_pid}). Exiting.")
+                logger.warning("Another instance is running (PID: %d). Exiting.", old_pid)
                 return False
             except ProcessLookupError:
                 # Процесс не существует - старый PID file
-                logger.info(f"Removing stale PID file (PID: {old_pid} no longer exists)")
+                logger.info("Removing stale PID file (PID: %d no longer exists)", old_pid)
                 pid_path.unlink()
         except (ValueError, IOError) as e:
-            logger.warning(f"Error reading PID file: {e}. Removing it.")
+            logger.warning("Error reading PID file: %s. Removing it.", e)
             try:
                 pid_path.unlink()
             except Exception:
@@ -762,10 +762,10 @@ def check_single_instance() -> bool:
     try:
         with open(pid_path, 'w') as f:
             f.write(str(os.getpid()))
-        logger.info(f"PID file created: {PID_FILE} (PID: {os.getpid()})")
+        logger.info("PID file created: %s (PID: %d)", PID_FILE, os.getpid())
         return True
     except Exception as e:
-        logger.error(f"Failed to create PID file: {e}")
+        logger.error("Failed to create PID file: %s", e)
         return False
 
 def cleanup_pid_file():
@@ -776,7 +776,7 @@ def cleanup_pid_file():
             pid_path.unlink()
             logger.info("PID file removed")
         except Exception as e:
-            logger.warning(f"Failed to remove PID file: {e}")
+            logger.warning("Failed to remove PID file: %s", e)
 
 # ========== THREAD-SAFE HEARTBEAT ACCESS ==========
 def get_last_heartbeat_timestamp() -> Optional[float]:
@@ -872,7 +872,7 @@ class ThreadWatchdog:
         """
         with self.lifecycle_lock:
             if self.lifecycle_state != ThreadWatchdogState.INIT:
-                logger.warning(f"ThreadWatchdog already started (state: {self.lifecycle_state.value})")
+                logger.warning("ThreadWatchdog already started (state: %s)", self.lifecycle_state.value)
                 return
             
             if self.thread is not None and self.thread.is_alive():
@@ -892,10 +892,8 @@ class ThreadWatchdog:
         self.thread.start()
         
         logger.critical(
-            f"THREAD_WATCHDOG_STARTED "
-            f"heartbeat_timeout={self.heartbeat_timeout}s "
-            f"check_interval={THREAD_WATCHDOG_INTERVAL}s "
-            f"lifecycle_state={ThreadWatchdogState.INIT.value}"
+            "THREAD_WATCHDOG_STARTED heartbeat_timeout=%ss check_interval=%ss lifecycle_state=%s",
+            self.heartbeat_timeout, THREAD_WATCHDOG_INTERVAL, ThreadWatchdogState.INIT.value
         )
     
     def arm(self):
@@ -913,15 +911,13 @@ class ThreadWatchdog:
                 if self.first_heartbeat_received and self.event_loop_set:
                     self.lifecycle_state = ThreadWatchdogState.ARMED
                     logger.critical(
-                        f"THREAD_WATCHDOG_ARMED: "
-                        f"first_heartbeat={self.first_heartbeat_received} "
-                        f"event_loop_set={self.event_loop_set}"
+                        "THREAD_WATCHDOG_ARMED: first_heartbeat=%s event_loop_set=%s",
+                        self.first_heartbeat_received, self.event_loop_set
                     )
                 else:
                     logger.debug(
-                        f"THREAD_WATCHDOG_NOT_READY: "
-                        f"first_heartbeat={self.first_heartbeat_received} "
-                        f"event_loop_set={self.event_loop_set}"
+                        "THREAD_WATCHDOG_NOT_READY: first_heartbeat=%s event_loop_set=%s",
+                        self.first_heartbeat_received, self.event_loop_set
                     )
     
     def stop(self, timeout: float = 5.0):
@@ -988,10 +984,8 @@ class ThreadWatchdog:
                         
                         if duration >= safe_mode_ttl:
                             logger.critical(
-                                f"THREAD_WATCHDOG: SAFE_MODE TTL expired - "
-                                f"duration={duration:.1f}s >= ttl={safe_mode_ttl}s, "
-                                f"calling os._exit({FATAL_EXIT_CODE}) "
-                                f"(invariant: SAFE_MODE TTL ⇒ exit even if asyncio stalled)"
+                                "THREAD_WATCHDOG: SAFE_MODE TTL expired - duration=%.1fs >= ttl=%ss, calling os._exit(%s) (invariant: SAFE_MODE TTL => exit even if asyncio stalled)",
+                                duration, safe_mode_ttl, FATAL_EXIT_CODE
                             )
                             # КРИТИЧНО: os._exit напрямую, не через asyncio
                             os._exit(FATAL_EXIT_CODE)
@@ -1034,7 +1028,7 @@ class ThreadWatchdog:
             except Exception as e:
                 # Критическая ошибка в watchdog - логируем, но продолжаем
                 logger.error(
-                    f"THREAD_WATCHDOG_ERROR: {type(e).__name__}: {e}",
+                    "THREAD_WATCHDOG_ERROR: %s: %s", type(e).__name__, e,
                     exc_info=True
                 )
                 # Небольшая задержка перед следующей проверкой
@@ -1060,8 +1054,8 @@ class ThreadWatchdog:
                     return
                 if self.lifecycle_state != ThreadWatchdogState.ARMED:
                     logger.warning(
-                        f"THREAD_WATCHDOG: Cannot trigger in state {self.lifecycle_state.value}, "
-                        f"must be ARMED"
+                        "THREAD_WATCHDOG: Cannot trigger in state %s, must be ARMED",
+                        self.lifecycle_state.value
                     )
                     return
                 
@@ -1077,11 +1071,8 @@ class ThreadWatchdog:
         incident_id = f"thread-watchdog-{uuid.uuid4().hex[:8]}"
         
         logger.critical(
-            f"THREAD_WATCHDOG_TRIGGERED "
-            f"time_since_heartbeat={time_since_heartbeat:.1f}s "
-            f"heartbeat_timeout={self.heartbeat_timeout}s "
-            f"last_heartbeat_ts={last_heartbeat_ts} "
-            f"incident_id={incident_id}"
+            "THREAD_WATCHDOG_TRIGGERED time_since_heartbeat=%.1fs heartbeat_timeout=%ss last_heartbeat_ts=%s incident_id=%s",
+            time_since_heartbeat, self.heartbeat_timeout, last_heartbeat_ts, incident_id
         )
         
         # HARDENING: Проверяем состояние через state machine (thread-safe чтение)
@@ -1105,13 +1096,13 @@ class ThreadWatchdog:
         
         if success:
             logger.critical(
-                f"THREAD_WATCHDOG_EVENT_SENT: LOOP_STALL event queued for state machine "
-                f"incident_id={incident_id}"
+                "THREAD_WATCHDOG_EVENT_SENT: LOOP_STALL event queued for state machine incident_id=%s",
+                incident_id
             )
         else:
             logger.error(
-                f"THREAD_WATCHDOG_EVENT_FAILED: Failed to queue LOOP_STALL event "
-                f"incident_id={incident_id}"
+                "THREAD_WATCHDOG_EVENT_FAILED: Failed to queue LOOP_STALL event incident_id=%s",
+                incident_id
             )
 
 
@@ -1182,7 +1173,7 @@ class FatalReaper:
             daemon=True
         )
         self.thread.start()
-        logger.critical(f"FATAL_REAPER_STARTED check_interval={self.check_interval}s")
+        logger.critical("FATAL_REAPER_STARTED check_interval=%ss", self.check_interval)
     
     def stop(self):
         """Останавливает FATAL_REAPER"""
@@ -1219,9 +1210,8 @@ class FatalReaper:
                 
                 if current_state == SystemStateEnum.FATAL:
                     logger.critical(
-                        f"FATAL_REAPER: FATAL state detected - "
-                        f"calling os._exit({FATAL_EXIT_CODE}) "
-                        f"(invariant: FATAL ⇒ process MUST exit)"
+                        "FATAL_REAPER: FATAL state detected - calling os._exit(%s) (invariant: FATAL => process MUST exit)",
+                        FATAL_EXIT_CODE
                     )
                     # КРИТИЧНО: os._exit, не sys.exit
                     # os._exit убивает процесс немедленно, не вызывая cleanup
@@ -1231,7 +1221,7 @@ class FatalReaper:
             except Exception as e:
                 # Критическая ошибка в reaper - логируем, но продолжаем
                 logger.error(
-                    f"FATAL_REAPER_ERROR: {type(e).__name__}: {e}",
+                    "FATAL_REAPER_ERROR: %s: %s", type(e).__name__, e,
                     exc_info=True
                 )
                 # Небольшая задержка перед следующей проверкой
@@ -1291,14 +1281,15 @@ def set_runtime_lifecycle_state(new_state: RuntimeLifecycleState, reason: str) -
         
         if new_state not in allowed_transitions.get(old_state, set()):
             logger.critical(
-                f"RUNTIME_LIFECYCLE_STATE_TRANSITION_DENIED: "
-                f"from={old_state.value} to={new_state.value} reason={reason}"
+                "RUNTIME_LIFECYCLE_STATE_TRANSITION_DENIED: from=%s to=%s reason=%s",
+                old_state.value, new_state.value, reason
             )
             return False
         
         _runtime_lifecycle_state = new_state
         logger.critical(
-            f"RUNTIME_LIFECYCLE_STATE_TRANSITION: from={old_state.value} to={new_state.value} reason={reason}"
+            "RUNTIME_LIFECYCLE_STATE_TRANSITION: from=%s to=%s reason=%s",
+            old_state.value, new_state.value, reason
         )
         return True
 
@@ -1333,17 +1324,17 @@ def signal_handler(signum, frame):
     current_state = get_runtime_lifecycle_state()
     if current_state != RuntimeLifecycleState.RUNNING:
         logger.critical(
-            f"RUNTIME_LIFECYCLE_STATE: Shutdown already in progress (state={current_state.value}), "
-            f"ignoring {signal_name} signal"
+            "RUNTIME_LIFECYCLE_STATE: Shutdown already in progress (state=%s), ignoring %s signal",
+            current_state.value, signal_name
         )
         return
     
     # Transition to SHUTTING_DOWN
     if not set_runtime_lifecycle_state(RuntimeLifecycleState.SHUTTING_DOWN, f"Received {signal_name} signal"):
-        logger.critical(f"RUNTIME_LIFECYCLE_STATE: Failed to transition to SHUTTING_DOWN, already shutting down")
+        logger.critical("RUNTIME_LIFECYCLE_STATE: Failed to transition to SHUTTING_DOWN, already shutting down")
         return
     
-    logger.critical(f"Received {signal_name} signal. Initiating graceful shutdown...")
+    logger.critical("Received %s signal. Initiating graceful shutdown...", signal_name)
     
     # Set flags for immediate effect
     system_state.system_health.is_running = False
@@ -1360,13 +1351,13 @@ def signal_handler(signum, frame):
         try:
             watchdog.stop(timeout=2.0)
         except Exception as e:
-            logger.warning(f"Error stopping ThreadWatchdog: {type(e).__name__}: {e}")
+            logger.warning("Error stopping ThreadWatchdog: %s: %s", type(e).__name__, e)
     
     if reaper:
         try:
             reaper.stop()
         except Exception as e:
-            logger.warning(f"Error stopping FATAL_REAPER: {type(e).__name__}: {e}")
+            logger.warning("Error stopping FATAL_REAPER: %s: %s", type(e).__name__, e)
     
     # Set shutdown event (if event loop is running)
     # This is safe - if loop doesn't exist, it will be created on first access
@@ -1415,8 +1406,8 @@ def register_task(task: asyncio.Task, name: str) -> asyncio.Task:
     current_state = get_runtime_lifecycle_state()
     if current_state != RuntimeLifecycleState.RUNNING:
         logger.critical(
-            f"RUNTIME_LIFECYCLE_STATE: Task registration blocked - runtime lifecycle state is {current_state.value}, "
-            f"cannot register task '{name}'"
+            "RUNTIME_LIFECYCLE_STATE: Task registration blocked - runtime lifecycle state is %s, cannot register task '%s'",
+            current_state.value, name
         )
         # Cancel the task immediately since we can't register it
         task.cancel()
@@ -1424,7 +1415,7 @@ def register_task(task: asyncio.Task, name: str) -> asyncio.Task:
     
     task.set_name(name)
     RUNNING_TASKS.add(task)
-    logger.debug(f"Task registered: {name} (total: {len(RUNNING_TASKS)})")
+    logger.debug("Task registered: %s (total: %d)", name, len(RUNNING_TASKS))
     
     def task_done_callback(t: asyncio.Task):
         """Auto-removes task from registry when done; logs unhandled exceptions."""
@@ -1433,10 +1424,11 @@ def register_task(task: asyncio.Task, name: str) -> asyncio.Task:
             exc = t.exception()
             if exc:
                 logger.error(
-                    f"Task '{name}' failed with unhandled exception: {type(exc).__name__}: {exc}",
+                    "Task '%s' failed with unhandled exception: %s: %s",
+                    name, type(exc).__name__, exc,
                     exc_info=exc,
                 )
-        logger.debug(f"Task completed: {name} (remaining: {len(RUNNING_TASKS)})")
+        logger.debug("Task completed: %s (remaining: %d)", name, len(RUNNING_TASKS))
     
     task.add_done_callback(task_done_callback)
     return task
@@ -1459,16 +1451,16 @@ async def shutdown_all_tasks(timeout: float = 10.0):
         return
     
     tasks_to_cancel = list(RUNNING_TASKS)
-    logger.info(f"Cancelling {len(tasks_to_cancel)} registered tasks...")
+    logger.info("Cancelling %d registered tasks...", len(tasks_to_cancel))
     
     # Cancel all tasks with logging
     for task in tasks_to_cancel:
         task_name = task.get_name() if hasattr(task, 'get_name') else str(task)
         if not task.done():
-            logger.debug(f"Cancelling task: {task_name}")
+            logger.debug("Cancelling task: %s", task_name)
             task.cancel()
         else:
-            logger.debug(f"Task already done: {task_name}")
+            logger.debug("Task already done: %s", task_name)
     
     # Wait for completion with logging
     # CRITICAL: Use return_exceptions=True so one failing task doesn't block others
@@ -1480,13 +1472,13 @@ async def shutdown_all_tasks(timeout: float = 10.0):
         task_name = task.get_name() if hasattr(task, 'get_name') else str(task)
         if isinstance(result, Exception):
             if isinstance(result, asyncio.CancelledError):
-                logger.debug(f"Task cancelled: {task_name}")
+                logger.debug("Task cancelled: %s", task_name)
             else:
-                logger.warning(f"Task completed with exception: {task_name}: {type(result).__name__}: {result}")
+                logger.warning("Task completed with exception: %s: %s: %s", task_name, type(result).__name__, result)
         else:
-            logger.debug(f"Task completed successfully: {task_name}")
+            logger.debug("Task completed successfully: %s", task_name)
     
-    logger.info(f"All {len(tasks_to_cancel)} registered tasks cancelled and completed")
+    logger.info("All %d registered tasks cancelled and completed", len(tasks_to_cancel))
 
 
 # ========== ITERATION BUDGET ENFORCEMENT ==========
@@ -1602,7 +1594,7 @@ async def run_market_analysis():
     
     start_time = time.time()
     symbols = _active_symbols if _active_symbols else SYMBOLS
-    logger.info(f"🚀 Начало анализа {len(symbols)} символов")
+    logger.info("🚀 Начало анализа %d символов", len(symbols))
     
     # Проверка торгового времени
     if not is_good_time():
@@ -1624,7 +1616,7 @@ async def run_market_analysis():
         
         # Check budget and yield
         if not await budget_tracker.check_and_yield():
-            logger.warning(f"⏱ Iteration budget exceeded ({budget_tracker.elapsed():.1f}s) after initialization - continuing with degraded mode")
+            logger.warning("⏱ Iteration budget exceeded (%.1fs) after initialization - continuing with degraded mode", budget_tracker.elapsed())
         
         # Параллельная загрузка данных (синхронная операция в отдельном потоке)
         logger.info("📥 Параллельная загрузка данных...")
@@ -1647,12 +1639,12 @@ async def run_market_analysis():
             system_state.record_error("Data loading timeout (non-critical)")
             return False  # Возвращаем False, но не активируем safe_mode
         load_time = time.time() - load_start
-        logger.info(f"✅ Данные загружены за {load_time:.2f} секунд")
+        logger.info("✅ Данные загружены за %.2f секунд", load_time)
         
         # Check budget and yield after data loading (shutdown-aware)
         try:
             if not await budget_tracker.check_and_yield():
-                logger.warning(f"⏱ Iteration budget exceeded ({budget_tracker.elapsed():.1f}s) after data loading - deferring remaining work to next iteration")
+                logger.warning("⏱ Iteration budget exceeded (%.1fs) after data loading - deferring remaining work to next iteration", budget_tracker.elapsed())
                 return False  # Defer remaining work to next iteration
         except asyncio.CancelledError:
             logger.info("Iteration cancelled due to shutdown")
@@ -1666,7 +1658,7 @@ async def run_market_analysis():
                 asyncio.to_thread(market_regime_brain.analyze, symbols, all_candles, system_state),
                 timeout=30.0
             )
-            logger.info(f"   Режим: {market_regime.trend_type}, Волатильность: {market_regime.volatility_level}, Risk: {market_regime.risk_sentiment}")
+            logger.info("   Режим: %s, Волатильность: %s, Risk: %s", market_regime.trend_type, market_regime.volatility_level, market_regime.risk_sentiment)
             # Обновляем состояние волатильности для адаптивной системы
             if market_regime and hasattr(market_regime, 'volatility_level'):
                 update_volatility_state(market_regime.volatility_level)
@@ -1674,7 +1666,7 @@ async def run_market_analysis():
             logger.error("⏱ Таймаут анализа Market Regime Brain (30 сек)")
             market_regime = None
         except Exception as e:
-            logger.error(f"⚠️ Ошибка в Market Regime Brain: {type(e).__name__}: {e}")
+            logger.error("⚠️ Ошибка в Market Regime Brain: %s: %s", type(e).__name__, e)
             market_regime = None
         
         logger.debug("🧠 Анализ Risk & Exposure Brain...")
@@ -1683,12 +1675,12 @@ async def run_market_analysis():
                 asyncio.to_thread(risk_exposure_brain.analyze, symbols, all_candles, system_state),
                 timeout=30.0
             )
-            logger.info(f"   Риск: {risk_exposure.total_risk_pct:.2f}%, Позиций: {risk_exposure.active_positions}, Перегрузка: {risk_exposure.is_overloaded}")
+            logger.info("   Риск: %.2f%%, Позиций: %s, Перегрузка: %s", risk_exposure.total_risk_pct, risk_exposure.active_positions, risk_exposure.is_overloaded)
         except asyncio.TimeoutError:
             logger.error("⏱ Таймаут анализа Risk & Exposure Brain (30 сек)")
             risk_exposure = None
         except Exception as e:
-            logger.error(f"⚠️ Ошибка в Risk & Exposure Brain: {type(e).__name__}: {e}")
+            logger.error("⚠️ Ошибка в Risk & Exposure Brain: %s: %s", type(e).__name__, e)
             risk_exposure = None
         
         logger.debug("🧠 Анализ Cognitive Filter...")
@@ -1697,18 +1689,18 @@ async def run_market_analysis():
                 asyncio.to_thread(cognitive_filter.analyze, system_state),
                 timeout=30.0
             )
-            logger.debug(f"   Пере-торговля: {cognitive_state.overtrading_score:.2f}, Пауза: {cognitive_state.should_pause}")
+            logger.debug("   Пере-торговля: %.2f, Пауза: %s", cognitive_state.overtrading_score, cognitive_state.should_pause)
         except asyncio.TimeoutError:
             logger.error("⏱ Таймаут анализа Cognitive Filter (30 сек)")
             cognitive_state = None
         except Exception as e:
-            logger.error(f"⚠️ Ошибка в Cognitive Filter: {type(e).__name__}: {e}")
+            logger.error("⚠️ Ошибка в Cognitive Filter: %s: %s", type(e).__name__, e)
             cognitive_state = None
         
         # Check budget and yield after brain analysis (shutdown-aware)
         try:
             if not await budget_tracker.check_and_yield():
-                logger.warning(f"⏱ Iteration budget exceeded ({budget_tracker.elapsed():.1f}s) after brain analysis - deferring remaining work to next iteration")
+                logger.warning("⏱ Iteration budget exceeded (%.1fs) after brain analysis - deferring remaining work to next iteration", budget_tracker.elapsed())
                 return False  # Defer remaining work to next iteration
         except asyncio.CancelledError:
             logger.info("Iteration cancelled due to shutdown")
@@ -1722,9 +1714,8 @@ async def run_market_analysis():
             if "FAULT_INJECTION: decision_exception" in str(e):
                 # Fault injection - логируем структурированно и продолжаем
                 logger.error(
-                    f"FAULT_INJECTION: decision_exception - "
-                    f"Controlled exception from DecisionCore.should_i_trade(). "
-                    f"Runtime continues. error_type=RuntimeError error_message={str(e)}"
+                    "FAULT_INJECTION: decision_exception - Controlled exception from DecisionCore.should_i_trade(). Runtime continues. error_type=RuntimeError error_message=%s",
+                    e
                 )
                 # Записываем ошибку для health tracking
                 system_state.record_error("FAULT_INJECTION: decision_exception")
@@ -1740,9 +1731,8 @@ async def run_market_analysis():
                             metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                         )
                         logger.warning(
-                            f"SAFE-MODE activated after fault injection: "
-                            f"consecutive_errors={system_state.system_health.consecutive_errors} "
-                            f">= MAX_CONSECUTIVE_ERRORS={MAX_CONSECUTIVE_ERRORS}"
+                            "SAFE-MODE activated after fault injection: consecutive_errors=%s >= MAX_CONSECUTIVE_ERRORS=%s",
+                            system_state.system_health.consecutive_errors, MAX_CONSECUTIVE_ERRORS
                         )
                 
                 # Возвращаем False для цикла анализа (ошибка обработана)
@@ -1752,7 +1742,7 @@ async def run_market_analysis():
                 raise
         
         if not global_decision.can_trade:
-            logger.info(f"⏸ Decision Core блокирует торговлю: {global_decision.reason}")
+            logger.info("⏸ Decision Core блокирует торговлю: %s", global_decision.reason)
             _notify_task = asyncio.create_task(
                 send_message_async(f"🧠 Decision Core: {global_decision.reason}\n\nРекомендации:\n" + "\n".join(f"• {r}" for r in global_decision.recommendations)),
                 name="TelegramNotify",
@@ -1764,7 +1754,7 @@ async def run_market_analysis():
         # Check budget and yield after decision core check (shutdown-aware)
         try:
             if not await budget_tracker.check_and_yield():
-                logger.warning(f"⏱ Iteration budget exceeded ({budget_tracker.elapsed():.1f}s) after decision core - deferring remaining work to next iteration")
+                logger.warning("⏱ Iteration budget exceeded (%.1fs) after decision core - deferring remaining work to next iteration", budget_tracker.elapsed())
                 return False  # Defer remaining work to next iteration
         except asyncio.CancelledError:
             logger.info("Iteration cancelled due to shutdown")
@@ -1780,12 +1770,12 @@ async def run_market_analysis():
         except asyncio.TimeoutError:
             logger.warning("⏱ Таймаут проверки резких движений")
         except Exception as e:
-            logger.warning(f"⚠️ Ошибка при проверке резких движений: {e}")
+            logger.warning("⚠️ Ошибка при проверке резких движений: %s", e)
         
         # Check budget and yield after spike check (shutdown-aware)
         try:
             if not await budget_tracker.check_and_yield():
-                logger.warning(f"⏱ Iteration budget exceeded ({budget_tracker.elapsed():.1f}s) after spike check - deferring remaining work to next iteration")
+                logger.warning("⏱ Iteration budget exceeded (%.1fs) after spike check - deferring remaining work to next iteration", budget_tracker.elapsed())
                 return False  # Defer remaining work to next iteration
         except asyncio.CancelledError:
             logger.info("Iteration cancelled due to shutdown")
@@ -1804,13 +1794,13 @@ async def run_market_analysis():
             logger.warning("⏱ Таймаут анализа корреляций")
             market_correlations = {}
         except Exception as e:
-            logger.warning(f"⚠️ Ошибка при анализе корреляций: {e}")
+            logger.warning("⚠️ Ошибка при анализе корреляций: %s", e)
             market_correlations = {}
         
         # Check budget and yield after correlation analysis (shutdown-aware)
         try:
             if not await budget_tracker.check_and_yield():
-                logger.warning(f"⏱ Iteration budget exceeded ({budget_tracker.elapsed():.1f}s) after correlation analysis - deferring remaining work to next iteration")
+                logger.warning("⏱ Iteration budget exceeded (%.1fs) after correlation analysis - deferring remaining work to next iteration", budget_tracker.elapsed())
                 return False  # Defer remaining work to next iteration
         except asyncio.CancelledError:
             logger.info("Iteration cancelled due to shutdown")
@@ -1832,7 +1822,10 @@ async def run_market_analysis():
                 ),
                 timeout=120.0
             )
-            logger.info(f"📊 Статистика сигналов: обработано {signal_stats['processed']}, отправлено {signal_stats['signals_sent']}, заблокировано {signal_stats['signals_blocked']}, ошибок {signal_stats['errors']}")
+            logger.info(
+                "📊 Статистика сигналов: обработано %s, отправлено %s, заблокировано %s, ошибок %s",
+                signal_stats['processed'], signal_stats['signals_sent'], signal_stats['signals_blocked'], signal_stats['errors']
+            )
         except asyncio.TimeoutError:
             # TimeoutError при генерации сигналов - мягкое предупреждение, не авария
             logger.warning(
@@ -1843,13 +1836,13 @@ async def run_market_analysis():
             system_state.record_error("Signal generation timeout (non-critical)")
             # Продолжаем выполнение - не возвращаем False, чтобы цикл продолжался
         except Exception as e:
-            logger.error(f"⚠️ Ошибка при генерации сигналов: {type(e).__name__}: {e}")
+            logger.error("⚠️ Ошибка при генерации сигналов: %s: %s", type(e).__name__, e)
             logger.error(traceback.format_exc())
         
         # Check budget and yield after signal generation (shutdown-aware)
         try:
             if not await budget_tracker.check_and_yield():
-                logger.warning(f"⏱ Iteration budget exceeded ({budget_tracker.elapsed():.1f}s) after signal generation - deferring remaining work to next iteration")
+                logger.warning("⏱ Iteration budget exceeded (%.1fs) after signal generation - deferring remaining work to next iteration", budget_tracker.elapsed())
                 # Note: Signal generation is the last major step, so we continue to completion
         except asyncio.CancelledError:
             logger.info("Iteration cancelled due to shutdown")
@@ -1858,18 +1851,18 @@ async def run_market_analysis():
         # Статистика Gatekeeper
         gatekeeper_stats = gatekeeper.get_stats()
         if gatekeeper_stats["total"] > 0:
-            logger.info(f"🚪 Gatekeeper: одобрено {gatekeeper_stats['approved']}, заблокировано {gatekeeper_stats['blocked']}")
+            logger.info("🚪 Gatekeeper: одобрено %s, заблокировано %s", gatekeeper_stats['approved'], gatekeeper_stats['blocked'])
         
         total_time = time.time() - start_time
         elapsed_budget = budget_tracker.elapsed()
         
         # Log budget status
         if elapsed_budget > ITERATION_BUDGET_SECONDS:
-            logger.warning(f"⏱ Iteration completed in {total_time:.2f}s (budget: {ITERATION_BUDGET_SECONDS}s, exceeded by {elapsed_budget - ITERATION_BUDGET_SECONDS:.1f}s)")
+            logger.warning("⏱ Iteration completed in %.2fs (budget: %ss, exceeded by %.1fs)", total_time, ITERATION_BUDGET_SECONDS, elapsed_budget - ITERATION_BUDGET_SECONDS)
         else:
-            logger.debug(f"⏱ Iteration completed in {total_time:.2f}s (budget: {ITERATION_BUDGET_SECONDS}s, remaining: {budget_tracker.remaining():.1f}s)")
+            logger.debug("⏱ Iteration completed in %.2fs (budget: %ss, remaining: %.1fs)", total_time, ITERATION_BUDGET_SECONDS, budget_tracker.remaining())
         
-        logger.info(f"✅ Анализ завершен за {total_time:.2f} секунд")
+        logger.info("✅ Анализ завершен за %.2f секунд", total_time)
         
         # Успешное выполнение
         system_state.reset_errors()
@@ -1889,9 +1882,8 @@ async def run_market_analysis():
                 # Обработка fault injection из storage layer
                 if "FAULT_INJECTION: storage_failure" in str(e):
                     logger.error(
-                        f"FAULT_INJECTION: storage_failure - "
-                        f"Controlled exception from storage layer. "
-                        f"Runtime continues. error_type=IOError error_message={str(e)}"
+                        "FAULT_INJECTION: storage_failure - Controlled exception from storage layer. Runtime continues. error_type=IOError error_message=%s",
+                        e
                     )
                     # Записываем ошибку для health tracking
                     system_state.record_error("FAULT_INJECTION: storage_failure")
@@ -1907,15 +1899,14 @@ async def run_market_analysis():
                                 metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                             )
                             logger.warning(
-                                f"SAFE-MODE activated after storage fault injection: "
-                                f"consecutive_errors={system_state.system_health.consecutive_errors} "
-                                f">= MAX_CONSECUTIVE_ERRORS={MAX_CONSECUTIVE_ERRORS}"
+                                "SAFE-MODE activated after storage fault injection: consecutive_errors=%s >= MAX_CONSECUTIVE_ERRORS=%s",
+                                system_state.system_health.consecutive_errors, MAX_CONSECUTIVE_ERRORS
                             )
                 else:
                     # Другие IOError - логируем как обычную ошибку
-                    logger.warning(f"⚠️ Ошибка сохранения snapshot: {e}")
+                    logger.warning("⚠️ Ошибка сохранения snapshot: %s", e)
             except Exception as e:
-                logger.warning(f"⚠️ Ошибка сохранения snapshot: {e}")
+                logger.warning("⚠️ Ошибка сохранения snapshot: %s", e)
         
         return True
         
@@ -1944,17 +1935,14 @@ async def run_market_analysis():
         if is_fault_injection:
             # Структурированное логирование для fault injection
             logger.error(
-                f"FAULT_INJECTION: decision_exception - "
-                f"Controlled exception injected for resilience testing. "
-                f"Runtime continues normally. "
-                f"error_type={type(e).__name__} "
-                f"error_message={str(e)}"
+                "FAULT_INJECTION: decision_exception - Controlled exception injected for resilience testing. Runtime continues normally. error_type=%s error_message=%s",
+                type(e).__name__, e
             )
         else:
-            logger.error(f"{error_msg}\n{error_trace}")
-        
+            logger.error("%s\n%s", error_msg, error_trace)
+
         system_state.record_error(str(e))
-        
+
         # HARDENING: Включаем safe-mode при множественных ошибках через state machine
         state_machine = get_state_machine()
         if system_state.system_health.consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
@@ -1966,9 +1954,8 @@ async def run_market_analysis():
                     metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                 )
                 logger.warning(
-                    f"SAFE-MODE activated: consecutive_errors={system_state.system_health.consecutive_errors} "
-                    f">= MAX_CONSECUTIVE_ERRORS={MAX_CONSECUTIVE_ERRORS}. "
-                    f"Trading blocked for safety."
+                    "SAFE-MODE activated: consecutive_errors=%s >= MAX_CONSECUTIVE_ERRORS=%s. Trading blocked for safety.",
+                    system_state.system_health.consecutive_errors, MAX_CONSECUTIVE_ERRORS
                 )
         
         # Отправляем уведомление
@@ -2141,7 +2128,7 @@ async def market_analysis_loop():
                         old_base = base_interval
                         base_interval = max(ADAPTIVE_INTERVAL_MIN, base_interval / ADAPTIVE_INTERVAL_MULTIPLIER)
                         if base_interval < old_base:
-                            logger.info(f"📉 Adaptive base interval decreased: {old_base:.0f}s → {base_interval:.0f}s (stable cycles: {adaptive_state['stable_cycles']})")
+                            logger.info("📉 Adaptive base interval decreased: %.0fs → %.0fs (stable cycles: %s)", old_base, base_interval, adaptive_state['stable_cycles'])
                             adaptive_state["stable_cycles"] = 0
                 else:
                     # Есть ошибки - увеличиваем базовый интервал
@@ -2150,7 +2137,7 @@ async def market_analysis_loop():
                         old_base = base_interval
                         base_interval = min(ADAPTIVE_INTERVAL_MAX, base_interval * ADAPTIVE_INTERVAL_MULTIPLIER)
                         if base_interval > old_base:
-                            logger.info(f"📈 Adaptive base interval increased: {old_base:.0f}s → {base_interval:.0f}s (errors: {consecutive_errors})")
+                            logger.info("📈 Adaptive base interval increased: %.0fs → %.0fs (errors: %s)", old_base, base_interval, consecutive_errors)
                 
                 # Обновляем базовый интервал в глобальном состоянии
                 _adaptive_system_state["adaptive_interval"] = base_interval
@@ -2168,7 +2155,7 @@ async def market_analysis_loop():
                         old_interval = current_interval
                         current_interval = max(ADAPTIVE_INTERVAL_MIN, current_interval / ADAPTIVE_INTERVAL_MULTIPLIER)
                         if current_interval < old_interval:
-                            logger.info(f"📉 Adaptive interval decreased: {old_interval:.0f}s → {current_interval:.0f}s (stable cycles: {adaptive_state['stable_cycles']})")
+                            logger.info("📉 Adaptive interval decreased: %.0fs → %.0fs (stable cycles: %s)", old_interval, current_interval, adaptive_state['stable_cycles'])
                             adaptive_state["stable_cycles"] = 0
                 else:
                     adaptive_state["stable_cycles"] = 0
@@ -2176,7 +2163,7 @@ async def market_analysis_loop():
                         old_interval = current_interval
                         current_interval = min(ADAPTIVE_INTERVAL_MAX, current_interval * ADAPTIVE_INTERVAL_MULTIPLIER)
                         if current_interval > old_interval:
-                            logger.info(f"📈 Adaptive interval increased: {old_interval:.0f}s → {current_interval:.0f}s (errors: {consecutive_errors})")
+                            logger.info("📈 Adaptive interval increased: %.0fs → %.0fs (errors: %s)", old_interval, current_interval, consecutive_errors)
             
             # 2. Auto-resume trading (на основе последовательных успешных циклов)
             # ВАЖНО: Manual pause переопределяет auto-resume
@@ -2195,7 +2182,7 @@ async def market_analysis_loop():
                         _adaptive_system_state["recovery_cycles"] += 1
                         remaining = AUTO_RESUME_SUCCESS_CYCLES - _adaptive_system_state["recovery_cycles"]
                         if remaining > 0:
-                            logger.debug(f"🔄 Recovery progress: {_adaptive_system_state['recovery_cycles']}/{AUTO_RESUME_SUCCESS_CYCLES} successful cycles (remaining: {remaining})")
+                            logger.debug("🔄 Recovery progress: %s/%s successful cycles (remaining: %s)", _adaptive_system_state['recovery_cycles'], AUTO_RESUME_SUCCESS_CYCLES, remaining)
                         else:
                             # Достаточно успешных циклов - возобновляем торговлю
                             # HARDENING: safe_mode MUST ONLY be cleared by successful recovery cycles через state machine
@@ -2206,13 +2193,13 @@ async def market_analysis_loop():
                                     reason=f"Auto-resume: {AUTO_RESUME_SUCCESS_CYCLES} successful recovery cycles",
                                     owner="market_analysis_loop"
                                 )
-                                logger.info(f"✅ Safe mode cleared after {AUTO_RESUME_SUCCESS_CYCLES} successful recovery cycles")
+                                logger.info("✅ Safe mode cleared after %s successful recovery cycles", AUTO_RESUME_SUCCESS_CYCLES)
                             
                             # HARDENING: trading_paused управляется state machine (derived property)
                             # После выхода из SAFE_MODE trading_paused автоматически False
                             state_machine.sync_to_system_state(system_state, manual_pause_active=_control_plane_state.get("manual_pause_active", False))
                             _adaptive_system_state["recovery_cycles"] = 0
-                            logger.info(f"🔄 Trading auto-resumed after {AUTO_RESUME_SUCCESS_CYCLES} successful cycles")
+                            logger.info("🔄 Trading auto-resumed after %s successful cycles", AUTO_RESUME_SUCCESS_CYCLES)
                             # Отправляем уведомление
                             _t = asyncio.create_task(
                                 send_message_async(f"✅ **Trading resumed**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} successful analysis cycles. Trading is now active."),
@@ -2223,7 +2210,7 @@ async def market_analysis_loop():
                     else:
                         # Ошибка или неуспешный цикл - сбрасываем счетчик
                         if _adaptive_system_state["recovery_cycles"] > 0:
-                            logger.debug(f"🔄 Recovery reset: error detected (was {_adaptive_system_state['recovery_cycles']}/{AUTO_RESUME_SUCCESS_CYCLES})")
+                            logger.debug("🔄 Recovery reset: error detected (was %s/%s)", _adaptive_system_state['recovery_cycles'], AUTO_RESUME_SUCCESS_CYCLES)
                         _adaptive_system_state["recovery_cycles"] = 0
                 else:
                     # Торговля активна - сбрасываем счетчик восстановления
@@ -2236,7 +2223,7 @@ async def market_analysis_loop():
                 # Сбрасываем счетчик при входе в safe_mode
                 if system_state.system_health.safe_mode:
                     if _adaptive_system_state["recovery_cycles"] > 0:
-                        logger.debug(f"🔄 Recovery reset: safe_mode activated (was {_adaptive_system_state['recovery_cycles']}/{AUTO_RESUME_SUCCESS_CYCLES})")
+                        logger.debug("🔄 Recovery reset: safe_mode activated (was %s/%s)", _adaptive_system_state['recovery_cycles'], AUTO_RESUME_SUCCESS_CYCLES)
                     _adaptive_system_state["recovery_cycles"] = 0
             else:
                 # Auto-resume отключен - используем старую логику на основе safe_mode exit
@@ -2255,7 +2242,7 @@ async def market_analysis_loop():
                         state_machine = get_state_machine()
                         state_machine.sync_to_system_state(system_state, manual_pause_active=_control_plane_state.get("manual_pause_active", False))
                         adaptive_state["safe_mode_exit_time"] = None
-                        logger.info(f"🔄 Trading auto-resumed after safe_mode exit (delay: {AUTO_RESUME_SAFE_MODE_DELAY}s)")
+                        logger.info("🔄 Trading auto-resumed after safe_mode exit (delay: %ss)", AUTO_RESUME_SAFE_MODE_DELAY)
                         # Отправляем уведомление
                         _t = asyncio.create_task(
                             send_message_async("✅ **Trading resumed**\n\nSystem recovered from safe mode. Trading is now active."),
@@ -2290,7 +2277,7 @@ async def market_analysis_loop():
                     raise
                 except Exception as e:
                     logger.error(
-                        f"Alert evaluation task failed: {type(e).__name__}: {e}",
+                        "Alert evaluation task failed: %s: %s", type(e).__name__, e,
                         exc_info=True
                     )
             
@@ -2302,7 +2289,7 @@ async def market_analysis_loop():
                     exc = t.exception()
                     if exc:
                         logger.error(
-                            f"AlertEvaluation task failed: {type(exc).__name__}: {exc}",
+                            "AlertEvaluation task failed: %s: %s", type(exc).__name__, exc,
                             exc_info=exc,
                         )
             alert_task.add_done_callback(_alert_task_done)
@@ -2396,7 +2383,7 @@ async def market_analysis_loop():
             logger.info("Market analysis loop cancelled")
             break
         except Exception as e:
-            logger.error(f"Critical error in market analysis loop: {type(e).__name__}: {e}")
+            logger.error("Critical error in market analysis loop: %s: %s", type(e).__name__, e)
             logger.error(traceback.format_exc())
             # Пауза с проверкой shutdown
             # Используем await asyncio.sleep() с проверкой shutdown каждую секунду
@@ -2476,10 +2463,8 @@ async def runtime_heartbeat_loop():
                 # Обнаружен пропуск heartbeats - возможен stall event loop
                 missed_heartbeats = int((time_since_last - expected_interval) / expected_interval)
                 logger.warning(
-                    f"HEARTBEAT_MISS detected - "
-                    f"time_since_last={time_since_last:.1f}s "
-                    f"(expected={expected_interval}s) "
-                    f"missed_heartbeats={missed_heartbeats}"
+                    "HEARTBEAT_MISS detected - time_since_last=%.1fs (expected=%ss) missed_heartbeats=%d",
+                    time_since_last, expected_interval, missed_heartbeats
                 )
                 
                 # ========== PROMETHEUS METRICS (NON-BLOCKING) ==========
@@ -2504,10 +2489,8 @@ async def runtime_heartbeat_loop():
                             metadata={"missed_heartbeats": missed_heartbeats, "incident_id": incident_id}
                         )
                         logger.critical(
-                            f"HEARTBEAT_ENFORCEMENT: SAFE_MODE activated - "
-                            f"missed_heartbeats={missed_heartbeats} "
-                            f">= threshold={HEARTBEAT_MISS_ENFORCEMENT_THRESHOLD} "
-                            f"incident_id={incident_id}"
+                            "HEARTBEAT_ENFORCEMENT: SAFE_MODE activated - missed_heartbeats=%s >= threshold=%s incident_id=%s",
+                            missed_heartbeats, HEARTBEAT_MISS_ENFORCEMENT_THRESHOLD, incident_id
                         )
                         
                         # Метрика для Prometheus
@@ -2521,17 +2504,15 @@ async def runtime_heartbeat_loop():
                         # Если chaos был активен, фиксируем что переход через SAFE_MODE произошёл
                         if _chaos_was_active:
                             logger.critical(
-                                f"CHAOS_INVARIANT_SATISFIED: SAFE_MODE entered after chaos - "
-                                f"incident_id={incident_id}"
+                                "CHAOS_INVARIANT_SATISFIED: SAFE_MODE entered after chaos - incident_id=%s",
+                                incident_id
                             )
                 
                 # Проверяем, не является ли это fault injection
                 if FAULT_INJECT_LOOP_STALL:
                     logger.error(
-                        f"FAULT_INJECTION: loop_stall_detected - "
-                        f"Controlled loop stall detected via missed heartbeats. "
-                        f"time_since_last={time_since_last:.1f}s "
-                        f"missed_heartbeats={missed_heartbeats}"
+                        "FAULT_INJECTION: loop_stall_detected - Controlled loop stall detected via missed heartbeats. time_since_last=%.1fs missed_heartbeats=%s",
+                        time_since_last, missed_heartbeats
                     )
                     # Записываем ошибку для health tracking
                     system_state.record_error("FAULT_INJECTION: loop_stall_detected")
@@ -2547,9 +2528,8 @@ async def runtime_heartbeat_loop():
                                 metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                             )
                             logger.warning(
-                                f"SAFE-MODE activated after loop stall detection: "
-                                f"consecutive_errors={system_state.system_health.consecutive_errors} "
-                                f">= MAX_CONSECUTIVE_ERRORS={MAX_CONSECUTIVE_ERRORS}"
+                                "SAFE-MODE activated after loop stall detection: consecutive_errors=%s >= MAX_CONSECUTIVE_ERRORS=%s",
+                                system_state.system_health.consecutive_errors, MAX_CONSECUTIVE_ERRORS
                             )
             
             # Логируем heartbeat с метриками
@@ -2563,20 +2543,18 @@ async def runtime_heartbeat_loop():
                 loop_running = False
             
             logger.debug(
-                f"heartbeat_alive=true "
-                f"count={heartbeat_count} "
-                f"pending_tasks={pending_tasks} "
-                f"loop_running={loop_running}"
+                "heartbeat_alive=true count=%d pending_tasks=%d loop_running=%s",
+                heartbeat_count, pending_tasks, loop_running
             )
             
         except asyncio.CancelledError:
             logger.info("⏹ Runtime heartbeat cancelled")
             break
         except Exception as e:
-            logger.error(f"Error in runtime heartbeat: {type(e).__name__}: {e}")
+            logger.error("Error in runtime heartbeat: %s: %s", type(e).__name__, e)
             # Не падаем - продолжаем heartbeat даже при ошибках
     
-    logger.info(f"💓 Runtime heartbeat stopped (total: {heartbeat_count})")
+    logger.info("💓 Runtime heartbeat stopped (total: %d)", heartbeat_count)
 
 
 async def loop_guard_watchdog():
@@ -2617,9 +2595,8 @@ async def loop_guard_watchdog():
                 incident_id = f"loop-guard-{uuid.uuid4().hex[:8]}"
                 
                 logger.critical(
-                    f"LOOP_GUARD_TIMEOUT: Event loop blocked for {time_since_heartbeat:.1f}s "
-                    f"(threshold={LOOP_GUARD_TIMEOUT}s) "
-                    f"incident_id={incident_id}"
+                    "LOOP_GUARD_TIMEOUT: Event loop blocked for %.1fs (threshold=%ss) incident_id=%s",
+                    time_since_heartbeat, LOOP_GUARD_TIMEOUT, incident_id
                 )
                 
                 # ========== TASK DUMP ==========
@@ -2640,12 +2617,11 @@ async def loop_guard_watchdog():
                         task_dump.append(task_info)
                     
                     logger.critical(
-                        f"LOOP_GUARD_TASK_DUMP incident_id={incident_id} "
-                        f"total_tasks={len(task_dump)} "
-                        f"tasks={task_dump}"
+                        "LOOP_GUARD_TASK_DUMP incident_id=%s total_tasks=%s tasks=%s",
+                        incident_id, len(task_dump), task_dump
                     )
                 except Exception as e:
-                    logger.error(f"LOOP_GUARD: Failed to dump tasks: {type(e).__name__}: {e}")
+                    logger.error("LOOP_GUARD: Failed to dump tasks: %s: %s", type(e).__name__, e)
                 
                 # HARDENING: SAFE_MODE ACTIVATION через state machine
                 state_machine = get_state_machine()
@@ -2657,8 +2633,8 @@ async def loop_guard_watchdog():
                         metadata={"time_since_heartbeat": time_since_heartbeat, "incident_id": incident_id}
                     )
                     logger.critical(
-                        f"LOOP_GUARD_ENFORCEMENT: SAFE_MODE activated - "
-                        f"incident_id={incident_id}"
+                        "LOOP_GUARD_ENFORCEMENT: SAFE_MODE activated - incident_id=%s",
+                        incident_id
                     )
                     
                     system_state.record_error(f"LOOP_GUARD_TIMEOUT: {incident_id}")
@@ -2669,7 +2645,7 @@ async def loop_guard_watchdog():
             logger.info("⏹ Loop guard watchdog cancelled")
             break
         except Exception as e:
-            logger.error(f"Error in loop guard watchdog: {type(e).__name__}: {e}")
+            logger.error("Error in loop guard watchdog: %s: %s", type(e).__name__, e)
     
     logger.info("🛡️ Loop guard watchdog stopped")
 
@@ -2711,7 +2687,7 @@ async def safe_mode_ttl_monitor():
             logger.info("⏹ Safe mode TTL monitor cancelled")
             break
         except Exception as e:
-            logger.error(f"Error in safe mode TTL monitor: {type(e).__name__}: {e}")
+            logger.error("Error in safe mode TTL monitor: %s: %s", type(e).__name__, e)
     
     logger.info("⏱️ Safe mode TTL monitor stopped")
 
@@ -2752,12 +2728,12 @@ async def heartbeat_loop():
                 logger.debug("Telegram heartbeat timeout (non-critical) - network may be unreachable")
             except Exception as e:
                 # Telegram ошибки не должны останавливать heartbeat
-                logger.warning(f"Telegram heartbeat failed (non-critical): {type(e).__name__}: {e}")
+                logger.warning("Telegram heartbeat failed (non-critical): %s: %s", type(e).__name__, e)
         except asyncio.CancelledError:
             logger.info("⏹ Telegram heartbeat cancelled")
             break
         except Exception as e:
-            logger.error(f"Error in Telegram heartbeat loop: {type(e).__name__}: {e}")
+            logger.error("Error in Telegram heartbeat loop: %s: %s", type(e).__name__, e)
             # Пауза перед повтором с проверкой shutdown каждую секунду
             shutdown_evt = get_shutdown_event()
             remaining = 300
@@ -2793,7 +2769,7 @@ async def daily_report_loop():
             next_report = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             sleep_seconds = (next_report - now).total_seconds()
             
-            logger.info(f"Next daily report in {sleep_seconds/3600:.1f} hours")
+            logger.info("Next daily report in %.1f hours", sleep_seconds / 3600)
             
             # Sleep с проверкой shutdown (разбиваем на чанки для responsiveness)
             sleep_chunk = min(3600.0, sleep_seconds)  # Максимум 1 час за раз
@@ -2820,13 +2796,13 @@ async def daily_report_loop():
                 )
                 logger.info("Daily report sent")
             except Exception as e:
-                logger.warning(f"Failed to send daily report (non-critical): {type(e).__name__}: {e}")
+                logger.warning("Failed to send daily report (non-critical): %s: %s", type(e).__name__, e)
             
         except asyncio.CancelledError:
             logger.info("Daily report loop cancelled")
             break
         except Exception as e:
-            logger.error(f"Error in daily report loop: {type(e).__name__}: {e}")
+            logger.error("Error in daily report loop: %s: %s", type(e).__name__, e)
             # Пауза 1 час перед повтором (с проверкой shutdown)
             try:
                 # Используем await asyncio.sleep() с проверкой shutdown каждую секунду
@@ -3029,8 +3005,8 @@ async def synthetic_decision_tick_loop():
             )
             
             logger.info(
-                f"SYNTHETIC_DECISION_TICK: executing decision pipeline "
-                f"(tick={tick_count}, symbol={synthetic_snapshot.symbol})"
+                "SYNTHETIC_DECISION_TICK: executing decision pipeline (tick=%d, symbol=%s)",
+                tick_count, synthetic_snapshot.symbol
             )
             
             # Получаем gatekeeper
@@ -3060,8 +3036,8 @@ async def synthetic_decision_tick_loop():
                     meta_result = gatekeeper._check_meta_decision(synthetic_snapshot, system_state)
                     if meta_result and not meta_result.allow_trading:
                         logger.info(
-                            f"SYNTHETIC_DECISION_TICK: MetaDecisionBrain BLOCKED "
-                            f"(reason={meta_result.reason})"
+                            "SYNTHETIC_DECISION_TICK: MetaDecisionBrain BLOCKED (reason=%s)",
+                            meta_result.reason
                         )
                         continue  # Переходим к следующему tick
                 
@@ -3074,22 +3050,21 @@ async def synthetic_decision_tick_loop():
                     
                     if not decision_core_result.can_trade:
                         logger.info(
-                            f"SYNTHETIC_DECISION_TICK: DecisionCore BLOCKED "
-                            f"(reason={decision_core_result.reason})"
+                            "SYNTHETIC_DECISION_TICK: DecisionCore BLOCKED (reason=%s)",
+                            decision_core_result.reason
                         )
                         continue
                     
                     logger.debug(
-                        f"SYNTHETIC_DECISION_TICK: DecisionCore ALLOWED "
-                        f"(reason={decision_core_result.reason})"
+                        "SYNTHETIC_DECISION_TICK: DecisionCore ALLOWED (reason=%s)",
+                        decision_core_result.reason
                     )
                 except RuntimeError as e:
                     # Обработка fault injection
                     if "FAULT_INJECTION: decision_exception" in str(e):
                         logger.error(
-                            f"SYNTHETIC_DECISION_TICK: FAULT_INJECTION detected - "
-                            f"Controlled exception from DecisionCore. "
-                            f"Runtime continues. error_type=RuntimeError error_message={str(e)}"
+                            "SYNTHETIC_DECISION_TICK: FAULT_INJECTION detected - Controlled exception from DecisionCore. Runtime continues. error_type=RuntimeError error_message=%s",
+                            e
                         )
                         # Записываем ошибку для health tracking
                         system_state.record_error("FAULT_INJECTION: decision_exception (synthetic tick)")
@@ -3105,9 +3080,8 @@ async def synthetic_decision_tick_loop():
                                     metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                                 )
                                 logger.warning(
-                                    f"SYNTHETIC_DECISION_TICK: SAFE-MODE activated - "
-                                    f"consecutive_errors={system_state.system_health.consecutive_errors} "
-                                    f">= MAX_CONSECUTIVE_ERRORS={MAX_CONSECUTIVE_ERRORS}"
+                                    "SYNTHETIC_DECISION_TICK: SAFE-MODE activated - consecutive_errors=%s >= MAX_CONSECUTIVE_ERRORS=%s",
+                                    system_state.system_health.consecutive_errors, MAX_CONSECUTIVE_ERRORS
                                 )
                     else:
                         # Другие RuntimeError - пробрасываем
@@ -3119,8 +3093,8 @@ async def synthetic_decision_tick_loop():
                     from core.portfolio_brain import PortfolioDecision
                     if portfolio_analysis.decision == PortfolioDecision.BLOCK:
                         logger.info(
-                            f"SYNTHETIC_DECISION_TICK: PortfolioBrain BLOCKED "
-                            f"(reason={portfolio_analysis.reason})"
+                            "SYNTHETIC_DECISION_TICK: PortfolioBrain BLOCKED (reason=%s)",
+                            portfolio_analysis.reason
                         )
                         continue
                 
@@ -3132,21 +3106,21 @@ async def synthetic_decision_tick_loop():
                     )
                     if sizing_result and not sizing_result.position_allowed:
                         logger.info(
-                            f"SYNTHETIC_DECISION_TICK: PositionSizer BLOCKED "
-                            f"(reason={sizing_result.reason})"
+                            "SYNTHETIC_DECISION_TICK: PositionSizer BLOCKED (reason=%s)",
+                            sizing_result.reason
                         )
                         continue
                 
                 logger.debug(
-                    f"SYNTHETIC_DECISION_TICK: decision pipeline completed successfully "
-                    f"(tick={tick_count})"
+                    "SYNTHETIC_DECISION_TICK: decision pipeline completed successfully (tick=%d)",
+                    tick_count
                 )
                 
             except Exception as e:
                 # Обработка ошибок в decision pipeline
                 logger.error(
-                    f"SYNTHETIC_DECISION_TICK: error in decision pipeline "
-                    f"(tick={tick_count}): {type(e).__name__}: {e}",
+                    "SYNTHETIC_DECISION_TICK: error in decision pipeline (tick=%d): %s: %s",
+                    tick_count, type(e).__name__, e,
                     exc_info=True
                 )
                 # Записываем ошибку
@@ -3156,7 +3130,7 @@ async def synthetic_decision_tick_loop():
             logger.info("Synthetic decision tick loop cancelled")
             break
         except Exception as e:
-            logger.error(f"Error in synthetic decision tick loop: {type(e).__name__}: {e}")
+            logger.error("Error in synthetic decision tick loop: %s: %s", type(e).__name__, e)
             # Пауза перед повтором
             try:
                 await asyncio.wait_for(
@@ -3166,7 +3140,7 @@ async def synthetic_decision_tick_loop():
             except asyncio.CancelledError:
                 break
     
-    logger.info(f"Synthetic decision tick loop stopped (total ticks: {tick_count})")
+    logger.info("Synthetic decision tick loop stopped (total ticks: %d)", tick_count)
 
 
 async def loop_stall_injection_task():
@@ -3185,7 +3159,7 @@ async def loop_stall_injection_task():
     if not FAULT_INJECT_LOOP_STALL:
         return  # Не запускаем если ENV не установлен
     
-    logger.info(f"Loop stall injection enabled (stall duration: {LOOP_STALL_DURATION}s)")
+    logger.info("Loop stall injection enabled (stall duration: %ss)", LOOP_STALL_DURATION)
     
     # Ждем 30 секунд после старта, чтобы система успела инициализироваться
     # Sleep с проверкой shutdown каждую секунду для быстрого отклика на SIGTERM
@@ -3200,9 +3174,8 @@ async def loop_stall_injection_task():
         return
     
     logger.warning(
-        f"FAULT_INJECTION: loop_stall starting - "
-        f"Event loop will be blocked for {LOOP_STALL_DURATION}s. "
-        f"This is a controlled fault injection for testing."
+        "FAULT_INJECTION: loop_stall starting - Event loop will be blocked for %ss. This is a controlled fault injection for testing.",
+        LOOP_STALL_DURATION
     )
     
     try:
@@ -3225,7 +3198,7 @@ async def loop_stall_injection_task():
         # Если нужна ПОЛНАЯ блокировка loop для тестирования, можно использовать
         # time.sleep() напрямую, но это нарушает правила async-кода.
         #
-        logger.warning(f"FAULT_INJECTION: loop_stall active - simulating event loop stall for {LOOP_STALL_DURATION}s")
+        logger.warning("FAULT_INJECTION: loop_stall active - simulating event loop stall for %ss", LOOP_STALL_DURATION)
         
         # Используем await asyncio.sleep() вместо time.sleep() для соблюдения async правил
         # Это не блокирует event loop полностью, но создает нагрузку, которая может
@@ -3241,14 +3214,13 @@ async def loop_stall_injection_task():
             remaining -= 0.1
         
         logger.info(
-            f"FAULT_INJECTION: loop_stall completed - "
-            f"Event loop should resume. Recovery expected."
+            "FAULT_INJECTION: loop_stall completed - Event loop should resume. Recovery expected."
         )
         
     except asyncio.CancelledError:
         logger.info("Loop stall injection cancelled")
     except Exception as e:
-        logger.error(f"Error in loop stall injection: {type(e).__name__}: {e}")
+        logger.error("Error in loop stall injection: %s: %s", type(e).__name__, e)
 
 
 async def _telegram_polling_task(app, shutdown_event):
@@ -3302,8 +3274,8 @@ async def _telegram_polling_task(app, shutdown_event):
             # Conflict detected - another instance is already polling
             # This is NOT retryable - exit cleanly and let systemd restart later
             logger.error(
-                f"Telegram Conflict detected (another instance running): {type(e).__name__}: {e}. "
-                f"Exiting cleanly to allow systemd restart."
+                "Telegram Conflict detected (another instance running): %s: %s. Exiting cleanly to allow systemd restart.",
+                type(e).__name__, e
             )
             # Cleanup before exit
             try:
@@ -3357,21 +3329,21 @@ async def _telegram_polling_task(app, shutdown_event):
         try:
             await asyncio.wait_for(app.updater.stop(), timeout=2.0)
         except (asyncio.TimeoutError, Exception) as e:
-            logger.warning(f"Error stopping updater (non-critical): {type(e).__name__}: {e}")
+            logger.warning("Error stopping updater (non-critical): %s: %s", type(e).__name__, e)
         
         # Останавливаем приложение (с таймаутом для быстрого shutdown)
         # КРИТИЧНО: Таймаут 2.0s предотвращает блокировку shutdown при network blackhole
         try:
             await asyncio.wait_for(app.stop(), timeout=2.0)
         except (asyncio.TimeoutError, Exception) as e:
-            logger.warning(f"Error stopping app (non-critical): {type(e).__name__}: {e}")
+            logger.warning("Error stopping app (non-critical): %s: %s", type(e).__name__, e)
         
         # Shutdown приложения (с таймаутом для быстрого shutdown)
         # КРИТИЧНО: Таймаут 2.0s предотвращает блокировку shutdown при network blackhole
         try:
             await asyncio.wait_for(app.shutdown(), timeout=2.0)
         except (asyncio.TimeoutError, Exception) as e:
-            logger.warning(f"Error shutting down app (non-critical): {type(e).__name__}: {e}")
+            logger.warning("Error shutting down app (non-critical): %s: %s", type(e).__name__, e)
         
     except Exception:
         # Все исключения пробрасываем наверх для обработки в supervisor
@@ -3456,7 +3428,7 @@ async def handle_admin_pause():
             logger.info("ADMIN COMMAND APPLIED: pause - trading_paused=True, manual_pause_active=True")
             return 200, json.dumps({"status": "paused"}).encode('utf-8')
         except Exception as e:
-            logger.error(f"ADMIN COMMAND ERROR: pause - {type(e).__name__}: {e}")
+            logger.error("ADMIN COMMAND ERROR: pause - %s: %s", type(e).__name__, e)
             raise
 
 async def handle_admin_resume():
@@ -3493,10 +3465,8 @@ async def handle_admin_resume():
             
             # WARN-level logging as required: "ADMIN RESUME BLOCKED: safe_mode_active"
             logger.warning(
-                f"ADMIN RESUME BLOCKED: safe_mode_active. "
-                f"State preserved: trading_paused={trading_paused_before}, "
-                f"manual_pause_active={manual_pause_before}. "
-                f"Safe mode can only be cleared by recovery cycles or process restart."
+                "ADMIN RESUME BLOCKED: safe_mode_active. State preserved: trading_paused=%s, manual_pause_active=%s. Safe mode can only be cleared by recovery cycles or process restart.",
+                trading_paused_before, manual_pause_before
             )
             
             # Возвращаем HTTP 403 с правильным JSON форматом
@@ -3521,8 +3491,8 @@ async def handle_admin_resume():
         # Логируем подтверждение, что safe_mode не изменен
         safe_mode_after = system_state.system_health.safe_mode
         logger.info(
-            f"ADMIN COMMAND APPLIED: resume - trading_paused=False, manual_pause_active=False. "
-            f"SAFE MODE HARD LOCK verified: safe_mode={safe_mode_after} (unchanged from {safe_mode_before})"
+            "ADMIN COMMAND APPLIED: resume - trading_paused=False, manual_pause_active=False. SAFE MODE HARD LOCK verified: safe_mode=%s (unchanged from %s)",
+            safe_mode_after, safe_mode_before
         )
         return 200, json.dumps({"status": "resumed"}).encode('utf-8')
 
@@ -3651,10 +3621,8 @@ async def handle_chaos_inject():
         # система ОБЯЗАНА пройти через SAFE_MODE
         _chaos_was_active = True
         logger.critical(
-            f"CHAOS_INJECTION_TRIGGERED (invariant tracking enabled) "
-            f"incident_id={incident_id} "
-            f"chaos_type={chaos_type.value} "
-            f"duration={duration}s"
+            "CHAOS_INJECTION_TRIGGERED (invariant tracking enabled) incident_id=%s chaos_type=%s duration=%ss",
+            incident_id, chaos_type.value, duration
         )
         
         # Task dump перед инъекцией
@@ -3678,7 +3646,7 @@ async def handle_chaos_inject():
             "message": str(e)
         }).encode('utf-8')
     except Exception as e:
-        logger.error(f"CHAOS_INJECTION_ERROR: {type(e).__name__}: {e}")
+        logger.error("CHAOS_INJECTION_ERROR: %s: %s", type(e).__name__, e)
         return 500, json.dumps({
             "error": "chaos_injection_failed",
             "message": str(e)
@@ -3720,9 +3688,8 @@ async def handle_chaos_stop():
                     metadata={"incident_id": incident_id}
                 )
                 logger.critical(
-                    f"CHAOS_INVARIANT_ENFORCEMENT: SAFE_MODE activated - "
-                    f"chaos was active but system not in SAFE_MODE "
-                    f"incident_id={incident_id}"
+                    "CHAOS_INVARIANT_ENFORCEMENT: SAFE_MODE activated - chaos was active but system not in SAFE_MODE incident_id=%s",
+                    incident_id
                 )
             
             # Сбрасываем флаг после проверки инварианта
@@ -3739,7 +3706,7 @@ async def handle_chaos_stop():
                 "message": "No active chaos injection"
             }).encode('utf-8')
     except Exception as e:
-        logger.error(f"CHAOS_STOP_ERROR: {type(e).__name__}: {e}")
+        logger.error("CHAOS_STOP_ERROR: %s: %s", type(e).__name__, e)
         return 500, json.dumps({
             "error": "chaos_stop_failed",
             "message": str(e)
@@ -3796,9 +3763,9 @@ async def start_http_server():
     try:
         loop = asyncio.get_running_loop()
         loop_id = id(loop)
-        logger.critical(f"HTTP SERVER STARTED (loop id={loop_id})")
+        logger.critical("HTTP SERVER STARTED (loop id=%s)", loop_id)
     except RuntimeError as e:
-        logger.error(f"HTTP SERVER: No running event loop - {type(e).__name__}: {e}")
+        logger.error("HTTP SERVER: No running event loop - %s: %s", type(e).__name__, e)
         raise
     
     # ========== ЕДИНЫЙ ROUTER ==========
@@ -3815,7 +3782,7 @@ async def start_http_server():
     
     # Логируем зарегистрированные routes
     route_list = [f"{method} {path}" for (method, path) in routes.keys()]
-    logger.critical(f"HTTP ROUTES REGISTERED: {route_list}")
+    logger.critical("HTTP ROUTES REGISTERED: %s", route_list)
     
     # ========== HTTP REQUEST DISPATCHER ==========
     
@@ -3882,7 +3849,7 @@ async def start_http_server():
                         status_code = 400
                         response_body = b"Bad Request: Invalid request line"
                         content_type = "text/plain"
-                        logger.warning(f"HTTP REQUEST: Invalid request line: {request_line}")
+                        logger.warning("HTTP REQUEST: Invalid request line: %s", request_line)
                     else:
                         method = parts[0].strip().upper()
                         path_with_query = parts[1].strip()
@@ -3891,7 +3858,7 @@ async def start_http_server():
                         if path != '/' and path.endswith('/'):
                             path = path.rstrip('/')
                         
-                        logger.info(f"HTTP REQUEST {method} {path}")
+                        logger.info("HTTP REQUEST %s %s", method, path)
                         
                         # КРИТИЧНО: Повторная проверка shutdown event перед обработкой
                         # Это гарантирует, что даже если соединение установлено до shutdown,
@@ -3900,7 +3867,7 @@ async def start_http_server():
                             status_code = 503
                             response_body = b"Service Shutting Down"
                             content_type = "text/plain"
-                            logger.info(f"HTTP RESPONSE 503: Shutdown in progress - {method} {path}")
+                            logger.info("HTTP RESPONSE 503: Shutdown in progress - %s %s", method, path)
                         else:
                             # Route lookup - используем routes из замыкания
                             route_key = (method, path)
@@ -3913,7 +3880,7 @@ async def start_http_server():
                                         status_code = 503
                                         response_body = b"Service Shutting Down"
                                         content_type = "text/plain"
-                                        logger.info(f"HTTP RESPONSE 503: Shutdown during handler - {method} {path}")
+                                        logger.info("HTTP RESPONSE 503: Shutdown during handler - %s %s", method, path)
                                     else:
                                         status_code, response_body = await handler()
                                     
@@ -3925,12 +3892,12 @@ async def start_http_server():
                                         content_type = "application/json"
                                     else:
                                         content_type = "application/json"
-                                    logger.info(f"HTTP RESPONSE {status_code} {method} {path}")
+                                    logger.info("HTTP RESPONSE %d %s %s", status_code, method, path)
                                 except Exception as e:
                                     status_code = 500
                                     response_body = json.dumps({"status": "error", "message": "Internal Server Error"}).encode('utf-8')
                                     content_type = "application/json"
-                                    logger.error(f"HTTP RESPONSE 500: Handler error: {type(e).__name__}: {e} - {method} {path}")
+                                    logger.error("HTTP RESPONSE 500: Handler error: %s: %s - %s %s", type(e).__name__, e, method, path)
                             else:
                                 # Проверяем, есть ли path с другим method
                                 path_exists = any(r[1] == path for r in routes.keys())
@@ -3939,13 +3906,13 @@ async def start_http_server():
                                     status_code = 405
                                     response_body = b"Method Not Allowed"
                                     content_type = "text/plain"
-                                    logger.info(f"HTTP RESPONSE 405: {method} {path}")
+                                    logger.info("HTTP RESPONSE 405: %s %s", method, path)
                                 else:
                                     # Path не существует → 404
                                     status_code = 404
                                     response_body = b"Not Found"
                                     content_type = "text/plain"
-                                    logger.info(f"HTTP RESPONSE 404: {method} {path}")
+                                    logger.info("HTTP RESPONSE 404: %s %s", method, path)
             
             # Формируем HTTP response
             status_text = {
@@ -3984,7 +3951,7 @@ async def start_http_server():
                 ).encode('utf-8') + error_body
                 writer.write(response)
                 await writer.drain()
-                logger.error(f"HTTP RESPONSE 500: Critical error: {type(e).__name__}: {e}")
+                logger.error("HTTP RESPONSE 500: Critical error: %s: %s", type(e).__name__, e)
             except Exception:
                 pass
         finally:
@@ -4125,7 +4092,8 @@ async def telegram_supervisor(system_state):
                     raise
                 except Exception as e:
                     logger.error(
-                        f"Telegram polling task failed: {type(e).__name__}: {e}",
+                        "Telegram polling task failed: %s: %s",
+                        type(e).__name__, e,
                         exc_info=True
                     )
                     raise
@@ -4150,7 +4118,7 @@ async def telegram_supervisor(system_state):
                             raise
                         except Exception as e:
                             # Другие исключения - логируем и перезапускаем
-                            logger.warning(f"Telegram polling task completed with error: {type(e).__name__}: {e}")
+                            logger.warning("Telegram polling task completed with error: %s: %s", type(e).__name__, e)
                             raise
                     
                     # КРИТИЧНО: sleep с проверкой cancellation для быстрого отклика на shutdown
@@ -4168,13 +4136,13 @@ async def telegram_supervisor(system_state):
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass
                     except Exception as e:
-                        logger.debug(f"Error waiting for polling task cancellation: {type(e).__name__}: {e}")
+                        logger.debug("Error waiting for polling task cancellation: %s: %s", type(e).__name__, e)
                 
                 try:
                     if app.updater and app.updater.running:
                         await asyncio.wait_for(app.updater.stop(), timeout=2.0)
                 except Exception as e:
-                    logger.debug(f"Error stopping updater during supervisor cancellation: {type(e).__name__}: {e}")
+                    logger.debug("Error stopping updater during supervisor cancellation: %s: %s", type(e).__name__, e)
                 raise  # Пробрасываем CancelledError
                 
         except asyncio.CancelledError:
@@ -4185,7 +4153,7 @@ async def telegram_supervisor(system_state):
                 try:
                     await asyncio.wait_for(app.updater.stop(), timeout=2.0)
                 except Exception as e:
-                    logger.debug(f"Error stopping updater during cancellation: {type(e).__name__}: {e}")
+                    logger.debug("Error stopping updater during cancellation: %s: %s", type(e).__name__, e)
             # Останавливаем application
             if app:
                 try:
@@ -4194,14 +4162,14 @@ async def telegram_supervisor(system_state):
                     if hasattr(app, 'shutdown'):
                         await asyncio.wait_for(app.shutdown(), timeout=2.0)
                 except Exception as e:
-                    logger.debug(f"Error shutting down app during cancellation: {type(e).__name__}: {e}")
+                    logger.debug("Error shutting down app during cancellation: %s: %s", type(e).__name__, e)
             raise  # Пробрасываем CancelledError для правильного завершения
         except (NetworkError, Conflict) as e:
-            logger.warning(f"TELEGRAM_NETWORK_FAILURE: {type(e).__name__}: {e}")
+            logger.warning("TELEGRAM_NETWORK_FAILURE: %s: %s", type(e).__name__, e)
             # Exponential backoff
             backoff_seconds = min(backoff_seconds * BACKOFF_MULTIPLIER, MAX_BACKOFF)
-            logger.info(f"Retrying in {backoff_seconds:.1f}s...")
-            
+            logger.info("Retrying in %.1fs...", backoff_seconds)
+
             # Sleep with shutdown check
             remaining = backoff_seconds
             while remaining > 0 and not shutdown_evt.is_set() and system_state.system_health.is_running:
@@ -4210,16 +4178,16 @@ async def telegram_supervisor(system_state):
                 except asyncio.CancelledError:
                     raise  # Пробрасываем CancelledError
                 remaining -= 1.0
-                
+
         except Exception as e:
-            logger.error(f"TELEGRAM_SUPERVISOR_ERROR: {type(e).__name__}: {e}")
+            logger.error("TELEGRAM_SUPERVISOR_ERROR: %s: %s", type(e).__name__, e)
             # Record error but continue
             system_state.record_error(f"TELEGRAM_SUPERVISOR: {type(e).__name__}")
             
             # Exponential backoff
             backoff_seconds = min(backoff_seconds * BACKOFF_MULTIPLIER, MAX_BACKOFF)
-            logger.info(f"Retrying in {backoff_seconds:.1f}s...")
-            
+            logger.info("Retrying in %.1fs...", backoff_seconds)
+
             # Sleep with shutdown check
             remaining = backoff_seconds
             while remaining > 0 and not shutdown_evt.is_set() and system_state.system_health.is_running:
@@ -4249,11 +4217,11 @@ async def telegram_supervisor(system_state):
                         # Исключения во время shutdown (включая httpx.ReadError) не критичны
                         error_type = type(e).__name__
                         if "ReadError" in error_type or "httpx" in str(type(e)).lower():
-                            logger.debug(f"Telegram shutdown: Expected error during polling cancel: {error_type}")
+                            logger.debug("Telegram shutdown: Expected error during polling cancel: %s", error_type)
                         else:
-                            logger.debug(f"Telegram shutdown: Error during polling cancel: {error_type}: {e}")
+                            logger.debug("Telegram shutdown: Error during polling cancel: %s: %s", error_type, e)
                 except Exception as e:
-                    logger.debug(f"Telegram shutdown: Error cancelling polling task: {type(e).__name__}: {e}")
+                    logger.debug("Telegram shutdown: Error cancelling polling task: %s: %s", type(e).__name__, e)
             
             # Cleanup application ПОСЛЕ остановки polling
             if app is not None:
@@ -4265,9 +4233,9 @@ async def telegram_supervisor(system_state):
                         except Exception as e:
                             error_type = type(e).__name__
                             if "ReadError" in error_type or "httpx" in str(type(e)).lower():
-                                logger.debug(f"Telegram shutdown: Expected error during updater.stop(): {error_type}")
+                                logger.debug("Telegram shutdown: Expected error during updater.stop(): %s", error_type)
                             else:
-                                logger.debug(f"Telegram shutdown: Error during updater.stop(): {error_type}: {e}")
+                                logger.debug("Telegram shutdown: Error during updater.stop(): %s: %s", error_type, e)
                     
                     # Останавливаем application
                     if hasattr(app, 'stop') and app.running:
@@ -4276,9 +4244,9 @@ async def telegram_supervisor(system_state):
                         except Exception as e:
                             error_type = type(e).__name__
                             if "ReadError" in error_type or "httpx" in str(type(e)).lower():
-                                logger.debug(f"Telegram shutdown: Expected error during app.stop(): {error_type}")
+                                logger.debug("Telegram shutdown: Expected error during app.stop(): %s", error_type)
                             else:
-                                logger.debug(f"Telegram shutdown: Error during app.stop(): {error_type}: {e}")
+                                logger.debug("Telegram shutdown: Error during app.stop(): %s: %s", error_type, e)
                     
                     # Shutdown application
                     if hasattr(app, 'shutdown'):
@@ -4287,11 +4255,11 @@ async def telegram_supervisor(system_state):
                         except Exception as e:
                             error_type = type(e).__name__
                             if "ReadError" in error_type or "httpx" in str(type(e)).lower():
-                                logger.debug(f"Telegram shutdown: Expected error during app.shutdown(): {error_type}")
+                                logger.debug("Telegram shutdown: Expected error during app.shutdown(): %s", error_type)
                             else:
-                                logger.debug(f"Telegram shutdown: Error during app.shutdown(): {error_type}: {e}")
+                                logger.debug("Telegram shutdown: Error during app.shutdown(): %s: %s", error_type, e)
                 except Exception as e:
-                    logger.debug(f"Telegram shutdown: Error during app cleanup: {type(e).__name__}: {e}")
+                    logger.debug("Telegram shutdown: Error during app cleanup: %s: %s", type(e).__name__, e)
     
     logger.info("📱 Telegram supervisor stopped")
 
@@ -4399,9 +4367,8 @@ async def main():
         # Обработка fault injection из storage layer при загрузке
         if "FAULT_INJECTION: storage_failure" in str(e):
             logger.error(
-                f"FAULT_INJECTION: storage_failure - "
-                f"Controlled exception from storage layer during startup. "
-                f"Starting with empty state. error_type=IOError error_message={str(e)}"
+                "FAULT_INJECTION: storage_failure - Controlled exception from storage layer during startup. Starting with empty state. error_type=IOError error_message=%s",
+                e
             )
             # Записываем ошибку для health tracking
             system_state.record_error("FAULT_INJECTION: storage_failure (startup)")
@@ -4417,15 +4384,14 @@ async def main():
                         metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                     )
                     logger.warning(
-                        f"SAFE-MODE activated after storage fault injection (startup): "
-                        f"consecutive_errors={system_state.system_health.consecutive_errors} "
-                        f">= MAX_CONSECUTIVE_ERRORS={MAX_CONSECUTIVE_ERRORS}"
+                        "SAFE-MODE activated after storage fault injection (startup): consecutive_errors=%s >= MAX_CONSECUTIVE_ERRORS=%s",
+                        system_state.system_health.consecutive_errors, MAX_CONSECUTIVE_ERRORS
                     )
         else:
             # Другие IOError - логируем как обычную ошибку
-            logger.warning(f"Error restoring snapshot: {e}, starting with empty state")
+            logger.warning("Error restoring snapshot: %s, starting with empty state", e)
     except Exception as e:
-        logger.warning(f"Error restoring snapshot: {e}, starting with empty state")
+        logger.warning("Error restoring snapshot: %s, starting with empty state", e)
     
     # Одноразовая валидация символов против Bybit API
     global _active_symbols
@@ -4449,7 +4415,7 @@ async def main():
     try:
         await send_message_async("🚀 Торговый бот запущен")
     except Exception as e:
-        logger.warning(f"Failed to send startup message (non-critical): {type(e).__name__}: {e}")
+        logger.warning("Failed to send startup message (non-critical): %s: %s", type(e).__name__, e)
     
     # Создаём и отслеживаем все фоновые задачи
     # ВАЖНО: Порядок запуска критичен для предотвращения Conflict
@@ -4521,7 +4487,7 @@ async def main():
         )
         logger.info("Loop stall injection enabled (for event loop stall detection testing)")
     
-    logger.info(f"All components started (tasks: {len(tasks) + 1})")
+    logger.info("All components started (tasks: %s)", len(tasks) + 1)
     
     # HARDENING: FATAL state monitor - проверяет состояние и выполняет exit
     async def fatal_state_monitor():
@@ -4548,13 +4514,13 @@ async def main():
                         handler.flush()
                     
                     # HARDENING: Централизованный exit с правильным кодом для systemd
-                    logger.critical(f"FATAL_EXIT: Exiting with code {FATAL_EXIT_CODE} (systemd will restart)")
+                    logger.critical("FATAL_EXIT: Exiting with code %s (systemd will restart)", FATAL_EXIT_CODE)
                     os._exit(FATAL_EXIT_CODE)
                     
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"FATAL_STATE_MONITOR_ERROR: {type(e).__name__}: {e}")
+                logger.error("FATAL_STATE_MONITOR_ERROR: %s: %s", type(e).__name__, e)
     
     # Запускаем FATAL state monitor
     fatal_monitor_task = register_task(
@@ -4577,8 +4543,8 @@ async def main():
     except Exception as e:
         error_msg = f"CRITICAL ERROR during runtime: {type(e).__name__}: {e}"
         error_trace = traceback.format_exc()
-        
-        logger.critical(f"{error_msg}\n{error_trace}")
+
+        logger.critical("%s\n%s", error_msg, error_trace)
         
         # Пытаемся отправить уведомление (не блокируем shutdown)
         try:
@@ -4659,9 +4625,9 @@ async def main():
                 except asyncio.CancelledError:
                     logger.info("Telegram polling task cancelled")
                 except Exception as e:
-                    logger.warning(f"Error stopping Telegram polling: {type(e).__name__}: {e}")
+                    logger.warning("Error stopping Telegram polling: %s: %s", type(e).__name__, e)
         except Exception as e:
-            logger.warning(f"Error during Telegram shutdown: {type(e).__name__}: {e}")
+            logger.warning("Error during Telegram shutdown: %s: %s", type(e).__name__, e)
         
         # Cancel and wait for all registered tasks
         # This includes both main tasks and any background tasks they created
@@ -4711,7 +4677,7 @@ async def main():
                 all_tasks = asyncio.all_tasks(loop)
                 remaining_tasks = [t for t in all_tasks if not t.done() and t is not current_task]
                 if remaining_tasks:
-                    logger.critical(f"Cancelling {len(remaining_tasks)} remaining tasks (including server handlers)...")
+                    logger.critical("Cancelling %s remaining tasks (including server handlers)...", len(remaining_tasks))
                     for task in remaining_tasks:
                         if not task.done():
                             task.cancel()
@@ -4719,12 +4685,12 @@ async def main():
                     results = await asyncio.gather(*remaining_tasks, return_exceptions=True)
                     for r in results:
                         if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
-                            logger.warning(f"Task shutdown exception: {type(r).__name__}: {r}")
+                            logger.warning("Task shutdown exception: %s: %s", type(r).__name__, r)
                     logger.critical("All tasks cancelled and completed")
             except RuntimeError:
                 pass
             except Exception as e:
-                logger.debug(f"Error cancelling tasks: {type(e).__name__}: {e}")
+                logger.debug("Error cancelling tasks: %s: %s", type(e).__name__, e)
             
             # Step 3: Wait for server to close
             # wait_closed() will complete immediately since all handler tasks are cancelled
@@ -4739,8 +4705,8 @@ async def main():
         shutdown_duration = time.time() - shutdown_start_time
         if shutdown_duration > GRACEFUL_SHUTDOWN_TIMEOUT:
             logger.critical(
-                f"SHUTDOWN_TIMEOUT: Graceful shutdown took {shutdown_duration:.1f}s "
-                f"(threshold={GRACEFUL_SHUTDOWN_TIMEOUT}s) - forcing exit"
+                "SHUTDOWN_TIMEOUT: Graceful shutdown took %.1fs (threshold=%ss) - forcing exit",
+                shutdown_duration, GRACEFUL_SHUTDOWN_TIMEOUT
             )
             # HARDENING: Переход в FATAL через state machine
             state_machine = get_state_machine()
@@ -4801,7 +4767,7 @@ async def main():
             # Event loop уже закрыт - это нормально при shutdown
             pass
         except Exception as e:
-            logger.debug(f"Error shutting down default executor: {type(e).__name__}: {e}")
+            logger.debug("Error shutting down default executor: %s: %s", type(e).__name__, e)
         
         # 2. Cancel and await ALL remaining asyncio tasks
         # КРИТИЧНО: Any remaining tasks (including unregistered ones) can keep event loop alive
@@ -4815,7 +4781,7 @@ async def main():
             all_tasks = asyncio.all_tasks(loop)
             remaining_tasks = [t for t in all_tasks if not t.done() and t is not current_task]
             if remaining_tasks:
-                logger.critical(f"Found {len(remaining_tasks)} remaining tasks, cancelling all...")
+                logger.critical("Found %s remaining tasks, cancelling all...", len(remaining_tasks))
                 # Cancel all remaining tasks
                 for task in remaining_tasks:
                     if not task.done():
@@ -4825,13 +4791,13 @@ async def main():
                 results = await asyncio.gather(*remaining_tasks, return_exceptions=True)
                 for r in results:
                     if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
-                        logger.warning(f"Task shutdown exception: {type(r).__name__}: {r}")
+                        logger.warning("Task shutdown exception: %s: %s", type(r).__name__, r)
                 logger.critical("All remaining tasks cancelled and completed")
         except RuntimeError:
             # Event loop already closed - this is normal during shutdown
             pass
         except Exception as e:
-            logger.debug(f"Error cleaning up remaining tasks: {type(e).__name__}: {e}")
+            logger.debug("Error cleaning up remaining tasks: %s: %s", type(e).__name__, e)
         
         # 3. Закрываем глобальный Telegram Bot и aiohttp/httpx клиенты
         # КРИТИЧНО: Telegram Bot использует httpx.AsyncClient через HTTPXRequest, который может держать соединения открытыми
@@ -4879,7 +4845,7 @@ async def main():
             # Bot не импортирован или уже закрыт - это нормально
             pass
         except Exception as e:
-            logger.debug(f"Error closing Telegram Bot: {type(e).__name__}: {e}")
+            logger.debug("Error closing Telegram Bot: %s: %s", type(e).__name__, e)
         
         # 4. Закрываем все async generators
         # КРИТИЧНО: Async generators могут держать ресурсы открытыми
@@ -4898,7 +4864,7 @@ async def main():
             # Event loop уже закрыт - это нормально
             pass
         except Exception as e:
-            logger.debug(f"Error shutting down async generators: {type(e).__name__}: {e}")
+            logger.debug("Error shutting down async generators: %s: %s", type(e).__name__, e)
         
         # 5. Закрываем PostgreSQL pool / сбрасываем SQLite WAL
         try:
@@ -4906,7 +4872,7 @@ async def main():
             close_pg_pool()
             checkpoint_sqlite_wal()
         except Exception as e:
-            logger.debug(f"Error closing database: {type(e).__name__}: {e}")
+            logger.debug("Error closing database: %s: %s", type(e).__name__, e)
 
         logger.critical("=== GRACEFUL SHUTDOWN COMPLETED ===")
 
@@ -4926,10 +4892,10 @@ async def main():
             remaining_tasks = [t for t in all_tasks if not t.done() and t is not current_task]
             
             if remaining_tasks:
-                logger.critical(f"FINAL BARRIER: Found {len(remaining_tasks)} remaining tasks, forcing cancellation...")
+                logger.critical("FINAL BARRIER: Found %s remaining tasks, forcing cancellation...", len(remaining_tasks))
                 # Log task names for debugging
                 task_names = [t.get_name() if hasattr(t, 'get_name') else str(t) for t in remaining_tasks]
-                logger.critical(f"FINAL BARRIER: Tasks: {task_names}")
+                logger.critical("FINAL BARRIER: Tasks: %s", task_names)
                 
                 # Cancel all remaining tasks
                 for task in remaining_tasks:
@@ -4942,7 +4908,7 @@ async def main():
                 results = await asyncio.gather(*remaining_tasks, return_exceptions=True)
                 for r in results:
                     if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
-                        logger.warning(f"FINAL BARRIER task exception: {type(r).__name__}: {r}")
+                        logger.warning("FINAL BARRIER task exception: %s: %s", type(r).__name__, r)
                 logger.critical("FINAL BARRIER: All remaining tasks cancelled and completed")
             else:
                 logger.critical("FINAL BARRIER: No remaining tasks - event loop is empty")
@@ -4950,7 +4916,7 @@ async def main():
             # Event loop already closed - this is normal during shutdown
             pass
         except Exception as e:
-            logger.error(f"FINAL BARRIER: Error during final task cancellation: {type(e).__name__}: {e}")
+            logger.error("FINAL BARRIER: Error during final task cancellation: %s: %s", type(e).__name__, e)
             # Continue anyway - we've done our best
         
         # CRITICAL: After this point, the event loop MUST be empty
@@ -4965,9 +4931,9 @@ async def main():
 if __name__ == "__main__":
     # КРИТИЧЕСКОЕ логирование entrypoint для production мониторинга
     logger.critical("=== PROCESS STARTED ===")
-    logger.critical(f"PID: {os.getpid()}")
-    logger.critical(f"Python: {sys.version}")
-    logger.critical(f"Control plane will listen on {HEALTH_SERVER_HOST}:{HEALTH_SERVER_PORT}")
+    logger.critical("PID: %s", os.getpid())
+    logger.critical("Python: %s", sys.version)
+    logger.critical("Control plane will listen on %s:%s", HEALTH_SERVER_HOST, HEALTH_SERVER_PORT)
     """
     Entry point для production runtime.
     
@@ -5035,8 +5001,8 @@ if __name__ == "__main__":
     except Exception as e:
         error_msg = f"CRITICAL ERROR at entry point: {type(e).__name__}: {e}"
         error_trace = traceback.format_exc()
-        
-        logger.critical(f"{error_msg}\n{error_trace}")
+
+        logger.critical("%s\n%s", error_msg, error_trace)
         
         # Flush logs перед exit
         for handler in root_logger.handlers:

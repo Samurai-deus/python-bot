@@ -58,7 +58,7 @@ class SystemdIntegration:
             # Проверяем, запущены ли мы под systemd
             if os.getenv("NOTIFY_SOCKET"):
                 self._watchdog_enabled = True
-                logger.info(f"Systemd watchdog enabled (interval: {watchdog_interval}s)")
+                logger.info("Systemd watchdog enabled (interval: %ss)", watchdog_interval)
             else:
                 logger.info("Not running under systemd - watchdog disabled")
         else:
@@ -73,7 +73,7 @@ class SystemdIntegration:
             systemd.daemon.notify("READY=1")
             logger.info("Systemd notified: READY=1")
         except Exception as e:
-            logger.error(f"Failed to notify systemd READY: {type(e).__name__}: {e}")
+            logger.error("Failed to notify systemd READY: %s: %s", type(e).__name__, e)
     
     def notify_watchdog(self) -> bool:
         """
@@ -91,7 +91,7 @@ class SystemdIntegration:
             self._last_heartbeat = time.monotonic()
             return True
         except Exception as e:
-            logger.error(f"Failed to send watchdog heartbeat: {type(e).__name__}: {e}")
+            logger.error("Failed to send watchdog heartbeat: %s: %s", type(e).__name__, e)
             return False
     
     def notify_status(self, status: str) -> None:
@@ -107,7 +107,7 @@ class SystemdIntegration:
         try:
             systemd.daemon.notify(f"STATUS={status}")
         except Exception as e:
-            logger.error(f"Failed to notify systemd STATUS: {type(e).__name__}: {e}")
+            logger.error("Failed to notify systemd STATUS: %s: %s", type(e).__name__, e)
     
     def notify_stopping(self) -> None:
         """Уведомить systemd, что сервис останавливается"""
@@ -118,7 +118,7 @@ class SystemdIntegration:
             systemd.daemon.notify("STOPPING=1")
             logger.info("Systemd notified: STOPPING=1")
         except Exception as e:
-            logger.error(f"Failed to notify systemd STOPPING: {type(e).__name__}: {e}")
+            logger.error("Failed to notify systemd STOPPING: %s: %s", type(e).__name__, e)
     
     def exit_with_code(self, exit_code: ExitCode, reason: str) -> None:
         """

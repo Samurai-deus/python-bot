@@ -70,7 +70,7 @@ class Gatekeeper:
                 self.decision_trace = DecisionTrace()
                 self.trace_enabled = True
             except Exception as e:
-                logger.warning(f"DecisionTrace недоступен: {type(e).__name__}: {e}")
+                logger.warning("DecisionTrace недоступен: %s: %s", type(e).__name__, e)
                 self.decision_trace = None
                 self.trace_enabled = False
         # PositionSizer - обязательный модуль (ADR-004: fail-closed, INV-5)
@@ -128,7 +128,7 @@ class Gatekeeper:
             if not self._check_signal_quality(signal_data, decision):
                 self.blocked_signals_count += 1
                 self._update_state()
-                logger.debug(f"Gatekeeper: сигнал {symbol} заблокирован из-за качества (размер или плечо)")
+                logger.debug("Gatekeeper: сигнал %s заблокирован из-за качества (размер или плечо)", symbol)
                 return False
             
             self.approved_signals_count += 1
@@ -136,7 +136,7 @@ class Gatekeeper:
             return True
         except Exception as e:
             # Критическая ошибка - блокируем сигнал для безопасности
-            logger.error(f"Критическая ошибка в Gatekeeper.check_signal для {symbol}: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Критическая ошибка в Gatekeeper.check_signal для %s: %s: %s", symbol, type(e).__name__, e, exc_info=True)
             self.blocked_signals_count += 1
             self._update_state()
             return False
@@ -194,8 +194,8 @@ class Gatekeeper:
             # АРХИТЕКТУРНОЕ ПРИНУЖДЕНИЕ: Если SystemGuardian блокирует → немедленный выход
             if not permission.allowed:
                 logger.warning(
-                    f"Signal blocked by SystemGuardian for {symbol}: {permission.reason} "
-                    f"(blocked_by: {permission.blocked_by})"
+                    "Signal blocked by SystemGuardian for %s: %s (blocked_by: %s)",
+                    symbol, permission.reason, permission.blocked_by,
                 )
                 self.blocked_signals_count += 1
                 self._update_state()
@@ -218,15 +218,16 @@ class Gatekeeper:
                 # FAIL-CLOSED: If Risk Core returns None or malformed result → DENY + HALTED
                 if not risk_core_result:
                     logger.critical(
-                        f"Risk Core evaluation failed for {symbol}: returned None. "
-                        f"ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED"
+                        "Risk Core evaluation failed for %s: returned None. "
+                        "ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED",
+                        symbol,
                     )
                     # Treat as DENY + HALTED (fail-closed)
                     from core.risk_core import RiskState
                     risk_reason = "Risk Core evaluation failed (returned None) → DENY + HALTED"
                     block_level = TraceBlockLevel.HARD if TraceBlockLevel else None
                     trace_entries.append(("RiskCore", False, risk_reason, block_level))
-                    logger.error(f"[TRACE] RiskCore → DENY → {risk_reason}")
+                    logger.error("[TRACE] RiskCore → DENY → %s", risk_reason)
                     logger.error("Risk Core evaluation failed for %s: enforcing DENY + HALTED", symbol)
                     self.blocked_signals_count += 1
                     self._update_state()
@@ -236,15 +237,16 @@ class Gatekeeper:
                 # Validate result structure (fail-closed)
                 if not isinstance(risk_core_result, tuple) or len(risk_core_result) != 3:
                     logger.critical(
-                        f"Risk Core evaluation returned malformed result for {symbol}: {type(risk_core_result)}. "
-                        f"ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED"
+                        "Risk Core evaluation returned malformed result for %s: %s. "
+                        "ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED",
+                        symbol, type(risk_core_result),
                     )
                     # Treat as DENY + HALTED (fail-closed)
                     from core.risk_core import RiskState
-                    risk_reason = f"Risk Core evaluation returned malformed result → DENY + HALTED"
+                    risk_reason = "Risk Core evaluation returned malformed result → DENY + HALTED"
                     block_level = TraceBlockLevel.HARD if TraceBlockLevel else None
                     trace_entries.append(("RiskCore", False, risk_reason, block_level))
-                    logger.error(f"[TRACE] RiskCore → DENY → {risk_reason}")
+                    logger.error("[TRACE] RiskCore → DENY → %s", risk_reason)
                     logger.error("Risk Core evaluation malformed for %s: enforcing DENY + HALTED", symbol)
                     self.blocked_signals_count += 1
                     self._update_state()
@@ -258,15 +260,16 @@ class Gatekeeper:
                 from core.risk_core import RiskState
                 if not isinstance(permission, TradingPermission) or not isinstance(risk_state, RiskState):
                     logger.critical(
-                        f"Risk Core evaluation returned invalid types for {symbol}: "
-                        f"permission={type(permission)}, risk_state={type(risk_state)}. "
-                        f"ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED"
+                        "Risk Core evaluation returned invalid types for %s: "
+                        "permission=%s, risk_state=%s. "
+                        "ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED",
+                        symbol, type(permission), type(risk_state),
                     )
                     # Treat as DENY + HALTED (fail-closed)
-                    risk_reason = f"Risk Core evaluation returned invalid types → DENY + HALTED"
+                    risk_reason = "Risk Core evaluation returned invalid types → DENY + HALTED"
                     block_level = TraceBlockLevel.HARD if TraceBlockLevel else None
                     trace_entries.append(("RiskCore", False, risk_reason, block_level))
-                    logger.error(f"[TRACE] RiskCore → DENY → {risk_reason}")
+                    logger.error("[TRACE] RiskCore → DENY → %s", risk_reason)
                     logger.error("Risk Core evaluation invalid types for %s: enforcing DENY + HALTED", symbol)
                     self.blocked_signals_count += 1
                     self._update_state()
@@ -275,18 +278,19 @@ class Gatekeeper:
 
                 # Логируем решение Risk Core
                 risk_allowed = permission != TradingPermission.DENY
-                risk_reason = f"Risk state: {risk_state.value}"
+                risk_reason = "Risk state: %s" % risk_state.value
                 if violation_report and violation_report.violations:
-                    risk_reason += f", violations: {len(violation_report.violations)}"
+                    risk_reason += ", violations: %d" % len(violation_report.violations)
                 block_level = TraceBlockLevel.HARD if (not risk_allowed and TraceBlockLevel) else (TraceBlockLevel.NONE if TraceBlockLevel else None)
                 trace_entries.append(("RiskCore", risk_allowed, risk_reason, block_level))
-                logger.info(f"[TRACE] RiskCore → {'ALLOW' if risk_allowed else 'DENY'} → {risk_reason}")
+                logger.info("[TRACE] RiskCore → %s → %s", "ALLOW" if risk_allowed else "DENY", risk_reason)
                 
                 if permission == TradingPermission.DENY:
                     # Risk Core заблокировал торговлю (veto power)
                     logger.warning(
-                        f"Signal blocked by Risk Core for {symbol}: {risk_state.value} "
-                        f"(violations: {len(violation_report.violations) if violation_report else 0})"
+                        "Signal blocked by Risk Core for %s: %s (violations: %d)",
+                        symbol, risk_state.value,
+                        len(violation_report.violations) if violation_report else 0,
                     )
                     logger.warning("Risk Core blocked signal for %s: %s", symbol, risk_state.value)
                     self.blocked_signals_count += 1
@@ -301,22 +305,23 @@ class Gatekeeper:
                     original_size = signal_data.get("position_size", 0.0)
                     if original_size > 0:
                         signal_data["position_size"] = original_size * 0.5
-                        logger.info(f"Risk Core: Limited position size for {symbol} to 50%")
+                        logger.info("Risk Core: Limited position size for %s to 50%%", symbol)
             
             except Exception as e:
                 # FAIL-CLOSED: Any exception during Risk Core evaluation → DENY + HALTED
                 # ADR-TRADING-RISK-CORE-001 Section 6: If Risk Core fails → DENY
                 logger.critical(
-                    f"Risk Core evaluation raised exception for {symbol}: {type(e).__name__}: {e}. "
-                    f"ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED",
-                    exc_info=True
+                    "Risk Core evaluation raised exception for %s: %s: %s. "
+                    "ADR-TRADING-RISK-CORE-001 violation: enforcing DENY + HALTED",
+                    symbol, type(e).__name__, e,
+                    exc_info=True,
                 )
                 # Treat as DENY + HALTED (fail-closed)
                 from core.risk_core import RiskState
-                risk_reason = f"Risk Core evaluation exception: {type(e).__name__} → DENY + HALTED"
+                risk_reason = "Risk Core evaluation exception: %s → DENY + HALTED" % type(e).__name__
                 block_level = TraceBlockLevel.HARD if TraceBlockLevel else None
                 trace_entries.append(("RiskCore", False, risk_reason, block_level))
-                logger.error(f"[TRACE] RiskCore → DENY → {risk_reason}")
+                logger.error("[TRACE] RiskCore → DENY → %s", risk_reason)
                 logger.error("Risk Core evaluation exception for %s: enforcing DENY + HALTED", symbol)
                 self.blocked_signals_count += 1
                 self._update_state()
@@ -332,7 +337,7 @@ class Gatekeeper:
                     # Логируем решение MetaDecisionBrain
                     block_level = TraceBlockLevel.HARD if (meta_result.block_level and hasattr(meta_result.block_level, 'value') and meta_result.block_level.value == "HARD") else TraceBlockLevel.NONE
                     trace_entries.append(("META", meta_result.allow_trading, meta_result.reason, block_level))
-                    logger.info(f"[TRACE] META → {'ALLOW' if meta_result.allow_trading else 'BLOCK'} → reason={meta_result.reason}")
+                    logger.info("[TRACE] META → %s → reason=%s", "ALLOW" if meta_result.allow_trading else "BLOCK", meta_result.reason)
                     
                     if not meta_result.allow_trading:
                         # MetaDecisionBrain заблокировал торговлю
@@ -350,7 +355,7 @@ class Gatekeeper:
                 self.blocked_signals_count += 1
                 self._update_state()
                 trace_entries.append(("DecisionCore", False, decision.reason, TraceBlockLevel.NONE))
-                logger.info(f"[TRACE] DecisionCore → BLOCK → reason={decision.reason}")
+                logger.info("[TRACE] DecisionCore → BLOCK → reason=%s", decision.reason)
                 logger.warning("Gatekeeper blocked signal for %s", symbol)
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
                 return False
@@ -366,7 +371,7 @@ class Gatekeeper:
                 return False
 
             trace_entries.append(("DecisionCore", True, decision.reason, TraceBlockLevel.NONE))
-            logger.info(f"[TRACE] DecisionCore → ALLOW → reason={decision.reason}")
+            logger.info("[TRACE] DecisionCore → ALLOW → reason=%s", decision.reason)
             
             # Портфельный анализ (если есть snapshot)
             portfolio_analysis = None
@@ -376,7 +381,7 @@ class Gatekeeper:
                     # Логируем решение PortfolioBrain
                     portfolio_allowed = portfolio_analysis.decision != PortfolioDecision.BLOCK
                     trace_entries.append(("PortfolioBrain", portfolio_allowed, portfolio_analysis.reason, TraceBlockLevel.NONE))
-                    logger.info(f"[TRACE] PortfolioBrain → {'ALLOW' if portfolio_allowed else 'BLOCK'} → reason={portfolio_analysis.reason}")
+                    logger.info("[TRACE] PortfolioBrain → %s → reason=%s", "ALLOW" if portfolio_allowed else "BLOCK", portfolio_analysis.reason)
                     
                     if portfolio_analysis.decision == PortfolioDecision.BLOCK:
                         logger.warning("PortfolioBrain blocked signal for %s: %s", symbol, portfolio_analysis.reason)
@@ -402,7 +407,7 @@ class Gatekeeper:
                 if sizing_result:
                     # Логируем решение PositionSizer
                     trace_entries.append(("PositionSizer", sizing_result.position_allowed, sizing_result.reason, TraceBlockLevel.NONE))
-                    logger.info(f"[TRACE] PositionSizer → {'ALLOW' if sizing_result.position_allowed else 'BLOCK'} → reason={sizing_result.reason}")
+                    logger.info("[TRACE] PositionSizer → %s → reason=%s", "ALLOW" if sizing_result.position_allowed else "BLOCK", sizing_result.reason)
                     
                     if not sizing_result.position_allowed:
                         # PositionSizer заблокировал торговлю (риск слишком мал)
@@ -420,11 +425,11 @@ class Gatekeeper:
                         if original_size > 0:
                             size_multiplier = sizing_result.position_size_usd / original_size
                             signal_data["position_size"] = sizing_result.position_size_usd
-                            logger.info(f"[SIZER] size_multiplier={size_multiplier:.2f}, final_risk={sizing_result.final_risk:.2f}%")
+                            logger.info("[SIZER] size_multiplier=%.2f, final_risk=%.2f%%", size_multiplier, sizing_result.final_risk)
                         else:
                             # Если размера не было, используем рассчитанный
                             signal_data["position_size"] = sizing_result.position_size_usd
-                            logger.info(f"[SIZER] position_size={sizing_result.position_size_usd:.2f} USDT, final_risk={sizing_result.final_risk:.2f}%")
+                            logger.info("[SIZER] position_size=%.2f USDT, final_risk=%.2f%%", sizing_result.position_size_usd, sizing_result.final_risk)
             
             # All checks passed — count as approved
             self.approved_signals_count += 1
@@ -442,7 +447,7 @@ class Gatekeeper:
                     candle_analysis=signal_data.get("candle_analysis")
                 )
             except Exception as e:
-                logger.error(f"Ошибка формирования сигнала для {symbol}: {type(e).__name__}: {e}", exc_info=True)
+                logger.error("Ошибка формирования сигнала для %s: %s: %s", symbol, type(e).__name__, e, exc_info=True)
                 # Fallback: use a plain-text summary instead of dropping the signal entirely
                 side_str = signal_data.get("side", "?")
                 entry_str = signal_data.get("entry", "?")
@@ -480,19 +485,19 @@ class Gatekeeper:
             extra += f"\n\nПричины:\n- " + "\n- ".join(reasons)
             
             # Отправляем
-            logger.info(f"Отправка сигнала через Gatekeeper для {symbol}...")
+            logger.info("Отправка сигнала через Gatekeeper для %s...", symbol)
             try:
                 AsyncToSyncAdapter.call_async(send_message_async(msg + extra), timeout=15.0)
                 AsyncToSyncAdapter.call_async(send_chart_async(symbol), timeout=15.0)
-                logger.info(f"Сигнал отправлен для {symbol}")
+                logger.info("Сигнал отправлен для %s", symbol)
                 # Логируем финальное решение - SEND
-                logger.info(f"[TRACE] FINAL → SEND → signal sent to user")
+                logger.info("[TRACE] FINAL → SEND → signal sent to user")
                 # Сохраняем trace ПОСЛЕ принятия решения
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="SEND")
             except Exception as e:
-                logger.error(f"Ошибка отправки сигнала для {symbol}: {type(e).__name__}: {e}", exc_info=True)
+                logger.error("Ошибка отправки сигнала для %s: %s: %s", symbol, type(e).__name__, e, exc_info=True)
                 # Логируем финальное решение - ERROR
-                logger.info(f"[TRACE] FINAL → ERROR → {type(e).__name__}: {e}")
+                logger.info("[TRACE] FINAL → ERROR → %s: %s", type(e).__name__, e)
                 # Сохраняем trace ПОСЛЕ принятия решения
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="ERROR")
                 # Не блокируем счетчик, так как проверка прошла успешно
@@ -503,9 +508,9 @@ class Gatekeeper:
             return True
         except Exception as e:
             # Критическая ошибка
-            logger.error(f"Критическая ошибка в Gatekeeper.send_signal для {symbol}: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Критическая ошибка в Gatekeeper.send_signal для %s: %s: %s", symbol, type(e).__name__, e, exc_info=True)
             # Логируем финальное решение - ERROR
-            logger.info(f"[TRACE] FINAL → ERROR → {type(e).__name__}: {e}")
+            logger.info("[TRACE] FINAL → ERROR → %s: %s", type(e).__name__, e)
             # Сохраняем trace ПОСЛЕ принятия решения (если есть)
             if 'trace_entries' in locals():
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="ERROR")
@@ -739,7 +744,7 @@ class Gatekeeper:
             
             return analysis
         except Exception as e:
-            logger.error(f"Ошибка портфельного анализа для {snapshot.symbol}: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Ошибка портфельного анализа для %s: %s: %s", snapshot.symbol, type(e).__name__, e, exc_info=True)
             # ADR-004: fail-closed — portfolio error blocks signal
             from core.portfolio_brain import PortfolioAnalysis, PortfolioDecision
             return PortfolioAnalysis(
@@ -844,9 +849,10 @@ class Gatekeeper:
         except Exception as e:
             # ADR-004: fail-closed — runtime exception → HARD_BLOCK
             logger.critical(
-                f"MetaDecisionBrain exception for {snapshot.symbol}: {type(e).__name__}: {e}. "
-                f"ADR-004: fail-closed → HARD_BLOCK",
-                exc_info=True
+                "MetaDecisionBrain exception for %s: %s: %s. "
+                "ADR-004: fail-closed → HARD_BLOCK",
+                snapshot.symbol, type(e).__name__, e,
+                exc_info=True,
             )
             get_system_guardian().report_module_failure_sync(
                 "MetaDecisionBrain", "runtime_error",
@@ -935,9 +941,10 @@ class Gatekeeper:
         except Exception as e:
             # ADR-004: fail-closed — runtime exception → position blocked
             logger.critical(
-                f"PositionSizer exception for {snapshot.symbol}: {type(e).__name__}: {e}. "
-                f"ADR-004: fail-closed → position blocked",
-                exc_info=True
+                "PositionSizer exception for %s: %s: %s. "
+                "ADR-004: fail-closed → position blocked",
+                snapshot.symbol, type(e).__name__, e,
+                exc_info=True,
             )
             get_system_guardian().report_module_failure_sync(
                 "PositionSizer", "runtime_error",
@@ -1015,7 +1022,7 @@ class Gatekeeper:
             )
         except Exception as e:
             # Не выбрасываем исключение - trace не должен влиять на торговую логику
-            logger.warning(f"Ошибка сохранения DecisionTrace для {symbol}: {type(e).__name__}: {e}")
+            logger.warning("Ошибка сохранения DecisionTrace для %s: %s: %s", symbol, type(e).__name__, e)
     
     def _check_risk_core(
         self,
@@ -1049,7 +1056,7 @@ class Gatekeeper:
             
             if entry_price <= 0 or stop_price <= 0 or position_size_usd <= 0:
                 # Недостаточно данных для Risk Core - fail-closed
-                logger.warning(f"Risk Core: Insufficient signal data for {symbol}")
+                logger.warning("Risk Core: Insufficient signal data for %s", symbol)
                 return None
             
             intent = TradingIntent(
@@ -1176,9 +1183,10 @@ class Gatekeeper:
             # Caller will enforce DENY + HALTED (ADR-TRADING-RISK-CORE-001 Section 6)
             # Do NOT return None here - let exception propagate so caller can enforce fail-closed
             logger.error(
-                f"Risk Core evaluation raised exception for {symbol}: {type(e).__name__}: {e}. "
-                f"Exception will propagate to caller for fail-closed enforcement.",
-                exc_info=True
+                "Risk Core evaluation raised exception for %s: %s: %s. "
+                "Exception will propagate to caller for fail-closed enforcement.",
+                symbol, type(e).__name__, e,
+                exc_info=True,
             )
             raise  # Propagate exception - caller enforces DENY + HALTED
     
