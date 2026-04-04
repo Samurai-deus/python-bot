@@ -15,12 +15,7 @@ const KNOWN_SYMBOLS = [
   'TIAUSDT', 'RENDERUSDT', 'EIGENUSDT', 'JUPUSDT',
 ] as const
 
-type KnownSymbol = typeof KNOWN_SYMBOLS[number]
 const SYMBOLS: readonly string[] = ['ALL', ...KNOWN_SYMBOLS]
-
-function isKnownSymbol(s: string): s is KnownSymbol {
-  return KNOWN_SYMBOLS.includes(s as KnownSymbol)
-}
 
 function ConfidenceBar({ value }: { value: number | null }) {
   if (value === null) {
