@@ -81,7 +81,7 @@ async def verify_auth(request: Request) -> Optional[dict]:
 
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not bot_token:
-        raise HTTPException(status_code=500, detail="Bot token not configured")
+        raise HTTPException(status_code=500, detail="Authentication service unavailable")
 
     # Parse init_data string
     params = {}
@@ -119,5 +119,35 @@ async def verify_auth(request: Request) -> Optional[dict]:
 
     if not hmac.compare_digest(expected, hash_value):
         raise HTTPException(status_code=401, detail="Invalid InitData signature")
+
+    return params
+
+
+async def verify_admin(request: Request) -> dict:
+    """
+    Validate Telegram InitData AND check that the user is the admin.
+    Uses ADMIN_CHAT_ID from env to restrict write operations.
+    """
+    params = await verify_auth(request)
+    if params.get("user_id") == 0 and params.get("username") == "dev":
+        return params  # DISABLE_AUTH mode — allow
+
+    admin_chat_id = os.environ.get("ADMIN_CHAT_ID", "")
+    if not admin_chat_id:
+        # No ADMIN_CHAT_ID configured — allow (backward compat, log warning)
+        logger.warning("ADMIN_CHAT_ID not set — all authenticated users have admin access")
+        return params
+
+    # Extract user ID from InitData "user" JSON field
+    import json as _json
+    user_json = params.get("user", "")
+    try:
+        user_data = _json.loads(user_json) if user_json else {}
+    except (ValueError, TypeError):
+        user_data = {}
+
+    user_id = str(user_data.get("id", ""))
+    if user_id != admin_chat_id:
+        raise HTTPException(status_code=403, detail="Admin access required")
 
     return params

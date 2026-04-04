@@ -295,6 +295,13 @@ async def exit_safe_mode_via_recovery(reason: str, owner: str) -> bool:
             f"Recovery completed: {reason}",
             owner
         )
+        # Re-arm ThreadWatchdog so it can detect future stalls
+        global _thread_watchdog
+        if _thread_watchdog is not None:
+            with _thread_watchdog.lifecycle_lock:
+                _thread_watchdog.lifecycle_state = ThreadWatchdogState.ARMED
+                _thread_watchdog.triggered = False
+            logger.info("ThreadWatchdog re-armed after recovery")
     return success
 
 # ========== GLOBAL METRICS FOR HEALTH ENDPOINT ==========

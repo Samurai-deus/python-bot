@@ -53,13 +53,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         except Exception as exc:  # pragma: no cover
             logger.warning("Redis unavailable — rate limiting disabled: %s", exc)
 
+    # Trusted proxy IPs — only honour X-Forwarded-For from these
+    _TRUSTED_PROXIES = {"127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8"}
+
     @staticmethod
     def _client_ip(request: Request) -> str:
-        """Return real client IP, honouring nginx X-Forwarded-For."""
+        """Return real client IP, honouring X-Forwarded-For only from trusted proxies."""
+        import ipaddress
+        direct_ip = request.client.host if request.client else "unknown"
         forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        return request.client.host if request.client else "unknown"
+        if forwarded and direct_ip != "unknown":
+            try:
+                addr = ipaddress.ip_address(direct_ip)
+                trusted = any(
+                    addr in ipaddress.ip_network(n, strict=False)
+                    for n in RateLimitMiddleware._TRUSTED_PROXIES
+                )
+                if trusted:
+                    return forwarded.split(",")[0].strip()
+            except ValueError:
+                pass
+        return direct_ip
 
     async def dispatch(self, request: Request, call_next) -> Response:
         # Skip if Redis unavailable, excluded path, or preflight

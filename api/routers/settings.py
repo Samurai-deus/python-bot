@@ -7,11 +7,12 @@ import os
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+import pydantic
 from pydantic import BaseModel
 
 import config
 import database
-from api.deps import run_sync, verify_auth
+from api.deps import run_sync, verify_auth, verify_admin
 from api.models import SettingItem, SettingsResponse, UpdateSettingsRequest
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -101,7 +102,7 @@ async def get_settings(_user=Depends(verify_auth)):
 
 
 @router.put("", response_model=SettingsResponse)
-async def update_settings(body: UpdateSettingsRequest, _user=Depends(verify_auth)):
+async def update_settings(body: UpdateSettingsRequest, _user=Depends(verify_admin)):
     VALIDATORS = {
         "risk_percent": (0.5, 5.0),
         "min_position_size": (10.0, 500.0),
@@ -145,6 +146,9 @@ async def update_settings(body: UpdateSettingsRequest, _user=Depends(verify_auth
     if body.symbols_enabled is not None:
         if not body.symbols_enabled:
             raise HTTPException(400, "symbols_enabled must not be empty")
+        invalid = [s for s in body.symbols_enabled if s not in config.SYMBOLS]
+        if invalid:
+            raise HTTPException(400, f"Unknown symbols: {invalid}. Valid: {config.SYMBOLS}")
         updates.append(("symbols_enabled", json.dumps(body.symbols_enabled), "json"))
 
     for key, value, data_type in updates:
@@ -162,8 +166,8 @@ _ALLOWED_KEY_NAMES = frozenset({"BYBIT_API_KEY", "BYBIT_API_SECRET"})
 
 
 class StoreKeysRequest(BaseModel):
-    bybit_api_key: str
-    bybit_api_secret: str
+    bybit_api_key: str = pydantic.Field(max_length=256)
+    bybit_api_secret: str = pydantic.Field(max_length=256)
 
 
 class KeyEntry(BaseModel):
@@ -184,7 +188,7 @@ async def list_keys(_user=Depends(verify_auth)):
 
 
 @router.put("/keys", response_model=KeysResponse)
-async def store_keys(body: StoreKeysRequest, _user=Depends(verify_auth)):
+async def store_keys(body: StoreKeysRequest, _user=Depends(verify_admin)):
     """
     Encrypt and store Bybit API credentials in the database.
 

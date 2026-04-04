@@ -17,6 +17,8 @@ import json
 import time
 import logging
 import os
+import threading
+import uuid
 from dataclasses import dataclass
 from typing import Dict, Optional, Any
 from urllib.parse import urlencode
@@ -319,8 +321,8 @@ class BybitClient:
             body["takeProfit"] = str(take_profit)
         if reduce_only:
             body["reduceOnly"] = True
-        if client_order_id:
-            body["orderLinkId"] = client_order_id
+        # Always set orderLinkId for idempotency — prevents duplicate orders on retry
+        body["orderLinkId"] = client_order_id or f"mb-{uuid.uuid4().hex[:16]}"
 
         data = self._post("/v5/order/create", body=body, signed=True)
         # Bybit V5 /v5/order/create возвращает только orderId и orderLinkId.
@@ -477,11 +479,14 @@ class _RetryableError(Exception):
 # ========== SINGLETON ==========
 
 _client: Optional[BybitClient] = None
+_client_lock = threading.Lock()
 
 
 def get_bybit_client() -> BybitClient:
-    """Получить глобальный экземпляр клиента (создаётся при первом вызове)."""
+    """Получить глобальный экземпляр клиента (thread-safe singleton)."""
     global _client
     if _client is None:
-        _client = BybitClient()
+        with _client_lock:
+            if _client is None:
+                _client = BybitClient()
     return _client

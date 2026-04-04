@@ -306,6 +306,10 @@ class SystemState:
     
     def to_dict(self) -> Dict:
         """Возвращает состояние в виде словаря (для логирования)"""
+        with self._lock:
+            return self._to_dict_unlocked()
+
+    def _to_dict_unlocked(self) -> Dict:
         return {
             "market_regime": {
                 "has_regime": self.market_regime is not None,

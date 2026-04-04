@@ -61,7 +61,7 @@ def position_size(entry_price, stop_price, side="LONG"):
         risk_per_unit = abs(stop_price - entry_price)
 
     if risk_per_unit == 0:
-        return min(MIN_POSITION_SIZE, available)
+        return 0.0  # zero stop distance = infinite risk, skip trade
 
     # Размер позиции = риск / риск на единицу
     position_usd = risk_amount / risk_per_unit * entry_price
@@ -136,20 +136,37 @@ def kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
 
 
 def get_peak_balance() -> float:
-    """Возвращает максимальный баланс (для drawdown расчёта)."""
-    from database import get_db_connection, _q
+    """Возвращает максимальный баланс (peak equity) для drawdown расчёта.
+
+    Computes the running maximum of cumulative PnL across all closed trades,
+    not just the current balance.  This ensures the drawdown breaker fires
+    correctly when equity drops from its historical peak.
+    """
+    from database import get_db_connection, _q, USE_POSTGRES
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        # Кумулятивный PnL: максимальная сумма закрытых PnL
-        cursor.execute(
-            _q("SELECT COALESCE(SUM(pnl), 0) as total_pnl FROM trades WHERE status = 'CLOSED'")
-        )
+        if USE_POSTGRES:
+            cursor.execute(
+                "SELECT COALESCE(MAX(cum), 0) AS peak_pnl FROM ("
+                "  SELECT SUM(pnl) OVER (ORDER BY id) AS cum"
+                "  FROM trades WHERE status = 'CLOSED'"
+                ") sub"
+            )
+        else:
+            # SQLite: no window-function ORDER inside SUM OVER in old versions,
+            # but sqlite 3.25+ supports it.
+            cursor.execute(
+                "SELECT COALESCE(MAX(cum), 0) AS peak_pnl FROM ("
+                "  SELECT SUM(pnl) OVER (ORDER BY id) AS cum"
+                "  FROM trades WHERE status = 'CLOSED'"
+                ") sub"
+            )
         row = cursor.fetchone()
-        total_pnl = float(row["total_pnl"]) if row else 0.0
+        peak_pnl = float(row["peak_pnl"]) if row else 0.0
     finally:
         conn.close()
-    return INITIAL_BALANCE + total_pnl
+    return INITIAL_BALANCE + peak_pnl
 
 
 def current_drawdown_pct() -> float:
