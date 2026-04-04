@@ -2883,14 +2883,35 @@ async def paper_trading_monitor_loop():
                     try:
                         candles = await asyncio.to_thread(get_candles, symbol, "5", 1)
                         if candles:
-                            current_price = float(candles[-1][4])  # close price
+                            candle = candles[-1]
+                            current_price = float(candle[4])  # close price
+                            candle_low = float(candle[3])      # low price
+                            candle_high = float(candle[2])     # high price
+
+                            # Pre-check: use candle extremes for SL detection
+                            # so flash wicks that breach SL are not missed.
+                            # Determine effective price per trade side:
+                            # LONG SL uses candle low; SHORT SL uses candle high.
+                            from trade_manager import get_open_trades as _get_ot
+                            _sym_trades = [t for t in _get_ot() if t["symbol"] == symbol]
+                            effective_price = current_price
+                            for _t in _sym_trades:
+                                _side = _t.get("side", "LONG")
+                                _sl = _t.get("stop", 0)
+                                if _side == "LONG" and candle_low <= _sl:
+                                    # Candle low breached SL — use low as effective price
+                                    effective_price = min(effective_price, candle_low)
+                                elif _side == "SHORT" and candle_high >= _sl:
+                                    # Candle high breached SL — use high as effective price
+                                    effective_price = max(effective_price, candle_high)
+
                             # Обновляем кэш цен для WS snapshot (Mini App progress bar)
                             try:
                                 import price_cache as _pc
                                 _pc.update(symbol, current_price)
                             except Exception:
                                 pass
-                            closed = check_trades(symbol, current_price)
+                            closed = check_trades(symbol, effective_price)
                             for closed_trade in closed:
                                 trade_pnl = closed_trade.get("pnl", 0)
                                 logger.info(
@@ -2898,9 +2919,11 @@ async def paper_trading_monitor_loop():
                                     symbol, closed_trade.get("side"), current_price,
                                     closed_trade.get("close_reason"), trade_pnl,
                                 )
-                                # Сбрасываем кэш сигнала для символа, чтобы следующий цикл
-                                # мог снова генерировать сигналы на тот же символ
-                                system_state.reset_signal_cache(symbol)
+                                # Сбрасываем кэш сигнала И cooldown для символа,
+                                # чтобы следующий цикл мог снова генерировать сигналы.
+                                # reset_signal_cooldown clears both _trend_signal_timestamps
+                                # (4h cooldown) and signal_cache (state dedup).
+                                system_state.reset_signal_cooldown(symbol)
                                 # Не отправляем отчёт если PnL фактически нулевой
                                 # (breakeven exit или time exit при ~0 движении)
                                 if abs(trade_pnl) < 0.01:
@@ -2918,9 +2941,9 @@ async def paper_trading_monitor_loop():
         except Exception as e:
             logger.error("[PAPER] Monitor loop error: %s", e, exc_info=True)
 
-        # Ждём 60 секунд с поддержкой graceful shutdown
+        # Poll every 15s to catch flash crashes (was 60s — too slow)
         try:
-            await asyncio.wait_for(shutdown_evt.wait(), timeout=60.0)
+            await asyncio.wait_for(shutdown_evt.wait(), timeout=15.0)
             break  # shutdown_evt сработал
         except asyncio.TimeoutError:
             pass  # Нормальный timeout — продолжаем цикл

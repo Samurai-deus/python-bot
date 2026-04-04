@@ -58,4 +58,4 @@ INITIAL_BALANCE = 10000.0  # Начальный баланс в USDT
 RISK_PERCENT = 2.0  # Риск на сделку (% от баланса)
 MIN_POSITION_SIZE = 10.0  # Минимальный размер позиции в USDT
 MAX_POSITION_SIZE = 1000.0  # Максимальный размер позиции в USDT
-POSITION_ALLOCATION_PERCENT = 10.0  # Base % of available capital to allocate per trade
+POSITION_ALLOCATION_PERCENT = 3.0  # Base % of available capital to allocate per trade (professional: 1-3%)

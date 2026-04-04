@@ -9,7 +9,8 @@ def acceptance(candles, atr_val):
     ranges = []
     for c in candles[-7:]:
         ranges.append(float(c[2]) - float(c[3]))
-    return max(ranges) < 0.55 * atr_val
+    avg_range = sum(ranges) / len(ranges) if ranges else atr_val
+    return avg_range < 0.55 * atr_val
 
 
 def loss_of_control(candles):
@@ -20,9 +21,12 @@ def loss_of_control(candles):
         open_ = float(c[1])
         close = float(c[4])
         high = float(c[2])
+        low = float(c[3])
 
         bodies.append(abs(close - open_))
-        wicks.append(high - max(open_, close))
+        upper_wick = high - max(open_, close)
+        lower_wick = min(open_, close) - low
+        wicks.append(max(upper_wick, lower_wick))
 
     return (
         max(wicks) > 1.5 * (sum(wicks) / len(wicks))
@@ -31,9 +35,17 @@ def loss_of_control(candles):
 
 
 def rejection(candles, atr_val):
+    """Pin bar: small body, large wick rejected from a level."""
     last = candles[-1]
-    body = abs(float(last[4]) - float(last[1]))
-    return body > 1.1 * atr_val
+    o, h, l, c = float(last[1]), float(last[2]), float(last[3]), float(last[4])
+    body = abs(c - o)
+    upper_wick = h - max(o, c)
+    lower_wick = min(o, c) - l
+    total_range = h - l
+    if total_range < 0.5 * atr_val:
+        return False  # too small candle
+    dominant_wick = max(upper_wick, lower_wick)
+    return dominant_wick >= 2 * body and dominant_wick >= 0.55 * total_range
 
 def entry_trigger_5m(candles):
     last = candles[-1]
@@ -56,7 +68,7 @@ def entry_trigger_5m(candles):
 
     return None
 
-def market_direction(candles, period=20):
+def market_direction(candles, period=20, slope_threshold=0.1):
     """
     Определяет направление рынка через EMA(period) slope + позицию цены.
     Требует совпадения наклона EMA и положения цены относительно EMA,
@@ -84,14 +96,13 @@ def market_direction(candles, period=20):
     slope_pct = (ema_now - ema_prev) / ema_prev * 100
     price_vs_ema = (current_price - ema_now) / ema_now * 100
 
-    SLOPE_THRESHOLD = 0.1  # минимальный наклон 0.1%
-
-    if slope_pct > SLOPE_THRESHOLD and price_vs_ema > 0:
+    if slope_pct > slope_threshold and price_vs_ema > 0:
         return "UP"
-    elif slope_pct < -SLOPE_THRESHOLD and price_vs_ema < 0:
+    elif slope_pct < -slope_threshold and price_vs_ema < 0:
         return "DOWN"
     return "FLAT"
 
 def is_flat(candles, atr_val):
     ranges = [float(c[2]) - float(c[3]) for c in candles[-10:]]
-    return max(ranges) < 0.6 * atr_val
+    avg_range = sum(ranges) / len(ranges) if ranges else atr_val
+    return avg_range < 0.6 * atr_val

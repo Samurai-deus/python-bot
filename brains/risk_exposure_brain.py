@@ -252,11 +252,8 @@ class RiskExposureBrain:
         """
         Проверяет, не перегружен ли портфель.
 
-        Примечание: корреляция НЕ используется как условие перегрузки,
-        т.к. большинство крипто-активов коррелируют с BTC > 0.8 в
-        трендовых условиях — это заблокировало бы все сделки при наличии
-        любых 2 открытых позиций. Корреляция учитывается как предупреждение
-        в DecisionCore (рекомендация «диверсифицируйте»).
+        Корреляция re-enabled с практическим лимитом: допускается до 4
+        высококоррелированных позиций. Свыше 4 — overload.
         """
         # Перегрузка по риску
         if total_risk_pct > self.max_total_risk_pct:
@@ -270,7 +267,35 @@ class RiskExposureBrain:
         if active_positions > 10:
             return True
 
+        # Перегрузка по корреляции: allow max 4 highly correlated positions
+        if max_correlation > self.max_correlation and active_positions > 4:
+            logger.warning(
+                "Risk Exposure: overload — %d positions with max correlation %.3f > %.3f",
+                active_positions, max_correlation, self.max_correlation
+            )
+            return True
+
         return False
+
+    def correlation_size_adjustment(self, max_correlation: float,
+                                     active_positions: int) -> float:
+        """
+        Returns a position size multiplier based on correlation and number of
+        open positions. For each correlated position beyond 2, reduce new
+        position size by 30%.
+
+        Returns:
+            float: multiplier 0.0 - 1.0 (1.0 = no reduction)
+        """
+        if max_correlation <= self.max_correlation:
+            return 1.0
+        # Positions 1-2: no reduction
+        # Position 3: 0.7, position 4: 0.49, etc.
+        correlated_excess = max(0, active_positions - 2)
+        if correlated_excess == 0:
+            return 1.0
+        multiplier = 0.7 ** correlated_excess
+        return max(0.1, multiplier)  # floor at 10%
 
 
 # Глобальный экземпляр

@@ -102,7 +102,7 @@ def test_market_regime_brain():
         
         regime = brain.analyze(symbols, candles_map)
         print(f"✅ Market Regime: trend={regime.trend_type}, volatility={regime.volatility_level}, risk={regime.risk_sentiment}")
-        assert regime.trend_type in ["TREND", "RANGE"], "trend_type должен быть TREND или RANGE"
+        assert regime.trend_type in ["TREND", "RANGE", "MIXED"], "trend_type должен быть TREND, RANGE или MIXED"
         assert regime.volatility_level in ["HIGH", "MEDIUM", "LOW"], "volatility_level должен быть HIGH/MEDIUM/LOW"
         
         print("✅ Все тесты Market Regime Brain пройдены\n")

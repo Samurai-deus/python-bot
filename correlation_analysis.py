@@ -1,10 +1,11 @@
 """
 Модуль для анализа корреляций между торговыми парами
 """
+from itertools import combinations
 from typing import Dict, List, Tuple
 
 
-def calculate_correlation(candles1: List, candles2: List, period: int = 20) -> float:
+def calculate_correlation(candles1: List, candles2: List, period: int = 60) -> float:
     """
     Рассчитывает корреляцию Пирсона между двумя парами.
     
@@ -99,7 +100,7 @@ def analyze_market_correlations(symbols: List[str], candles_map: Dict[str, Dict[
             if len(base_candles) < 20:
                 continue
             
-            corr = calculate_correlation(symbol_candles, base_candles, period=20)
+            corr = calculate_correlation(symbol_candles, base_candles, period=60)
             correlations.append((base_symbol, corr))
         
         # Сортируем по силе корреляции
@@ -126,6 +127,31 @@ def analyze_market_correlations(symbols: List[str], candles_map: Dict[str, Dict[
     return results
 
 
+def compute_pairwise_correlations(symbols_data: dict, period: int = 60) -> dict:
+    """Compute correlations between all pairs of given symbols.
+
+    This is used by risk_exposure_brain to detect concentration risk
+    among open positions (not just vs BTC/ETH).
+
+    Args:
+        symbols_data: {symbol: candles_list} for each symbol with open position
+        period: number of candles to use (default 60 = 15 hours on 15m)
+
+    Returns:
+        {(sym1, sym2): correlation_float} for all pairs
+    """
+    result: Dict[Tuple[str, str], float] = {}
+    syms = list(symbols_data.keys())
+    for sym1, sym2 in combinations(syms, 2):
+        candles1 = symbols_data[sym1]
+        candles2 = symbols_data[sym2]
+        if not candles1 or not candles2:
+            result[(sym1, sym2)] = 0.0
+            continue
+        result[(sym1, sym2)] = calculate_correlation(candles1, candles2, period=period)
+    return result
+
+
 def get_correlation_score(correlation_data: Dict, symbol: str) -> Tuple[int, List[str]]:
     """
     Возвращает score на основе корреляций (0-10 баллов).
@@ -144,23 +170,24 @@ def get_correlation_score(correlation_data: Dict, symbol: str) -> Tuple[int, Lis
     avg_corr = data.get("avg_correlation", 0)
     strong_corr = data.get("strong_correlations", [])
     
-    # Высокая корреляция с рынком - хорошо для подтверждения тренда
+    # Высокая корреляция с рынком — halved because we can't confirm
+    # BTC direction aligns with signal direction without direction data
     if market_alignment == "HIGH" and avg_corr > 0.7:
-        score += 8
+        score += 4
         reasons.append(f"Высокая корреляция с рынком ({avg_corr:.2f})")
     elif market_alignment == "MEDIUM":
-        score += 5
+        score += 3
         reasons.append(f"Умеренная корреляция с рынком ({avg_corr:.2f})")
     elif market_alignment == "LOW":
-        score += 2
+        score += 1
         reasons.append(f"Низкая корреляция с рынком ({avg_corr:.2f}) - независимое движение")
-    
-    # Сильные корреляции с BTC/ETH
+
+    # Сильные корреляции с BTC/ETH — halved (was +2, now +1)
     if strong_corr:
         btc_corr = next((c for s, c in strong_corr if "BTC" in s), None)
         if btc_corr and abs(btc_corr) > 0.8:
-            score += 2
+            score += 1
             reasons.append(f"Сильная корреляция с BTC ({btc_corr:.2f})")
-    
-    return min(10, score), reasons
+
+    return min(5, score), reasons
 

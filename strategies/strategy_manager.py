@@ -61,11 +61,31 @@ class StrategyManager:
         if not signals:
             return None
 
-        # Выбираем сигнал с максимальным confidence
-        best = max(signals, key=lambda s: s.confidence)
+        # H-8: Conflict detection — if strategies disagree on direction, skip
+        sides = set(s.side for s in signals)
+        if len(sides) > 1:
+            logger.info(
+                "%s: conflicting signals (%s), skipping",
+                symbol, ", ".join(f"{s.strategy_name}={s.side}" for s in signals),
+            )
+            return None
+
+        # H-7: Weight confidence by regime fitness
+        REGIME_FITNESS = {
+            ("trend_following", "TREND"): 1.3,
+            ("mean_reversion", "RANGE"): 1.3,
+            ("momentum_breakout", "TREND"): 1.2,
+        }
+
+        def weighted_confidence(s: StrategySignal) -> float:
+            multiplier = REGIME_FITNESS.get((s.strategy_name, market_regime), 1.0)
+            return s.confidence * multiplier
+
+        best = max(signals, key=weighted_confidence)
         logger.info(
-            "%s: best signal from %s — %s conf=%.2f R:R=%.1f (%s)",
+            "%s: best signal from %s — %s conf=%.2f (w=%.2f) R:R=%.1f (%s)",
             symbol, best.strategy_name, best.side,
-            best.confidence, best.rr_ratio, best.reason,
+            best.confidence, weighted_confidence(best),
+            best.rr_ratio, best.reason,
         )
         return best

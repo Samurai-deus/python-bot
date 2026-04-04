@@ -173,6 +173,11 @@ class Gatekeeper:
                 from system_state import get_system_state
                 system_state = get_system_state()
 
+            # Cache open trades once per signal evaluation to prevent TOCTOU race.
+            # All sub-methods receive this cached list instead of querying DB independently.
+            import database
+            open_trades = database.get_open_trades()
+
             # ========== SYSTEM GUARDIAN - ОБЯЗАТЕЛЬНЫЙ ГЛОБАЛЬНЫЙ БАРЬЕР ==========
             # АРХИТЕКТУРНЫЙ ИНВАРИАНТ: Невозможно отправить сигнал без прохождения SystemGuardian
             # SystemGuardian - абсолютный системный барьер перед торговлей
@@ -213,7 +218,7 @@ class Gatekeeper:
             # FAIL-CLOSED ENFORCEMENT: Risk Core evaluation is MANDATORY and AUTHORITATIVE
             # Any failure (exception, None, malformed result) → DENY + HALTED immediately
             try:
-                risk_core_result = self._check_risk_core(symbol, signal_data, system_state)
+                risk_core_result = self._check_risk_core(symbol, signal_data, system_state, open_trades=open_trades)
                 
                 # FAIL-CLOSED: If Risk Core returns None or malformed result → DENY + HALTED
                 if not risk_core_result:
@@ -332,7 +337,7 @@ class Gatekeeper:
             # Проверяем через MetaDecisionBrain ДО всех остальных проверок
             # ADR-004: fail-closed — если модуль недоступен или падает → BLOCK
             if snapshot:
-                meta_result = self._check_meta_decision(snapshot, system_state)
+                meta_result = self._check_meta_decision(snapshot, system_state, open_trades=open_trades)
                 if meta_result:
                     # Логируем решение MetaDecisionBrain
                     block_level = TraceBlockLevel.HARD if (meta_result.block_level and hasattr(meta_result.block_level, 'value') and meta_result.block_level.value == "HARD") else TraceBlockLevel.NONE
@@ -376,7 +381,7 @@ class Gatekeeper:
             # Портфельный анализ (если есть snapshot)
             portfolio_analysis = None
             if snapshot:
-                portfolio_analysis = self._check_portfolio(snapshot)
+                portfolio_analysis = self._check_portfolio(snapshot, open_trades=open_trades)
                 if portfolio_analysis:
                     # Логируем решение PortfolioBrain
                     portfolio_allowed = portfolio_analysis.decision != PortfolioDecision.BLOCK
@@ -403,7 +408,7 @@ class Gatekeeper:
             # ADR-004: fail-closed — если модуль падает → BLOCK
             sizing_result = None  # инициализируем до условного блока
             if snapshot:
-                sizing_result = self._calculate_position_size(snapshot, portfolio_analysis)
+                sizing_result = self._calculate_position_size(snapshot, portfolio_analysis, open_trades=open_trades)
                 if sizing_result:
                     # Логируем решение PositionSizer
                     trace_entries.append(("PositionSizer", sizing_result.position_allowed, sizing_result.reason, TraceBlockLevel.NONE))
@@ -575,12 +580,24 @@ class Gatekeeper:
         except Exception as _st_err:
             logger.warning("[EXECUTOR] Could not check contract status for %s: %s", symbol, _st_err)
 
+        # Fetch mark_price BEFORE qty calculation so we use the current
+        # market price (better approximation of actual fill) instead of
+        # the stale signal entry_price.  C-13 fix.
+        mark_price = 0.0
+        try:
+            mark_price = client.get_mark_price(symbol)
+        except Exception as _mp_err:
+            logger.warning("[EXECUTOR] Could not fetch mark_price for %s: %s", symbol, _mp_err)
+
+        # Use mark_price as better approximation of actual fill
+        actual_entry = mark_price if mark_price > 0 else entry_price
+
         try:
             qty_step = client.get_qty_step(symbol)
         except Exception:
             qty_step = 0.001  # conservative fallback
         qty_step_d = Decimal(str(qty_step))
-        raw_qty = position_size_usd / entry_price
+        raw_qty = position_size_usd / actual_entry  # use mark_price, not signal entry
         qty = float((Decimal(str(raw_qty)) / qty_step_d).to_integral_value(ROUND_DOWN) * qty_step_d)
         if qty <= 0:
             logger.error("[EXECUTOR] Calculated qty=%.4f invalid for %s", qty, symbol)
@@ -590,7 +607,8 @@ class Gatekeeper:
         # Сигнал генерируется по историческим свечам, цена может уйти.
         # Для LONG: TP должен быть > mark_price; для SHORT: TP < mark_price.
         try:
-            mark_price = client.get_mark_price(symbol)
+            if mark_price <= 0:
+                mark_price = client.get_mark_price(symbol)
             if mark_price > 0 and entry_price > 0:
                 sl_pct = abs(entry_price - stop_loss) / entry_price if stop_loss else 0
                 tp_pct = abs(take_profit - entry_price) / entry_price if take_profit else 0
@@ -647,6 +665,8 @@ class Gatekeeper:
                 symbol, side, qty, order_id, result.dry_run,
             )
             try:
+                # C-13: Use actual_entry (mark_price) instead of signal entry_price
+                # for DB records and position tracking, as it better reflects the fill.
                 save_order(
                     order_id=order_id,
                     symbol=symbol,
@@ -655,7 +675,7 @@ class Gatekeeper:
                     qty=qty,
                     stop_loss=stop_loss,
                     dry_run=result.dry_run,
-                    entry_price=entry_price,
+                    entry_price=actual_entry,
                     take_profit=take_profit,
                     status="FILLED",
                 )
@@ -664,7 +684,7 @@ class Gatekeeper:
                     symbol=symbol,
                     side=side,
                     qty=qty,
-                    entry_price=entry_price,
+                    entry_price=actual_entry,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                 )
@@ -672,7 +692,7 @@ class Gatekeeper:
                 tracker.add(TrackedPosition(
                     symbol=symbol,
                     side=side,
-                    entry_price=entry_price,
+                    entry_price=actual_entry,
                     qty=qty,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
@@ -690,7 +710,7 @@ class Gatekeeper:
                     f"✅ Ордер размещён [{mode.value}]\n"
                     f"📈 {symbol} {side}\n"
                     f"💰 Qty: {qty} | Size: ${position_size_usd:.1f}\n"
-                    f"🎯 Entry: {entry_price:.4f}\n"
+                    f"🎯 Entry: {actual_entry:.4f}\n"
                     f"🛡 SL: {stop_loss:.4f} | TP: {tp_str}\n"
                     f"🆔 {order_id}"
                 ),
@@ -706,19 +726,21 @@ class Gatekeeper:
                 timeout=15.0,
             )
 
-    def _check_portfolio(self, snapshot: SignalSnapshot) -> Optional[PortfolioAnalysis]:
+    def _check_portfolio(self, snapshot: SignalSnapshot, open_trades: Optional[List] = None) -> Optional[PortfolioAnalysis]:
         """
         Проверяет сигнал через Portfolio Brain.
-        
+
         Args:
             snapshot: SignalSnapshot для анализа
-        
+            open_trades: Cached open trades (to avoid TOCTOU race)
+
         Returns:
             PortfolioAnalysis или None (если нет открытых позиций)
         """
         try:
-            # Получаем открытые сделки
-            open_trades = get_open_trades()
+            # Use cached open trades if provided, otherwise fetch from DB
+            if open_trades is None:
+                open_trades = get_open_trades()
             if not open_trades:
                 return None  # Нет позиций - портфельный анализ не нужен
             
@@ -791,17 +813,19 @@ class Gatekeeper:
         logger.warning("Gatekeeper blocked signal for %s: %s", symbol, decision.reason)
     
     def _check_meta_decision(
-        self, 
-        snapshot: SignalSnapshot, 
-        system_state
+        self,
+        snapshot: SignalSnapshot,
+        system_state,
+        open_trades: Optional[List] = None,
     ) -> Optional[MetaDecisionResult]:
         """
         Проверяет сигнал через MetaDecisionBrain.
-        
+
         Args:
             snapshot: SignalSnapshot для анализа
             system_state: Состояние системы
-            
+            open_trades: Cached open trades (to avoid TOCTOU race)
+
         Returns:
             MetaDecisionResult или None (если MetaDecisionBrain недоступен)
         """
@@ -810,11 +834,14 @@ class Gatekeeper:
             market_regime = snapshot.market_regime
             confidence_score = snapshot.confidence
             entropy_score = snapshot.entropy
-            
+
+            # Use cached open trades if provided, otherwise fetch from DB
+            if open_trades is None:
+                open_trades = get_open_trades()
+
             # Вычисляем portfolio_exposure из открытых позиций
             portfolio_exposure = 0.0
             try:
-                open_trades = get_open_trades()
                 if open_trades:
                     current_balance = get_current_balance()
                     if current_balance > 0:
@@ -823,26 +850,57 @@ class Gatekeeper:
                         portfolio_exposure = min(1.0, total_exposure / current_balance)
             except Exception:
                 portfolio_exposure = 0.0
-            
+
             # Получаем signals_count_recent из system_state
             signals_count_recent = len(system_state.recent_signals) if system_state and hasattr(system_state, 'recent_signals') else 0
-            
+
             # Преобразуем system_health в SystemHealthStatus
             system_health = SystemHealthStatus.OK
             if system_state and hasattr(system_state, 'system_health'):
                 if system_state.system_health.safe_mode or system_state.system_health.consecutive_errors > 5:
                     system_health = SystemHealthStatus.DEGRADED
-            
+
+            # H-19: Get recent trade outcomes for loss-streak detection
+            recent_outcomes = None
+            try:
+                import database as _db
+                closed_recent = _db.get_closed_trades(days=7)
+                if closed_recent:
+                    # Take last 10, map to WIN/LOSS/NEUTRAL
+                    recent_outcomes = []
+                    for t in closed_recent[-10:]:
+                        pnl = t.get("pnl", 0) or t.get("net_pnl", 0)
+                        if pnl > 0:
+                            recent_outcomes.append("WIN")
+                        elif pnl < 0:
+                            recent_outcomes.append("LOSS")
+                        else:
+                            recent_outcomes.append("NEUTRAL")
+            except Exception:
+                recent_outcomes = None
+
+            # H-20: Compute time_context based on UTC hour
+            from datetime import timezone as _tz
+            hour = datetime.now(_tz.utc).hour
+            # Bybit funding: 00:00, 08:00, 16:00 UTC — avoid 30 min before
+            if hour in (23, 7, 15):
+                time_context = TimeContext.SESSION_END
+            elif 8 <= hour <= 16:
+                # London/NY overlap — most active period
+                time_context = TimeContext.SESSION_MID
+            else:
+                time_context = TimeContext.SESSION_START
+
             # Вызываем MetaDecisionBrain
             meta_result = self.meta_decision_brain.evaluate(
                 market_regime=market_regime,
                 confidence_score=confidence_score,
                 entropy_score=entropy_score,
                 portfolio_exposure=portfolio_exposure,
-                recent_outcomes=None,  # Опционально - можно добавить позже
+                recent_outcomes=recent_outcomes,
                 signals_count_recent=signals_count_recent,
                 system_health=system_health,
-                time_context=TimeContext.UNKNOWN  # Опционально - можно улучшить позже
+                time_context=time_context,
             )
             
             return meta_result
@@ -868,24 +926,27 @@ class Gatekeeper:
     def _calculate_position_size(
         self,
         snapshot: SignalSnapshot,
-        portfolio_analysis: Optional[PortfolioAnalysis]
+        portfolio_analysis: Optional[PortfolioAnalysis],
+        open_trades: Optional[List] = None,
     ):
         """
         Рассчитывает размер позиции через PositionSizer.
-        
+
         Args:
             snapshot: SignalSnapshot для анализа
             portfolio_analysis: Результат PortfolioBrain (опционально)
-        
+            open_trades: Cached open trades (to avoid TOCTOU race)
+
         Returns:
             PositionSizingResult или None (если PositionSizer недоступен)
-        
+
         Примечание:
             Вызывается ПОСЛЕ всех проверок, но ДО отправки сигнала.
         """
         try:
-            # Вычисляем portfolio_state (используем ту же логику, что и в _check_portfolio)
-            open_trades = get_open_trades()
+            # Use cached open trades if provided, otherwise fetch from DB
+            if open_trades is None:
+                open_trades = get_open_trades()
             portfolio_state = None
             
             if open_trades:
@@ -1028,18 +1089,20 @@ class Gatekeeper:
         self,
         symbol: str,
         signal_data: Dict,
-        system_state
+        system_state,
+        open_trades: Optional[List] = None,
     ) -> Optional[tuple]:
         """
         Проверяет сигнал через Risk Core.
-        
+
         ADR-TRADING-RISK-CORE-001: Risk Core имеет право вето
-        
+
         Args:
             symbol: Торговая пара
             signal_data: Данные сигнала
             system_state: Состояние системы
-        
+            open_trades: Cached open trades (to avoid TOCTOU race)
+
         Returns:
             Tuple (TradingPermission, RiskState, ViolationReport) или None (если ошибка)
         """
@@ -1087,8 +1150,9 @@ class Gatekeeper:
                 loss_7d_usd=loss_7d_usd
             )
             
-            # Собираем Exposure Snapshot
-            open_trades = get_open_trades()
+            # Собираем Exposure Snapshot (use cached open_trades if provided)
+            if open_trades is None:
+                open_trades = get_open_trades()
             open_positions = [
                 PositionSnapshot(
                     symbol=trade.get("symbol", ""),

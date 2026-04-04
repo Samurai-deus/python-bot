@@ -4,8 +4,9 @@
 Multi-stage exit logic:
   1. Hard SL — закрытие при достижении стопа
   2. Breakeven — после +1R перенос стопа на вход + 0.1R буфер
+     (skipped if trailing stop is already more aggressive)
   3. Partial TP — после +1.5R закрытие 50% позиции
-  4. Trailing stop — после +1R тралим стоп на 0.5R за ценой
+  4. Trailing stop — после +1R тралим стоп на 1.0R за ценой
   5. Time exit — если >6ч и движение <0.3R, закрытие по рынку
   6. Full TP — закрытие остатка при достижении target
 """
@@ -124,17 +125,39 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
             continue
 
         # --- Stage 2: Breakeven stop (после +1R) ---
+        # Skip breakeven if trailing stop is already more aggressive
+        # (trailing at 1.0R behind price will be tighter than breakeven+buffer
+        #  once price moves significantly past 1R)
         if current_r >= 1.0 and not trade.get("breakeven_set"):
             buffer = risk_distance * 0.1
             if side == "LONG":
                 new_stop = entry + buffer
+                # Only set breakeven if trailing hasn't already pushed stop higher
+                current_stop = trade.get("trailing_stop") or trade["stop"]
+                if new_stop > current_stop:
+                    update_trade_stop(trade["id"], new_stop, breakeven=True)
+                    trade["stop"] = new_stop
+                    trade["breakeven_set"] = 1
+                    logger.info("Trade #%d %s: breakeven set @ %.4f (was %.4f)",
+                                trade["id"], symbol, new_stop, stop)
+                else:
+                    # Trailing already ahead of breakeven — mark as set, skip update
+                    trade["breakeven_set"] = 1
+                    logger.info("Trade #%d %s: breakeven skipped, trailing stop already at %.4f > breakeven %.4f",
+                                trade["id"], symbol, current_stop, new_stop)
             else:
                 new_stop = entry - buffer
-            update_trade_stop(trade["id"], new_stop, breakeven=True)
-            trade["stop"] = new_stop
-            trade["breakeven_set"] = 1
-            logger.info("Trade #%d %s: breakeven set @ %.4f (was %.4f)",
-                        trade["id"], symbol, new_stop, stop)
+                current_stop = trade.get("trailing_stop") or trade["stop"]
+                if new_stop < current_stop:
+                    update_trade_stop(trade["id"], new_stop, breakeven=True)
+                    trade["stop"] = new_stop
+                    trade["breakeven_set"] = 1
+                    logger.info("Trade #%d %s: breakeven set @ %.4f (was %.4f)",
+                                trade["id"], symbol, new_stop, stop)
+                else:
+                    trade["breakeven_set"] = 1
+                    logger.info("Trade #%d %s: breakeven skipped, trailing stop already at %.4f < breakeven %.4f",
+                                trade["id"], symbol, current_stop, new_stop)
 
         # --- Stage 3: Partial TP at 1.5R (50% позиции) ---
         if current_r >= 1.5 and not trade.get("partial_closed"):
@@ -144,26 +167,33 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
             trade["partial_pnl"] = partial_pnl
             logger.info("Trade #%d %s: partial TP 50%% @ %.4f, PnL=%.2f (R=%.1f)",
                         trade["id"], symbol, current_price, partial_pnl, current_r)
+            # TODO: For TESTNET/LIVE, call executor to reduce position by 50%
+            # executor.close_position(symbol, side, qty * 0.5)
 
-        # --- Stage 4: Trailing stop (после +1R, тралим на 0.5R) ---
+        # --- Stage 4: Trailing stop (после +1R, тралим на 1.0R за ценой) ---
+        # 1.0R gives trades room to breathe while protecting profits
         if current_r >= 1.0:
-            trail_distance = risk_distance * 0.5
+            trail_distance = risk_distance * 1.0
             if side == "LONG":
                 new_trailing = current_price - trail_distance
                 current_stop = trade.get("trailing_stop") or trade["stop"]
                 if new_trailing > current_stop:
                     update_trade_stop(trade["id"], new_trailing)
                     trade["stop"] = new_trailing
+                    trade["trailing_stop"] = new_trailing
                     logger.debug("Trade #%d %s: trailing stop → %.4f (R=%.1f)",
                                  trade["id"], symbol, new_trailing, current_r)
+                    # TODO: For TESTNET/LIVE, update SL on exchange via set_trading_stop API
             else:
                 new_trailing = current_price + trail_distance
                 current_stop = trade.get("trailing_stop") or trade["stop"]
                 if new_trailing < current_stop:
                     update_trade_stop(trade["id"], new_trailing)
                     trade["stop"] = new_trailing
+                    trade["trailing_stop"] = new_trailing
                     logger.debug("Trade #%d %s: trailing stop → %.4f (R=%.1f)",
                                  trade["id"], symbol, new_trailing, current_r)
+                    # TODO: For TESTNET/LIVE, update SL on exchange via set_trading_stop API
 
         # --- Stage 5: Time exit (>6h с движением <0.3R) ---
         duration_min = _get_trade_duration_minutes(trade)
