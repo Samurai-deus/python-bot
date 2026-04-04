@@ -5,7 +5,7 @@ import { useSettingsStore } from '../../store/useSettingsStore'
 import { useAnalyticsSummary, useEquityCurve, useBySymbol } from '../../hooks/useAnalytics'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { formatUSDT, formatPnl, formatPct, formatSymbol } from '../../lib/formatters'
+import { formatPnl, formatPct, formatSymbol } from '../../lib/formatters'
 
 const DAYS_OPTIONS = [7, 30, 90]
 
