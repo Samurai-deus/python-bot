@@ -42,8 +42,12 @@ logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN is required — set it in .env")
+if not ANTHROPIC_API_KEY:
+    raise ValueError("ANTHROPIC_API_KEY is required — set it in .env")
 
 _raw_ids = os.getenv("ALLOWED_USER_IDS", "")
 ALLOWED_USER_IDS: set[int] = (

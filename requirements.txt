@@ -1,30 +1,31 @@
 # Market Bot Dependencies
 # Python 3.12+
+# Pinned to exact versions for reproducible builds
 
 # Environment variables
-python-dotenv>=1.0.0
+python-dotenv==1.1.0
 
 # Telegram Bot
-python-telegram-bot>=20.7
+python-telegram-bot==21.11.1
 
 # HTTP Requests
-requests>=2.31.0
-httpx>=0.25.2
-aiohttp>=3.9.0
+requests==2.32.3
+httpx==0.28.1
+aiohttp==3.11.18
 
 # FastAPI backend (Phase 5 — Telegram Mini App)
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
 
 # Monitoring (Phase 6)
-prometheus-fastapi-instrumentator>=0.9.1
-sentry-sdk[fastapi]>=2.0.0
-redis>=5.0.0
+prometheus-fastapi-instrumentator==7.0.2
+sentry-sdk[fastapi]==2.29.1
+redis==5.3.0
 
 # PostgreSQL (Phase 6)
-psycopg2-binary>=2.9.10
+psycopg2-binary==2.9.10
 
 # Encryption (Phase 6)
-cryptography>=42.0.0
+cryptography==44.0.3
 
 

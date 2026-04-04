@@ -58,8 +58,19 @@ export function useWebSocket() {
             ws.send(JSON.stringify({ type: 'pong' }))
             return
           }
-          setSnapshot(data as WsSnapshot)
-          touchSnapshot()
+          // Validate required WsSnapshot fields before using
+          if (
+            data &&
+            typeof data === 'object' &&
+            typeof data.timestamp === 'string' &&
+            typeof data.system_state === 'string' &&
+            Array.isArray(data.positions)
+          ) {
+            setSnapshot(data as WsSnapshot)
+            touchSnapshot()
+          } else {
+            logger.warn('WS message failed validation', data)
+          }
         } catch (err) {
           logger.warn('WS malformed message', err)
         }

@@ -16,7 +16,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128m
+          memory: 256m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-market_bot} -d ${POSTGRES_DB:-market_bot}"]
       interval: 10s
@@ -83,7 +83,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128m
+          memory: 256m
     healthcheck:
       test: ["CMD", "python", "-c",
         "import socket; s=socket.create_connection(('localhost',8000),timeout=5); s.close()"]

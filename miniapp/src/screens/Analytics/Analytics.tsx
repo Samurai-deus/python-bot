@@ -198,60 +198,69 @@ function EquityCurveChart({ data }: { data: { points: number[]; timestamps: stri
   useEffect(() => {
     if (!containerRef.current || data.points.length === 0) return
 
-    const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
-      height: 190,
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#4e6070',
-        fontSize: 10,
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { color: 'rgba(0,212,255,0.05)' },
-      },
-      timeScale: {
-        borderVisible: false,
-        borderColor: 'rgba(0,212,255,0.08)',
-        timeVisible: true,
-      },
-      rightPriceScale: { borderVisible: false },
-      handleScroll: false,
-      handleScale: false,
-    })
+    let chart: ReturnType<typeof createChart> | null = null
+    let observer: ResizeObserver | null = null
 
-    const series = chart.addSeries(AreaSeries, {
-      lineColor: '#00d4ff',
-      topColor: 'rgba(0,212,255,0.22)',
-      bottomColor: 'rgba(0,212,255,0.0)',
-      lineWidth: 2,
-    })
+    try {
+      chart = createChart(containerRef.current, {
+        width: containerRef.current.clientWidth,
+        height: 190,
+        layout: {
+          background: { type: ColorType.Solid, color: 'transparent' },
+          textColor: '#4e6070',
+          fontSize: 10,
+        },
+        grid: {
+          vertLines: { visible: false },
+          horzLines: { color: 'rgba(0,212,255,0.05)' },
+        },
+        timeScale: {
+          borderVisible: false,
+          borderColor: 'rgba(0,212,255,0.08)',
+          timeVisible: true,
+        },
+        rightPriceScale: { borderVisible: false },
+        handleScroll: false,
+        handleScale: false,
+      })
 
-    // Deduplicate and sort by time (lightweight-charts requires strictly ascending times)
-    const rawData = data.points.map((value, i) => ({
-      time: Math.floor(new Date(data.timestamps[i]).getTime() / 1000) as Time,
-      value,
-    }))
-    rawData.sort((a, b) => (a.time as number) - (b.time as number))
-    // Remove duplicates (keep last value for same timestamp)
-    const seen = new Map<number, number>()
-    for (const d of rawData) seen.set(d.time as number, d.value)
-    const chartData = Array.from(seen.entries()).map(([time, value]) => ({ time: time as Time, value }))
+      const series = chart.addSeries(AreaSeries, {
+        lineColor: '#00d4ff',
+        topColor: 'rgba(0,212,255,0.22)',
+        bottomColor: 'rgba(0,212,255,0.0)',
+        lineWidth: 2,
+      })
 
-    if (chartData.length === 0) return
-    series.setData(chartData)
-    chart.timeScale().fitContent()
+      // Deduplicate and sort by time (lightweight-charts requires strictly ascending times)
+      const rawData = data.points.map((value, i) => ({
+        time: Math.floor(new Date(data.timestamps[i]).getTime() / 1000) as Time,
+        value,
+      }))
+      rawData.sort((a, b) => (a.time as number) - (b.time as number))
+      // Remove duplicates (keep last value for same timestamp)
+      const seen = new Map<number, number>()
+      for (const d of rawData) seen.set(d.time as number, d.value)
+      const chartData = Array.from(seen.entries()).map(([time, value]) => ({ time: time as Time, value }))
 
-    const observer = new ResizeObserver(() => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth })
-      }
-    })
-    observer.observe(containerRef.current)
+      if (chartData.length === 0) return
+      series.setData(chartData)
+      chart.timeScale().fitContent()
+
+      observer = new ResizeObserver(() => {
+        try {
+          if (containerRef.current && chart) {
+            chart.applyOptions({ width: containerRef.current.clientWidth })
+          }
+        } catch { /* unmounted */ }
+      })
+      observer.observe(containerRef.current)
+    } catch (err) {
+      console.error('[EquityCurveChart] Failed to create chart:', err)
+    }
 
     return () => {
-      observer.disconnect()
-      chart.remove()
+      try { observer?.disconnect() } catch { /* already disconnected */ }
+      try { chart?.remove() } catch { /* already removed */ }
     }
   }, [data])
 
