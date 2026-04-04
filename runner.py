@@ -387,8 +387,11 @@ class _TimeoutLock:
 
 _metrics_lock = _TimeoutLock(timeout=1.0)
 
-def _get_admin_lock():
-    """Returns the admin command lock, initializing it if needed"""
+def _get_admin_lock() -> asyncio.Lock:
+    """Returns the admin command lock, initializing it on first call.
+
+    Safe: all callers are in the same asyncio event loop (cooperative).
+    """
     global _admin_command_lock
     if _admin_command_lock is None:
         _admin_command_lock = asyncio.Lock()

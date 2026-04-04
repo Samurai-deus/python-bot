@@ -1381,8 +1381,9 @@ def get_pnl_history(days: int = 30) -> List[Dict]:
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+        since = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
         cursor.execute(
-            _q("SELECT * FROM pnl_history ORDER BY date DESC LIMIT ?"), (days,)
+            _q("SELECT * FROM pnl_history WHERE date >= ? ORDER BY date DESC"), (since,)
         )
         rows = cursor.fetchall()
     finally:
