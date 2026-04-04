@@ -313,7 +313,7 @@ class PerformanceTracker:
             win_rate=round(win_rate, 2),
             sharpe_ratio=sharpe,
             max_drawdown_abs=dd_abs,
-            max_drawdown_pct=dd_pct,
+            max_drawdown_pct=round(dd_pct * 100, 2),
             profit_factor=pf,
             recovery_factor=rf,
             expectancy=exp,
