@@ -142,26 +142,17 @@ def get_peak_balance() -> float:
     not just the current balance.  This ensures the drawdown breaker fires
     correctly when equity drops from its historical peak.
     """
-    from database import get_db_connection, _q, USE_POSTGRES
+    from database import get_db_connection, _q
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        if USE_POSTGRES:
-            cursor.execute(
-                "SELECT COALESCE(MAX(cum), 0) AS peak_pnl FROM ("
-                "  SELECT SUM(pnl) OVER (ORDER BY id) AS cum"
-                "  FROM trades WHERE status = 'CLOSED'"
-                ") sub"
-            )
-        else:
-            # SQLite: no window-function ORDER inside SUM OVER in old versions,
-            # but sqlite 3.25+ supports it.
-            cursor.execute(
-                "SELECT COALESCE(MAX(cum), 0) AS peak_pnl FROM ("
-                "  SELECT SUM(pnl) OVER (ORDER BY id) AS cum"
-                "  FROM trades WHERE status = 'CLOSED'"
-                ") sub"
-            )
+        # Window function works in both PostgreSQL and SQLite 3.25+
+        cursor.execute(_q(
+            "SELECT COALESCE(MAX(cum), 0) AS peak_pnl FROM ("
+            "  SELECT SUM(pnl) OVER (ORDER BY id) AS cum"
+            "  FROM trades WHERE status = 'CLOSED'"
+            ") sub"
+        ))
         row = cursor.fetchone()
         peak_pnl = float(row["peak_pnl"]) if row else 0.0
     finally:
