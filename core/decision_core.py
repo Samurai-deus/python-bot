@@ -127,8 +127,14 @@ class DecisionCore:
                         risk_level="HIGH",
                         recommendations=["Торговля остановлена до ручного сброса"]
                     )
-            except Exception:
-                pass  # не блокируем если расчёт недоступен
+            except Exception as e:
+                logger.error("Drawdown check failed: %s — blocking trade (fail-closed)", e)
+                return TradingDecision(
+                    can_trade=False,
+                    reason=f"DRAWDOWN CHECK FAILED: {e}",
+                    risk_level="HIGH",
+                    recommendations=["Drawdown calculation error — fail-closed"]
+                )
 
             # Проверка safe-mode (критично - блокирует торговлю при ошибках)
             if system_state and system_state.system_health.safe_mode:

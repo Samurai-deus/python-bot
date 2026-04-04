@@ -11,6 +11,7 @@ export function useAnalyticsSummary(days: number) {
   return useQuery({
     queryKey: ['analytics-summary', days],
     queryFn: () => fetchAnalyticsSummary(days),
+    refetchInterval: 60_000,
   })
 }
 

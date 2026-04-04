@@ -8,6 +8,7 @@ const MAX_RETRIES = 10
 const BASE_DELAY = 1000
 const MAX_DELAY = 30_000
 const CONNECT_TIMEOUT = 10_000  // close and retry if not opened within 10s
+const STALE_TIMEOUT = 15_000    // no message for 15s = stale, force reconnect
 
 export function useWebSocket() {
   const { setSnapshot, setWsStatus, touchSnapshot } = useSystemStore()
@@ -36,6 +37,17 @@ export function useWebSocket() {
         }
       }, CONNECT_TIMEOUT)
 
+      let staleTimer: ReturnType<typeof setTimeout> | null = null
+      const resetStaleTimer = () => {
+        if (staleTimer) clearTimeout(staleTimer)
+        staleTimer = setTimeout(() => {
+          if (!destroyed && ws.readyState === WebSocket.OPEN) {
+            logger.warn('WS stale — no message for 15s, forcing reconnect')
+            ws.close()
+          }
+        }, STALE_TIMEOUT)
+      }
+
       ws.onopen = () => {
         clearTimeout(connectTimer)
         if (destroyed) { ws.close(); return }
@@ -46,11 +58,13 @@ export function useWebSocket() {
         }
         retryRef.current = 0
         setWsStatus('connected')
+        resetStaleTimer()
         logger.debug('connected')
       }
 
       ws.onmessage = (e) => {
         if (destroyed) return
+        resetStaleTimer()
         try {
           const data = JSON.parse(e.data as string)
           // Respond to server keepalive ping
@@ -78,6 +92,7 @@ export function useWebSocket() {
 
       ws.onclose = () => {
         clearTimeout(connectTimer)
+        if (staleTimer) clearTimeout(staleTimer)
         if (destroyed) return
         logger.debug(`WS closed (retry ${retryRef.current}/${MAX_RETRIES})`)
         setWsStatus('reconnecting')

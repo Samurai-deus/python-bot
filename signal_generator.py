@@ -267,7 +267,16 @@ def generate_signals_for_symbols(
 
                 risk_distance = abs(entry - stop)
                 rr_ratio = abs(target - entry) / risk_distance if risk_distance else 0
-                risk = "LOW"  # стратегия уже отфильтровала плохие условия
+                # Run risk assessment even for strategy signals (C-T4 fix)
+                stop_info_strat = calculate_stop_distance(entry, stop, atr_15m, entry)
+                volume_info_strat = {"volume_trend": volume_trend, "volume_ratio": volume_profile.get("volume_ratio", 1.0)}
+                risk = enhanced_risk_level(
+                    states, stop_info=stop_info_strat, volume_info=volume_info_strat,
+                    momentum_data=momentum_data, candles_map=candles_map, directions=directions
+                )
+                if risk == "HIGH":
+                    logger.info("%s: strategy %s signal rejected — HIGH risk", symbol, strategy_name)
+                    continue
                 logger.info(
                     "%s: STRATEGY %s → %s entry=%.4f stop=%.4f target=%.4f R:R=%.2f conf=%.2f",
                     symbol, strategy_name, side, entry, stop, target, rr_ratio, strategy_signal.confidence,

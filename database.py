@@ -142,6 +142,8 @@ class _PooledConnection:
     def close(self) -> None:
         """Roll back any uncommitted transaction; keep connection alive for reuse."""
         try:
+            if self._conn.in_transaction:
+                logger.warning("_PooledConnection.close: rolling back uncommitted transaction")
             self._conn.rollback()
         except sqlite3.Error as e:
             logger.warning("_PooledConnection.close: rollback failed: %s", e)
@@ -186,9 +188,13 @@ class _PGConnection:
         """Return connection to pool after rolling back any open transaction."""
         try:
             self._conn.rollback()
+            _pg_pool.putconn(self._conn)
         except Exception as e:
-            logger.warning("_PGConnection.close: rollback failed: %s", e)
-        _pg_pool.putconn(self._conn)
+            logger.warning("_PGConnection.close: rollback failed: %s — discarding connection", e)
+            try:
+                _pg_pool.putconn(self._conn, close=True)
+            except Exception:
+                pass
 
 
 # ========== PUBLIC CONNECTION FACTORY ==========

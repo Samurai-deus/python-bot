@@ -231,89 +231,97 @@ class SystemStateMachine:
                 f"(attempted: {self._state.value} → {new_state.value}, owner={owner})"
             )
             return False
-        
+
         async with self._state_lock:
-            old_state = self._state
-            
-            # Проверка allowed transitions
-            if new_state not in self.ALLOWED_TRANSITIONS[old_state]:
-                logger.warning(
-                    f"STATE_TRANSITION_DENIED "
-                    f"from={old_state.value} to={new_state.value} "
-                    f"reason={reason} owner={owner}"
-                )
-                return False
-            
-            # FATAL не может быть изменён
-            if old_state == SystemState.FATAL:
-                logger.critical(
-                    f"STATE_TRANSITION_BLOCKED "
-                    f"from=FATAL to={new_state.value} "
-                    f"reason=FATAL is terminal state"
-                )
-                return False
-            
-            # Создаём incident_id для корреляции
-            incident_id = f"state-{uuid.uuid4().hex[:8]}"
-            
-            # Выполняем переход
-            self._state = new_state
-            self._state_entered_at[new_state] = datetime.now(UTC)
-            
-            # Специальная обработка для SAFE_MODE
-            if new_state == SystemState.SAFE_MODE:
-                self._safe_mode_entered_at = datetime.now(UTC)
-                self._recovery_cycles = 0  # Сбрасываем recovery cycles
-            elif old_state == SystemState.SAFE_MODE:
-                self._safe_mode_entered_at = None
-            
-            # Специальная обработка для RECOVERING
-            if new_state == SystemState.RECOVERING:
-                self._recovery_cycles = 0  # Начинаем подсчёт заново
-            
-            # Создаём transition record
-            transition = StateTransition(
-                from_state=old_state,
-                to_state=new_state,
-                reason=reason,
-                timestamp=datetime.now(UTC),
-                incident_id=incident_id,
-                owner=owner,
-                metadata=metadata or {}
-            )
-            self._transitions.append(transition)
-            
-            # Логируем переход
-            duration = None
-            if old_state in self._state_entered_at:
-                duration = (datetime.now(UTC) - self._state_entered_at[old_state]).total_seconds()
-            
-            logger.critical(
-                f"STATE_TRANSITION "
-                f"incident_id={incident_id} "
+            return self._transition_unlocked(new_state, reason, owner, metadata)
+
+    def _transition_unlocked(self, new_state: 'SystemState', reason: str,
+                             owner: str = "unknown",
+                             metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Internal transition WITHOUT acquiring lock. Caller MUST hold _state_lock."""
+        old_state = self._state
+
+        # Проверка allowed transitions
+        if new_state not in self.ALLOWED_TRANSITIONS[old_state]:
+            logger.warning(
+                f"STATE_TRANSITION_DENIED "
                 f"from={old_state.value} to={new_state.value} "
-                f"reason={reason} owner={owner} "
-                f"duration_in_old_state={duration} "
-                f"metadata={metadata}"
+                f"reason={reason} owner={owner}"
             )
-            
-            return True
+            return False
+
+        # FATAL не может быть изменён
+        if old_state == SystemState.FATAL:
+            logger.critical(
+                f"STATE_TRANSITION_BLOCKED "
+                f"from=FATAL to={new_state.value} "
+                f"reason=FATAL is terminal state"
+            )
+            return False
+
+        # Создаём incident_id для корреляции
+        incident_id = f"state-{uuid.uuid4().hex[:8]}"
+
+        # Выполняем переход
+        self._state = new_state
+        self._state_entered_at[new_state] = datetime.now(UTC)
+
+        # Специальная обработка для SAFE_MODE
+        if new_state == SystemState.SAFE_MODE:
+            self._safe_mode_entered_at = datetime.now(UTC)
+            self._recovery_cycles = 0  # Сбрасываем recovery cycles
+        elif old_state == SystemState.SAFE_MODE:
+            self._safe_mode_entered_at = None
+
+        # Специальная обработка для RECOVERING
+        if new_state == SystemState.RECOVERING:
+            self._recovery_cycles = 0  # Начинаем подсчёт заново
+
+        # Создаём transition record (keep last 200 to avoid memory leak)
+        transition = StateTransition(
+            from_state=old_state,
+            to_state=new_state,
+            reason=reason,
+            timestamp=datetime.now(UTC),
+            incident_id=incident_id,
+            owner=owner,
+            metadata=metadata or {}
+        )
+        self._transitions.append(transition)
+        if len(self._transitions) > 200:
+            self._transitions = self._transitions[-100:]
+
+        # Логируем переход
+        duration = None
+        if old_state in self._state_entered_at:
+            duration = (datetime.now(UTC) - self._state_entered_at[old_state]).total_seconds()
+
+        logger.critical(
+            f"STATE_TRANSITION "
+            f"incident_id={incident_id} "
+            f"from={old_state.value} to={new_state.value} "
+            f"reason={reason} owner={owner} "
+            f"duration_in_old_state={duration} "
+            f"metadata={metadata}"
+        )
+
+        return True
     
     async def record_error(self, error_msg: str) -> None:
         """Запись ошибки (увеличивает consecutive_errors)"""
         async with self._state_lock:
             self._consecutive_errors += 1
-            
-            # Автоматические переходы на основе ошибок
+
+            # Автоматические переходы на основе ошибок (use unlocked to avoid deadlock)
             if self._consecutive_errors >= 5 and self._state != SystemState.SAFE_MODE:
-                await self.transition_to(
+                self._transition_unlocked(
                     SystemState.SAFE_MODE,
                     f"consecutive_errors >= 5 (current: {self._consecutive_errors})",
                     owner="error_handler",
                     metadata={"error_count": self._consecutive_errors, "last_error": error_msg}
                 )
             elif self._consecutive_errors >= 3 and self._state == SystemState.RUNNING:
-                await self.transition_to(
+                self._transition_unlocked(
                     SystemState.DEGRADED,
                     f"consecutive_errors >= 3 (current: {self._consecutive_errors})",
                     owner="error_handler",
@@ -326,10 +334,10 @@ class SystemStateMachine:
             if self._consecutive_errors > 0:
                 old_errors = self._consecutive_errors
                 self._consecutive_errors = 0
-                
-                # Автоматический переход из DEGRADED в RUNNING
+
+                # Автоматический переход из DEGRADED в RUNNING (unlocked to avoid deadlock)
                 if self._state == SystemState.DEGRADED:
-                    await self.transition_to(
+                    self._transition_unlocked(
                         SystemState.RUNNING,
                         f"errors reset (was {old_errors})",
                         owner="recovery_mechanism"
@@ -348,23 +356,23 @@ class SystemStateMachine:
         async with self._state_lock:
             if self._state != SystemState.SAFE_MODE and self._state != SystemState.RECOVERING:
                 return False
-            
+
             if success:
                 self._recovery_cycles += 1
-                
-                # Проверяем, достаточно ли циклов для перехода в RECOVERING
+
+                # Проверяем, достаточно ли циклов для перехода в RECOVERING (unlocked)
                 if self._state == SystemState.SAFE_MODE and self._recovery_cycles >= 3:
-                    await self.transition_to(
+                    self._transition_unlocked(
                         SystemState.RECOVERING,
                         f"recovery_cycles >= 3 (current: {self._recovery_cycles})",
                         owner="recovery_mechanism",
                         metadata={"recovery_cycles": self._recovery_cycles}
                     )
                     return True
-                
-                # Проверяем, достаточно ли циклов для перехода в RUNNING
+
+                # Проверяем, достаточно ли циклов для перехода в RUNNING (unlocked)
                 if self._state == SystemState.RECOVERING and self._recovery_cycles >= 3:
-                    await self.transition_to(
+                    self._transition_unlocked(
                         SystemState.RUNNING,
                         f"recovery completed (cycles: {self._recovery_cycles})",
                         owner="recovery_mechanism",
@@ -555,21 +563,21 @@ class SystemStateMachine:
         async with self._state_lock:
             if self._state != SystemState.SAFE_MODE:
                 return False
-            
+
             if self._safe_mode_entered_at is None:
                 return False
-            
+
             duration = (datetime.now(UTC) - self._safe_mode_entered_at).total_seconds()
-            
+
             if duration >= self._safe_mode_ttl:
-                await self.transition_to(
+                self._transition_unlocked(
                     SystemState.FATAL,
                     f"SAFE_MODE TTL expired (duration: {duration:.1f}s, limit: {self._safe_mode_ttl}s)",
                     owner="safe_mode_ttl_guard",
                     metadata={"duration": duration, "ttl": self._safe_mode_ttl}
                 )
                 return True
-            
+
             return False
     
     def mark_shutdown_started(self) -> None:

@@ -45,12 +45,25 @@ def _parse_whitelist(raw: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Net
     return networks
 
 
+_TRUSTED_PROXIES = {"127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8"}
+
+
 def _client_ip(request: Request) -> str:
-    """Return the real client IP, honouring nginx X-Forwarded-For."""
+    """Return the real client IP, honouring X-Forwarded-For only from trusted proxies."""
+    direct_ip = request.client.host if request.client else "unknown"
     forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    if forwarded and direct_ip != "unknown":
+        try:
+            addr = ipaddress.ip_address(direct_ip)
+            trusted = any(
+                addr in ipaddress.ip_network(n, strict=False)
+                for n in _TRUSTED_PROXIES
+            )
+            if trusted:
+                return forwarded.split(",")[0].strip()
+        except ValueError:
+            pass
+    return direct_ip
 
 
 def _is_allowed(ip_str: str, networks: list) -> bool:

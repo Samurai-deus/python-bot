@@ -60,7 +60,7 @@ export function Signals() {
   const filtered = signals
     ? filter === 'ALL'
       ? signals
-      : signals.filter(s => isKnownSymbol(s.symbol) && s.symbol === filter)
+      : signals.filter(s => s.symbol === filter)
     : []
 
   return (
