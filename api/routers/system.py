@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/system", tags=["system"])
 async def get_health(_: dict = Depends(verify_auth)):
     from system_state_machine import get_state_machine
     from database import get_current_balance_from_db
+    from trading_mode import get_trading_mode
 
     sm = get_state_machine()
     info = sm.get_state_info()
@@ -29,6 +30,7 @@ async def get_health(_: dict = Depends(verify_auth)):
         trading_paused=sm.trading_paused,
         balance_usdt=balance,
         timestamp=datetime.now(UTC).isoformat(),
+        trading_mode=get_trading_mode().value,
     )
 
 

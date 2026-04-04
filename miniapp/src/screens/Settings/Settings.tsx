@@ -62,7 +62,7 @@ export function Settings() {
           <InfoCard
             label="Mode"
             icon={<ModeIcon />}
-            value={<span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: 'var(--cyan)', letterSpacing: '0.08em' }}>DRY RUN</span>}
+            value={<span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: 'var(--cyan)', letterSpacing: '0.08em' }}>{(health.trading_mode ?? 'DRY_RUN').replace('_', ' ')}</span>}
           />
 
           <InfoCard

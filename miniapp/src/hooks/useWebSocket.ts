@@ -9,6 +9,8 @@ const BASE_DELAY = 1000
 const MAX_DELAY = 30_000
 const CONNECT_TIMEOUT = 10_000  // close and retry if not opened within 10s
 const STALE_TIMEOUT = 15_000    // no message for 15s = stale, force reconnect
+// WS close codes that mean auth failure — no point retrying with same token
+const AUTH_FAILURE_CODES = [4001, 4003]
 
 export function useWebSocket() {
   const { setSnapshot, setWsStatus, touchSnapshot } = useSystemStore()
@@ -90,17 +92,23 @@ export function useWebSocket() {
         }
       }
 
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         clearTimeout(connectTimer)
         if (staleTimer) clearTimeout(staleTimer)
         if (destroyed) return
-        logger.debug(`WS closed (retry ${retryRef.current}/${MAX_RETRIES})`)
+
+        // Auth failure — don't retry, token is invalid
+        if (AUTH_FAILURE_CODES.includes(e.code)) {
+          logger.warn(`WS auth failure (code ${e.code}) — not retrying`)
+          setWsStatus('disconnected')
+          return
+        }
+
+        logger.debug(`WS closed (code ${e.code}, retry ${retryRef.current}/${MAX_RETRIES})`)
         setWsStatus('reconnecting')
         if (retryRef.current >= MAX_RETRIES) {
           setWsStatus('disconnected')
           logger.warn('WS max retries reached — will retry in 60s')
-          // Instead of giving up forever, schedule one more attempt after 60s.
-          // This handles transient server restarts that last > backoff window.
           timerRef.current = setTimeout(() => {
             if (destroyed) return
             retryRef.current = 0
@@ -108,7 +116,9 @@ export function useWebSocket() {
           }, 60_000)
           return
         }
-        const delay = Math.min(BASE_DELAY * 2 ** retryRef.current, MAX_DELAY)
+        const baseDelay = Math.min(BASE_DELAY * 2 ** retryRef.current, MAX_DELAY)
+        // Jitter: 50-100% of base delay to prevent thundering herd
+        const delay = Math.round(baseDelay * (0.5 + Math.random() * 0.5))
         retryRef.current++
         timerRef.current = setTimeout(connect, delay)
       }

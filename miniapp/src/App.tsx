@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { BottomNav } from './components/BottomNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useWebSocket } from './hooks/useWebSocket'
@@ -24,6 +24,7 @@ export function App() {
           <Route path="/signals" element={<ErrorBoundary><Signals /></ErrorBoundary>} />
           <Route path="/analytics" element={<ErrorBoundary><Analytics /></ErrorBoundary>} />
           <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
       <BottomNav />
