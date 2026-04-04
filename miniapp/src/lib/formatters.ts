@@ -1,7 +1,11 @@
 import { format, formatDistanceToNow } from 'date-fns'
 
 export function formatUSDT(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const abs = Math.abs(value)
+  let maximumFractionDigits = 2
+  if (abs > 0 && abs < 0.01) maximumFractionDigits = 6
+  else if (abs > 0 && abs < 1) maximumFractionDigits = 4
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits })}`
 }
 
 // Backend returns win_rate/drawdown as 0-100 (e.g. 75.5), confidence as 0-1
