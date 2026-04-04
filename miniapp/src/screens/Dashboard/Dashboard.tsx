@@ -155,7 +155,7 @@ export function Dashboard() {
           <StatTile
             label="Win Rate"
             value={formatPct(summary.win_rate)}
-            color={summary.win_rate >= 0.5 ? 'var(--green)' : 'var(--red)'}
+            color={summary.win_rate >= 50 ? 'var(--green)' : 'var(--red)'}
           />
           <StatTile
             label="P&L Today"

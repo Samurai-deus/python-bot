@@ -83,10 +83,10 @@ export function Analytics() {
           <StatCard label="Max Drawdown" value={formatPct(summary.max_drawdown_pct)}
             color="var(--red)" />
           <StatCard label="Profit Factor"
-            value={summary.profit_factor != null ? summary.profit_factor.toFixed(2) : '—'}
-            color={summary.profit_factor != null && summary.profit_factor >= 1 ? 'var(--green)' : 'var(--red)'} />
+            value={summary.profit_factor != null && isFinite(summary.profit_factor) ? summary.profit_factor.toFixed(2) : '—'}
+            color={summary.profit_factor != null && isFinite(summary.profit_factor) && summary.profit_factor >= 1 ? 'var(--green)' : 'var(--red)'} />
           <StatCard label="Sharpe Ratio"
-            value={summary.sharpe_ratio != null ? summary.sharpe_ratio.toFixed(2) : '—'}
+            value={summary.sharpe_ratio != null && isFinite(summary.sharpe_ratio) ? summary.sharpe_ratio.toFixed(2) : '—'}
             color="var(--cyan)" />
           <StatCard label="Net P&L"      value={formatUSDT(summary.net_pnl)}
             color={summary.net_pnl >= 0 ? 'var(--green)' : 'var(--red)'} />
