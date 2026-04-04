@@ -431,7 +431,27 @@ def generate_signals_for_symbols(
                 # Вычисляем когнитивные метрики
                 confidence = calculate_confidence(temp_snapshot)
                 entropy = calculate_entropy(temp_snapshot)
-                
+
+                # ── Learning feedback loop ──
+                try:
+                    from brains.trade_learner import (
+                        get_symbol_adjustment, get_confidence_calibration, should_skip_symbol,
+                    )
+                    if should_skip_symbol(symbol):
+                        logger.info("[Learning] Skipping %s — historically very low win rate", symbol)
+                        continue
+
+                    learner_adj = get_symbol_adjustment(symbol, side) + get_confidence_calibration(confidence)
+                    if learner_adj != 0.0:
+                        logger.info(
+                            "[Learning] %s %s: confidence %.3f %+.3f -> %.3f",
+                            symbol, side, confidence, learner_adj,
+                            max(0.05, min(1.0, confidence + learner_adj)),
+                        )
+                        confidence = max(0.05, min(1.0, confidence + learner_adj))
+                except Exception as e:
+                    logger.debug("[Learning] Unavailable for %s: %s", symbol, e)
+
                 # Создаём финальный snapshot с вычисленными confidence и entropy
                 snapshot = SignalSnapshot(
                     timestamp=datetime.now(UTC),

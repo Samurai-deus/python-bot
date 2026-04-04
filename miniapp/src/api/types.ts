@@ -73,6 +73,19 @@ export interface PnlHistoryItem {
   balance_end: number
 }
 
+export interface MonthlyTarget {
+  month: string
+  target_pct: number
+  current_pnl: number
+  starting_balance: number
+  target_pnl: number
+  progress_pct: number
+  days_elapsed: number
+  days_in_month: number
+  daily_target_pnl: number
+  on_track: boolean
+}
+
 export interface WsSnapshot {
   timestamp: string
   system_state: string

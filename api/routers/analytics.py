@@ -12,6 +12,7 @@ from api.models import (
     EquityCurveResponse,
     SymbolPnlItem,
     PnlHistoryItem,
+    MonthlyTargetResponse,
     AccuracyReportResponse,
     ConfidenceBucketResponse,
     SymbolAccuracyResponse,
@@ -108,6 +109,16 @@ async def get_pnl_history(
         )
         for r in rows
     ]
+
+
+@router.get("/monthly-target", response_model=MonthlyTargetResponse)
+async def get_monthly_target(
+    _: dict = Depends(verify_auth),
+):
+    from database import get_monthly_target_data
+
+    data = await asyncio.wait_for(run_sync(get_monthly_target_data), timeout=5.0)
+    return MonthlyTargetResponse(**data)
 
 
 @router.get("/accuracy", response_model=AccuracyReportResponse)
