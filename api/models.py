@@ -122,6 +122,19 @@ class SymbolAccuracyResponse(BaseModel):
     avg_adverse_pct: float
 
 
+class MonthlyTargetResponse(BaseModel):
+    month: str
+    target_pct: float
+    current_pnl: float
+    starting_balance: float
+    target_pnl: float
+    progress_pct: float
+    days_elapsed: int
+    days_in_month: int
+    daily_target_pnl: float
+    on_track: bool
+
+
 class AccuracyReportResponse(BaseModel):
     period_days: int
     total_outcomes: int

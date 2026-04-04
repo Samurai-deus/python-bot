@@ -1,7 +1,8 @@
 import { apiClient } from './client'
 import type {
   SystemHealth, Balance, OpenPosition, TradeHistory,
-  Signal, AnalyticsSummary, EquityCurve, SymbolPnl, PnlHistoryItem
+  Signal, AnalyticsSummary, EquityCurve, SymbolPnl, PnlHistoryItem,
+  MonthlyTarget
 } from './types'
 
 export const fetchHealth = () =>
@@ -30,3 +31,6 @@ export const fetchBySymbol = (days = 30) =>
 
 export const fetchPnlHistory = (days = 30) =>
   apiClient.get<PnlHistoryItem[]>('/api/analytics/pnl-history', { params: { days } }).then(r => r.data)
+
+export const fetchMonthlyTarget = () =>
+  apiClient.get<MonthlyTarget>('/api/analytics/monthly-target').then(r => r.data)

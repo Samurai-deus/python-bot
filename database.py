@@ -1511,6 +1511,65 @@ def get_equity_curve_points(days: int = 30) -> List[Dict]:
         return []
 
 
+def get_monthly_target_data(target_pct: float = 10.0) -> Dict:
+    """Calculate monthly PnL target progress from trades table.
+
+    Returns dict with month, target_pct, current_pnl, starting_balance,
+    target_pnl, progress_pct, days_elapsed, days_in_month,
+    daily_target_pnl, on_track.
+    """
+    import calendar
+
+    now = datetime.now(UTC)
+    first_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_str = now.strftime("%Y-%m")
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
+    days_elapsed = now.day
+    remaining_days = days_in_month - days_elapsed
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Sum PnL of all closed trades BEFORE this month → starting balance
+        cursor.execute(
+            _q("SELECT COALESCE(SUM(pnl), 0) AS pnl_before FROM trades WHERE status = 'CLOSED' AND timestamp < ?"),
+            (first_of_month.isoformat(),),
+        )
+        row = cursor.fetchone()
+        pnl_before = float((dict(row).get("pnl_before") or 0.0) if row else 0.0)
+        starting_balance = 10000.0 + pnl_before
+
+        # Sum PnL of closed trades THIS month
+        cursor.execute(
+            _q("SELECT COALESCE(SUM(pnl), 0) AS pnl_month FROM trades WHERE status = 'CLOSED' AND timestamp >= ?"),
+            (first_of_month.isoformat(),),
+        )
+        row2 = cursor.fetchone()
+        current_pnl = float((dict(row2).get("pnl_month") or 0.0) if row2 else 0.0)
+    finally:
+        conn.close()
+
+    target_pnl = starting_balance * (target_pct / 100.0)
+    progress_pct = (current_pnl / target_pnl * 100.0) if target_pnl > 0 else 0.0
+    daily_target_pnl = ((target_pnl - current_pnl) / remaining_days) if remaining_days > 0 else 0.0
+    expected_pnl = target_pnl * days_elapsed / days_in_month if days_in_month > 0 else 0.0
+    on_track = current_pnl >= expected_pnl
+
+    return {
+        "month": month_str,
+        "target_pct": target_pct,
+        "current_pnl": round(current_pnl, 2),
+        "starting_balance": round(starting_balance, 2),
+        "target_pnl": round(target_pnl, 2),
+        "progress_pct": round(progress_pct, 2),
+        "days_elapsed": days_elapsed,
+        "days_in_month": days_in_month,
+        "daily_target_pnl": round(daily_target_pnl, 2),
+        "on_track": on_track,
+    }
+
+
 # ============================================================================
 # USER SETTINGS (Phase 5)
 # ============================================================================

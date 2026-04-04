@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { useSystemStore } from '../../store/useSystemStore'
-import { useAnalyticsSummary } from '../../hooks/useAnalytics'
+import { useAnalyticsSummary, useMonthlyTarget } from '../../hooks/useAnalytics'
 import { fetchHealth } from '../../api/endpoints'
 import { Badge } from '../../components/Badge'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { formatUSDT, formatPnl, formatPct, formatRelative } from '../../lib/formatters'
+import type { MonthlyTarget } from '../../api/types'
 
 function stateVariant(state: string): 'running' | 'degraded' | 'halt' | 'recovery' | 'neutral' {
   if (state === 'RUNNING') return 'running'
@@ -29,6 +30,7 @@ const WS_LABELS: Record<string, string> = {
 export function Dashboard() {
   const { snapshot, wsStatus, lastSnapshotAt } = useSystemStore()
   const { data: summary, isLoading } = useAnalyticsSummary(1)
+  const { data: monthlyTarget } = useMonthlyTarget()
 
   const { data: healthFallback } = useQuery({
     queryKey: ['health-fallback'],
@@ -142,6 +144,11 @@ export function Dashboard() {
         )}
       </div>
 
+      {/* ── Monthly target progress ─────────── */}
+      {monthlyTarget && (
+        <MonthlyProgressCard target={monthlyTarget} />
+      )}
+
       {/* ── Stats grid ───────────────────────── */}
       {isLoading ? (
         <LoadingSpinner />
@@ -226,6 +233,98 @@ function StatTile({ label, value, color }: { label: string; value: string; color
         letterSpacing: '-0.01em',
       }}>
         {value}
+      </p>
+    </div>
+  )
+}
+
+function MonthlyProgressCard({ target }: { target: MonthlyTarget }) {
+  const progressClamped = Math.max(0, Math.min(100, target.progress_pct))
+  const expectedPct = target.days_in_month > 0
+    ? (target.days_elapsed / target.days_in_month) * 100
+    : 0
+
+  // green = on track, amber = >50% but behind, red = <50% behind
+  let barColor = 'var(--green)'
+  if (!target.on_track) {
+    barColor = progressClamped >= expectedPct * 0.5 ? 'var(--amber)' : 'var(--red)'
+  }
+
+  return (
+    <div
+      className="fade-up"
+      style={{
+        borderRadius: 16,
+        padding: '14px 16px',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <p style={{ fontSize: 9, letterSpacing: '0.28em', textTransform: 'uppercase', color: 'var(--text-dim)', margin: 0 }}>
+          Monthly Target &middot; {target.target_pct}%
+        </p>
+        <span style={{
+          fontSize: 11,
+          fontWeight: 700,
+          fontFamily: 'monospace',
+          color: barColor,
+          textShadow: `0 0 8px ${barColor}50`,
+        }}>
+          {target.progress_pct.toFixed(1)}%
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{
+        height: 6,
+        borderRadius: 3,
+        background: 'rgba(255,255,255,0.06)',
+        overflow: 'hidden',
+        position: 'relative',
+      }}>
+        {/* Expected progress marker */}
+        <div style={{
+          position: 'absolute',
+          left: `${Math.min(expectedPct, 100)}%`,
+          top: 0,
+          bottom: 0,
+          width: 1,
+          background: 'rgba(255,255,255,0.15)',
+          zIndex: 1,
+        }} />
+        {/* Filled bar */}
+        <div style={{
+          height: '100%',
+          width: `${progressClamped}%`,
+          borderRadius: 3,
+          background: barColor,
+          boxShadow: `0 0 8px ${barColor}60`,
+          transition: 'width 0.6s ease-out',
+        }} />
+      </div>
+
+      {/* Amount text */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
+        <span style={{
+          fontSize: 13,
+          fontWeight: 600,
+          fontFamily: 'monospace',
+          color: barColor,
+        }}>
+          {formatUSDT(target.current_pnl)}
+        </span>
+        <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-dim)' }}>
+          / {formatUSDT(target.target_pnl)}
+        </span>
+      </div>
+
+      {/* Day info */}
+      <p style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, marginBottom: 0 }}>
+        Day {target.days_elapsed} of {target.days_in_month}
+        {target.daily_target_pnl > 0 && (
+          <> &middot; {formatUSDT(target.daily_target_pnl)}/day needed</>
+        )}
       </p>
     </div>
   )
