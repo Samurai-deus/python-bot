@@ -126,6 +126,7 @@ function OpenPositionsList({ positions }: { positions: OpenPosition[] }) {
             <InfoRow label="Stop Loss" value={p.stop_loss ? formatUSDT(p.stop_loss) : '—'} accent="var(--red)" />
             <InfoRow label="Take Profit" value={p.take_profit ? formatUSDT(p.take_profit) : '—'} accent="var(--green)" />
           </div>
+          <UnrealisedPnl position={p} />
           <ProgressToTarget position={p} />
         </div>
       ))}
@@ -230,6 +231,49 @@ function HistoryList({ items }: { items: TradeHistory[] }) {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function UnrealisedPnl({ position: p }: { position: OpenPosition }) {
+  if (!p.current_price || !p.entry_price || p.qty <= 0) return null
+
+  const isLong = p.side === 'LONG' || p.side === 'BUY'
+  const priceDiff = isLong
+    ? p.current_price - p.entry_price
+    : p.entry_price - p.current_price
+  const pnl = priceDiff * p.qty
+  const pnlPct = (priceDiff / p.entry_price) * 100
+  const color = pnl >= 0 ? 'var(--green)' : 'var(--red)'
+
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      paddingLeft: 8, marginTop: 10,
+      padding: '8px 8px',
+      borderRadius: 10,
+      background: pnl >= 0 ? 'rgba(0,255,157,0.04)' : 'rgba(255,68,102,0.04)',
+    }}>
+      <div>
+        <p style={{ fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 3 }}>
+          Mark Price
+        </p>
+        <p style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: 'var(--text)' }}>
+          {formatUSDT(p.current_price)}
+        </p>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <p style={{ fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 3 }}>
+          Unrealised P&L
+        </p>
+        <p style={{
+          fontSize: 14, fontFamily: 'monospace', fontWeight: 700,
+          color,
+          textShadow: `0 0 8px ${color === 'var(--green)' ? 'rgba(0,255,157,0.4)' : 'rgba(255,68,102,0.4)'}`,
+        }}>
+          {formatPnl(pnl)} <span style={{ fontSize: 10, fontWeight: 600 }}>({pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)</span>
+        </p>
+      </div>
     </div>
   )
 }

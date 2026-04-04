@@ -5,7 +5,7 @@ import { useSettingsStore } from '../../store/useSettingsStore'
 import { useAnalyticsSummary, useEquityCurve, useBySymbol } from '../../hooks/useAnalytics'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { formatUSDT, formatPct, formatSymbol } from '../../lib/formatters'
+import { formatUSDT, formatPnl, formatPct, formatSymbol } from '../../lib/formatters'
 
 const DAYS_OPTIONS = [7, 30, 90]
 
@@ -88,7 +88,7 @@ export function Analytics() {
           <StatCard label="Sharpe Ratio"
             value={summary.sharpe_ratio != null && isFinite(summary.sharpe_ratio) ? summary.sharpe_ratio.toFixed(2) : '—'}
             color="var(--cyan)" />
-          <StatCard label="Net P&L"      value={formatUSDT(summary.net_pnl)}
+          <StatCard label="Net P&L"      value={formatPnl(summary.net_pnl)}
             color={summary.net_pnl >= 0 ? 'var(--green)' : 'var(--red)'} />
           <StatCard label="Total Trades" value={String(summary.total_trades)}
             color="var(--text)" />
@@ -149,7 +149,7 @@ export function Analytics() {
                     color: row.net_pnl >= 0 ? 'var(--green)' : 'var(--red)',
                     textShadow: row.net_pnl >= 0 ? '0 0 8px rgba(0,255,157,0.3)' : '0 0 8px rgba(255,68,102,0.3)',
                   }}>
-                    {formatUSDT(row.net_pnl)}
+                    {formatPnl(row.net_pnl)}
                   </td>
                 </tr>
               ))}

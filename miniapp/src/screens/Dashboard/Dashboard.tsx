@@ -312,7 +312,7 @@ function MonthlyProgressCard({ target }: { target: MonthlyTarget }) {
           fontFamily: 'monospace',
           color: barColor,
         }}>
-          {formatUSDT(target.current_pnl)}
+          {formatPnl(target.current_pnl)}
         </span>
         <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-dim)' }}>
           / {formatUSDT(target.target_pnl)}
