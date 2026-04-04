@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import { BottomNav } from './components/BottomNav'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { useWebSocket } from './hooks/useWebSocket'
 import { Dashboard } from './screens/Dashboard/Dashboard'
 import { Positions } from './screens/Positions/Positions'
@@ -18,11 +19,11 @@ export function App() {
       <WsInit />
       <div style={{ paddingBottom: 64 }}>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/positions" element={<Positions />} />
-          <Route path="/signals" element={<Signals />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+          <Route path="/positions" element={<ErrorBoundary><Positions /></ErrorBoundary>} />
+          <Route path="/signals" element={<ErrorBoundary><Signals /></ErrorBoundary>} />
+          <Route path="/analytics" element={<ErrorBoundary><Analytics /></ErrorBoundary>} />
+          <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
         </Routes>
       </div>
       <BottomNav />

@@ -103,7 +103,9 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
         risk_distance = abs(entry - original_stop)
 
         if risk_distance == 0:
-            risk_distance = entry * 0.003  # fallback 0.3%
+            logger.warning("Trade #%d %s: risk_distance=0 (entry=stop=%.4f), skipping",
+                           trade["id"], symbol, entry)
+            continue
 
         if side == "LONG":
             current_r = (current_price - entry) / risk_distance

@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
+# Security: run as dedicated non-root user (create with: useradd -r -s /sbin/nologin botuser)
 User=root
 WorkingDirectory=/root/market_bot
 Environment="PATH=/root/market_bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
@@ -12,6 +13,10 @@ Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/root/market_bot /data
 
 [Install]
 WantedBy=multi-user.target

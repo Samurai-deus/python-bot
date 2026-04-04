@@ -166,7 +166,11 @@ class _PGConnection:
     """Wraps a psycopg2 connection from the pool with the same interface as _PooledConnection."""
 
     def __init__(self) -> None:
-        self._conn = _pg_pool.getconn()
+        try:
+            self._conn = _pg_pool.getconn()
+        except Exception as e:
+            logger.error("PostgreSQL pool exhausted: %s", e)
+            raise RuntimeError("Database connection pool exhausted") from e
         self._conn.autocommit = False
 
     def cursor(self):
@@ -235,22 +239,29 @@ def _init_pg_schema(conn) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_status ON trades(symbol, status)")
 
     # Phase 2: колонки для trailing stop, partial TP, strategy tracking
     # PostgreSQL requires SAVEPOINT to recover from "column already exists" errors
-    for col_name, col_type in [
-        ("trailing_stop", "REAL"),
-        ("breakeven_set", "INTEGER DEFAULT 0"),
-        ("partial_closed", "INTEGER DEFAULT 0"),
-        ("partial_pnl", "REAL"),
-        ("strategy_name", "TEXT"),
-        ("original_stop", "REAL"),
-    ]:
+    # Column names/types are hardcoded — validated against whitelist to prevent SQL injection
+    _ALLOWED_COLUMNS = {
+        "trailing_stop": "REAL",
+        "breakeven_set": "INTEGER DEFAULT 0",
+        "partial_closed": "INTEGER DEFAULT 0",
+        "partial_pnl": "REAL",
+        "strategy_name": "TEXT",
+        "original_stop": "REAL",
+    }
+    for col_name, col_type in _ALLOWED_COLUMNS.items():
+        if col_name not in _ALLOWED_COLUMNS:
+            logger.error("Rejected unknown column in ALTER TABLE: %s", col_name)
+            continue
         try:
             cursor.execute("SAVEPOINT sp_alter")
             cursor.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
             cursor.execute("RELEASE SAVEPOINT sp_alter")
-        except Exception:
+        except Exception as e:
+            logger.debug("ALTER TABLE trades ADD COLUMN %s: %s", col_name, e)
             cursor.execute("ROLLBACK TO SAVEPOINT sp_alter")
 
     # Backfill original_stop for existing rows where it's NULL
@@ -258,7 +269,8 @@ def _init_pg_schema(conn) -> None:
         cursor.execute("SAVEPOINT sp_backfill")
         cursor.execute("UPDATE trades SET original_stop = stop WHERE original_stop IS NULL AND breakeven_set = 0")
         cursor.execute("RELEASE SAVEPOINT sp_backfill")
-    except Exception:
+    except Exception as e:
+        logger.debug("Backfill original_stop: %s", e)
         cursor.execute("ROLLBACK TO SAVEPOINT sp_backfill")
 
     cursor.execute("""
@@ -466,26 +478,32 @@ def _init_database(conn) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_status ON trades(symbol, status)")
 
     # Phase 2: колонки для trailing stop, partial TP, strategy tracking
-    for col_name, col_type in [
-        ("trailing_stop", "REAL"),
-        ("breakeven_set", "INTEGER DEFAULT 0"),
-        ("partial_closed", "INTEGER DEFAULT 0"),
-        ("partial_pnl", "REAL"),
-        ("strategy_name", "TEXT"),
-        ("original_stop", "REAL"),
-    ]:
+    # Column names/types are hardcoded — validated against whitelist to prevent SQL injection
+    _ALLOWED_COLUMNS_SQLITE = {
+        "trailing_stop": "REAL",
+        "breakeven_set": "INTEGER DEFAULT 0",
+        "partial_closed": "INTEGER DEFAULT 0",
+        "partial_pnl": "REAL",
+        "strategy_name": "TEXT",
+        "original_stop": "REAL",
+    }
+    for col_name, col_type in _ALLOWED_COLUMNS_SQLITE.items():
+        if col_name not in _ALLOWED_COLUMNS_SQLITE:
+            logger.error("Rejected unknown column in ALTER TABLE: %s", col_name)
+            continue
         try:
             cursor.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
-        except Exception:
-            pass  # колонка уже существует
+        except Exception as e:
+            logger.debug("ALTER TABLE trades ADD COLUMN %s: %s (already exists)", col_name, e)
 
     # Backfill original_stop for existing rows
     try:
         cursor.execute("UPDATE trades SET original_stop = stop WHERE original_stop IS NULL AND breakeven_set = 0")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Backfill original_stop: %s", e)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_state_snapshots (
