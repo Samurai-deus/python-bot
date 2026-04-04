@@ -413,6 +413,9 @@ def _init_pg_schema(conn) -> None:
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_ts ON signal_outcomes(signal_ts)"
     )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_checked_at ON signal_outcomes(checked_at)"
+    )
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS encrypted_api_keys (
@@ -448,6 +451,9 @@ def _init_pg_schema(conn) -> None:
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_signal_journal_timestamp ON signal_journal(timestamp DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_journal_decision ON signal_journal(decision)"
     )
 
     conn.commit()
@@ -645,6 +651,9 @@ def _init_database(conn) -> None:
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_ts ON signal_outcomes(signal_ts)"
     )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_checked_at ON signal_outcomes(checked_at)"
+    )
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS encrypted_api_keys (
@@ -680,6 +689,9 @@ def _init_database(conn) -> None:
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_signal_journal_timestamp ON signal_journal(timestamp)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signal_journal_decision ON signal_journal(decision)"
     )
 
     conn.commit()
@@ -729,7 +741,7 @@ def add_trade(
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Добавлена сделка #{trade_id}: {symbol} {side} @ {entry} [strategy={strategy_name}]")
+    logger.info("Добавлена сделка #%s: %s %s @ %s [strategy=%s]", trade_id, symbol, side, entry, strategy_name)
     return trade_id
 
 
@@ -790,10 +802,10 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
     finally:
         conn.close()
     if affected > 0:
-        logger.info(f"Закрыта сделка #{trade_id}: PnL={pnl:.2f} USDT, причина={close_reason}")
+        logger.info("Закрыта сделка #%s: PnL=%.2f USDT, причина=%s", trade_id, pnl, close_reason)
         return True
     else:
-        logger.warning(f"Сделка #{trade_id} уже закрыта (double-close prevented)")
+        logger.warning("Сделка #%s уже закрыта (double-close prevented)", trade_id)
         return False
 
 
@@ -831,7 +843,7 @@ def update_trade_partial(trade_id: int, partial_price: float, partial_pnl: float
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Частичное закрытие сделки #{trade_id}: PnL={partial_pnl:.2f} USDT @ {partial_price}")
+    logger.info("Частичное закрытие сделки #%s: PnL=%.2f USDT @ %s", trade_id, partial_pnl, partial_price)
 
 
 def force_cancel_open_trades() -> int:
@@ -1020,7 +1032,7 @@ def get_total_open_positions_size() -> float:
 def migrate_from_csv(csv_file: str = "demo_trades.csv"):
     """Мигрирует данные из CSV в базу данных."""
     if not os.path.exists(csv_file):
-        logger.info(f"CSV файл {csv_file} не найден, миграция не требуется")
+        logger.info("CSV файл %s не найден, миграция не требуется", csv_file)
         return
 
     import csv
@@ -1090,13 +1102,13 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
                     migrated += 1
                 except Exception as e:
                     errors += 1
-                    logger.warning(f"Ошибка при миграции строки: {e}")
+                    logger.warning("Ошибка при миграции строки: %s", e)
                     continue
 
         conn.commit()
-        logger.info(f"Миграция завершена: {migrated} сделок мигрировано, {errors} ошибок")
+        logger.info("Миграция завершена: %d сделок мигрировано, %d ошибок", migrated, errors)
     except Exception as e:
-        logger.error(f"Критическая ошибка при миграции: {e}", exc_info=True)
+        logger.error("Критическая ошибка при миграции: %s", e, exc_info=True)
     finally:
         conn.close()
 
@@ -1123,7 +1135,7 @@ def save_system_state_snapshot(snapshot_data: Dict) -> int:
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Сохранён snapshot SystemState #{snapshot_id}")
+    logger.info("Сохранён snapshot SystemState #%s", snapshot_id)
     return snapshot_id
 
 
@@ -1145,7 +1157,7 @@ def get_latest_system_state_snapshot() -> Optional[Dict]:
     try:
         return json.loads(row["snapshot_data"])
     except (json.JSONDecodeError, KeyError) as e:
-        logger.warning(f"Ошибка парсинга snapshot: {e}")
+        logger.warning("Ошибка парсинга snapshot: %s", e)
         return None
 
 
@@ -1179,7 +1191,7 @@ def cleanup_old_snapshots(keep_last_n: int = 10):
     finally:
         conn.close()
     if deleted > 0:
-        logger.info(f"Удалено {deleted} старых snapshot'ов")
+        logger.info("Удалено %d старых snapshot'ов", deleted)
 
 
 # ============================================================================
@@ -1218,7 +1230,7 @@ def save_order(
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Order saved #{row_id}: {symbol} {side} order_id={order_id} dry_run={dry_run}")
+    logger.info("Order saved #%s: %s %s order_id=%s dry_run=%s", row_id, symbol, side, order_id, dry_run)
     return row_id
 
 
@@ -1268,7 +1280,7 @@ def open_position(
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Position opened #{row_id}: {symbol} {side} entry={entry_price}")
+    logger.info("Position opened #%s: %s %s entry=%s", row_id, symbol, side, entry_price)
     return row_id
 
 
@@ -1295,7 +1307,7 @@ def close_position_by_order_id(
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Position closed: order_id={order_id} pnl={realised_pnl:.2f} reason={close_reason}")
+    logger.info("Position closed: order_id=%s pnl=%.2f reason=%s", order_id, realised_pnl, close_reason)
 
 
 def get_open_positions() -> List[Dict]:
@@ -1424,7 +1436,7 @@ def insert_pnl_record(
             conn.close()
         return record_id
     except Exception as e:
-        logger.error(f"insert_pnl_record error: {e}")
+        logger.error("insert_pnl_record error: %s", e)
         return None
 
 
@@ -1473,7 +1485,7 @@ def get_closed_trades(days: int = 30) -> List[Dict]:
             })
         return result
     except Exception as e:
-        logger.error(f"get_closed_trades error: {e}")
+        logger.error("get_closed_trades error: %s", e)
         return []
 
 
@@ -1513,7 +1525,7 @@ def get_equity_curve_points(days: int = 30) -> List[Dict]:
             result.append({"timestamp": d["timestamp"], "balance": round(running_balance, 4)})
         return result
     except Exception as e:
-        logger.error(f"get_equity_curve_points error: {e}")
+        logger.error("get_equity_curve_points error: %s", e)
         return []
 
 
@@ -1803,7 +1815,7 @@ def save_encrypted_api_key(key_name: str, encrypted_value: str) -> None:
         conn.commit()
     finally:
         conn.close()
-    logger.info(f"Encrypted API key saved: {key_name}")
+    logger.info("Encrypted API key saved: %s", key_name)
 
 
 def get_encrypted_api_key(key_name: str) -> Optional[str]:

@@ -82,12 +82,12 @@ def get_signals_statistics(limit=20):
             
             if has_headers:
                 # Есть заголовки, используем DictReader
-                logger.debug(f"Чтение CSV с заголовками. Найдено строк: {len(rows)}")
+                logger.debug("Чтение CSV с заголовками. Найдено строк: %d", len(rows))
                 
                 # Логируем первую строку для отладки
                 if rows:
                     first_row_keys = list(rows[0].keys())
-                    logger.debug(f"Ключи в первой строке: {first_row_keys}")
+                    logger.debug("Ключи в первой строке: %s", first_row_keys)
                 
                 for row in rows[-limit:]:
                     try:
@@ -127,8 +127,8 @@ def get_signals_statistics(limit=20):
                         
                         # Логируем для отладки (только первые несколько)
                         if len(signals) < 2:
-                            logger.debug(f"Сигнал #{len(signals)+1}: symbol={symbol}, state_15m={state_15m} (raw: {state_15m_raw}), risk={risk}, timestamp={timestamp[:20]}")
-                        
+                            logger.debug("Сигнал #%d: symbol=%s, state_15m=%s (raw: %s), risk=%s, timestamp=%s", len(signals)+1, symbol, state_15m, state_15m_raw, risk, timestamp[:20])
+
                         signals.append({
                             'timestamp': timestamp or 'N/A',
                             'symbol': symbol or 'N/A',
@@ -136,7 +136,7 @@ def get_signals_statistics(limit=20):
                             'risk': risk or 'N/A'
                         })
                     except Exception as e:
-                        logger.warning(f"Ошибка парсинга строки сигнала: {e}")
+                        logger.warning("Ошибка парсинга строки сигнала: %s", e)
                         continue
             else:
                 # Нет заголовков или они не распознаны, читаем как обычный reader
@@ -144,7 +144,7 @@ def get_signals_statistics(limit=20):
                 reader = csv.reader(f)
                 rows = list(reader)
                 
-                logger.debug(f"Чтение CSV без заголовков. Найдено строк: {len(rows)}")
+                logger.debug("Чтение CSV без заголовков. Найдено строк: %d", len(rows))
                 
                 # Пропускаем первую строку, если она похожа на заголовки
                 if rows and len(rows) > 0:
@@ -157,7 +157,7 @@ def get_signals_statistics(limit=20):
                 # Структура CSV: timestamp, symbol, state_1h, state_30m, state_15m, state_5m, risk, entry, exit, r
                 for row in rows[-limit:]:
                     if len(row) < 7:  # Минимум 7 колонок нужно (до risk включительно)
-                        logger.debug(f"Пропущена строка с недостаточным количеством колонок: {len(row)}")
+                        logger.debug("Пропущена строка с недостаточным количеством колонок: %d", len(row))
                         continue
                     try:
                         timestamp = (row[0] if len(row) > 0 else '').strip()
@@ -172,8 +172,8 @@ def get_signals_statistics(limit=20):
                         
                         # Логируем для отладки (только первые несколько)
                         if len(signals) < 2:
-                            logger.debug(f"Сигнал #{len(signals)+1}: symbol={symbol}, state_15m={state_15m} (raw: {state_15m_raw}), risk={risk}, timestamp={timestamp[:20]}")
-                        
+                            logger.debug("Сигнал #%d: symbol=%s, state_15m=%s (raw: %s), risk=%s, timestamp=%s", len(signals)+1, symbol, state_15m, state_15m_raw, risk, timestamp[:20])
+
                         signals.append({
                             'timestamp': timestamp or 'N/A',
                             'symbol': symbol or 'N/A',
@@ -181,15 +181,15 @@ def get_signals_statistics(limit=20):
                             'risk': risk or 'N/A'
                         })
                     except (IndexError, ValueError) as e:
-                        logger.warning(f"Ошибка парсинга строки по индексам: {e}, строка: {row[:5]}")
+                        logger.warning("Ошибка парсинга строки по индексам: %s, строка: %s", e, row[:5])
                         continue
     except Exception as e:
-        logger.error(f"Ошибка чтения сигналов из CSV: {e}", exc_info=True)
+        logger.error("Ошибка чтения сигналов из CSV: %s", e, exc_info=True)
         import traceback
         traceback.print_exc()
     
     result = list(reversed(signals))  # От новых к старым
-    logger.debug(f"Возвращено сигналов: {len(result)}")
+    logger.debug("Возвращено сигналов: %d", len(result))
     return result
 
 

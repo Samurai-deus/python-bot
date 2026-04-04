@@ -519,7 +519,7 @@ class SystemStateMachine:
                 _task.add_done_callback(self._pending_event_tasks.discard)
                 _task.add_done_callback(self._log_event_task_error)
         except Exception as e:
-            logger.error(f"STATE_MACHINE: Error processing event queue: {type(e).__name__}: {e}")
+            logger.error("STATE_MACHINE: Error processing event queue: %s: %s", type(e).__name__, e)
     
     @staticmethod
     def _log_event_task_error(t: asyncio.Task) -> None:

@@ -153,16 +153,22 @@ class PerformanceTracker:
             balance_after=balance_after,
         )
 
-    def get_pnl_by_symbol(self, days: int = 30) -> Dict[str, SymbolReport]:
-        """P&L breakdown по символу."""
-        from database import get_closed_trades
-        trades = get_closed_trades(days)
+    def get_pnl_by_symbol(self, days: int = 30, trades: Optional[list] = None) -> Dict[str, SymbolReport]:
+        """P&L breakdown по символу. Accepts pre-fetched trades to avoid duplicate queries."""
+        if trades is None:
+            from database import get_closed_trades
+            trades = get_closed_trades(days)
+        from bot_statistics import calculate_profit_factor
+
         result: Dict[str, SymbolReport] = {}
+        trades_by_sym: Dict[str, list] = {}
 
         for t in trades:
             sym = t['symbol']
             if sym not in result:
                 result[sym] = SymbolReport(symbol=sym)
+                trades_by_sym[sym] = []
+            trades_by_sym[sym].append(t)
             r = result[sym]
             r.trades += 1
             r.net_pnl += t.get('net_pnl', 0.0)
@@ -173,18 +179,16 @@ class PerformanceTracker:
             elif t.get('net_pnl', 0) < 0:
                 r.losses += 1
 
-        # Profit Factor по символу
         for sym, r in result.items():
-            sym_trades = [t for t in trades if t['symbol'] == sym]
-            from bot_statistics import calculate_profit_factor
-            r.profit_factor = calculate_profit_factor(sym_trades)
+            r.profit_factor = calculate_profit_factor(trades_by_sym[sym])
 
         return result
 
-    def get_pnl_by_regime(self, days: int = 30) -> Dict[str, RegimeReport]:
-        """P&L breakdown по режиму рынка (A/B/C/D)."""
-        from database import get_closed_trades
-        trades = get_closed_trades(days)
+    def get_pnl_by_regime(self, days: int = 30, trades: Optional[list] = None) -> Dict[str, RegimeReport]:
+        """P&L breakdown по режиму рынка (A/B/C/D). Accepts pre-fetched trades."""
+        if trades is None:
+            from database import get_closed_trades
+            trades = get_closed_trades(days)
         result: Dict[str, RegimeReport] = {}
 
         for t in trades:
@@ -199,9 +203,9 @@ class PerformanceTracker:
 
         return result
 
-    def get_pnl_by_timeofday(self, days: int = 30) -> Dict[str, TimeOfDayReport]:
+    def get_pnl_by_timeofday(self, days: int = 30, trades: Optional[list] = None) -> Dict[str, TimeOfDayReport]:
         """
-        P&L breakdown по времени суток (UTC).
+        P&L breakdown по времени суток (UTC). Accepts pre-fetched trades.
 
         Периоды:
             morning   — 06:00–11:59
@@ -209,8 +213,9 @@ class PerformanceTracker:
             evening   — 18:00–23:59
             night     — 00:00–05:59
         """
-        from database import get_closed_trades
-        trades = get_closed_trades(days)
+        if trades is None:
+            from database import get_closed_trades
+            trades = get_closed_trades(days)
         result: Dict[str, TimeOfDayReport] = {}
 
         for t in trades:
@@ -283,9 +288,9 @@ class PerformanceTracker:
             return None
 
         equity_curve = self.get_equity_curve(days)
-        by_symbol = self.get_pnl_by_symbol(days)
-        by_regime = self.get_pnl_by_regime(days)
-        by_timeofday = self.get_pnl_by_timeofday(days)
+        by_symbol = self.get_pnl_by_symbol(days, trades=trades)
+        by_regime = self.get_pnl_by_regime(days, trades=trades)
+        by_timeofday = self.get_pnl_by_timeofday(days, trades=trades)
 
         total_trades = len(trades)
         wins = sum(1 for t in trades if t.get('net_pnl', 0) > 0)

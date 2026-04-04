@@ -279,7 +279,7 @@ class DecisionCore:
             return decision
         except Exception as e:
             # Критическая ошибка - блокируем торговлю
-            logger.error(f"Критическая ошибка в Decision Core.should_i_trade: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Критическая ошибка в Decision Core.should_i_trade: %s: %s", type(e).__name__, e, exc_info=True)
             return TradingDecision(
                 can_trade=False,
                 reason=f"Критическая ошибка в системе принятия решений: {type(e).__name__}",
@@ -320,7 +320,7 @@ class DecisionCore:
             
             return status
         except Exception as e:
-            logger.error(f"Ошибка в Decision Core.get_risk_status: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Ошибка в Decision Core.get_risk_status: %s: %s", type(e).__name__, e, exc_info=True)
             return {
                 "timestamp": datetime.now(UTC).isoformat(),
                 "can_trade": False,
@@ -351,7 +351,7 @@ class DecisionCore:
                 "decision": asdict(self.should_i_trade(system_state=system_state))
             }
         except Exception as e:
-            logger.error(f"Ошибка в Decision Core.get_full_context: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Ошибка в Decision Core.get_full_context: %s: %s", type(e).__name__, e, exc_info=True)
             return {
                 "error": f"Ошибка получения контекста: {type(e).__name__}: {str(e)}",
                 "market_regime": None,

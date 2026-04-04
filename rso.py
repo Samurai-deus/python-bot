@@ -96,7 +96,7 @@ class RSOReader:
                 "all_transitions": transitions[-50:] if transitions else []  # Последние 50 переходов
             }
         except Exception as e:
-            logger.warning(f"Failed to read FSM state: {e}")
+            logger.warning("Failed to read FSM state: %s", e)
             return None
     
     def read_system_state(self) -> Optional[Dict[str, Any]]:
@@ -145,7 +145,7 @@ class RSOReader:
                 "recent_signals_count": state_dict.get("recent_signals")
             }
         except Exception as e:
-            logger.warning(f"Failed to read system state: {e}")
+            logger.warning("Failed to read system state: %s", e)
             return None
     
     def read_structured_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
@@ -210,7 +210,7 @@ class RSOReader:
                 logs.append(log_entry)
         
         except Exception as e:
-            logger.warning(f"Failed to read logs: {e}")
+            logger.warning("Failed to read logs: %s", e)
         
         return logs
     
@@ -247,7 +247,7 @@ class RSOReader:
             
             return transitions
         except Exception as e:
-            logger.warning(f"Failed to read FSM transitions: {e}")
+            logger.warning("Failed to read FSM transitions: %s", e)
             return []
 
 

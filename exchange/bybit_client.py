@@ -116,7 +116,7 @@ class BybitClient:
         self._qty_step_cache: Dict[str, float] = {}
 
         mode = "TESTNET" if testnet else "MAINNET"
-        logger.info(f"BybitClient initialized [{mode}]: {self._base_url}")
+        logger.info("BybitClient initialized [%s]: %s", mode, self._base_url)
 
     @staticmethod
     def _load_keys_from_db(current_key: str, current_secret: str):
@@ -392,7 +392,7 @@ class BybitClient:
             except _RetryableError as e:
                 if delay is None:
                     raise RuntimeError(f"GET {path} failed after {self._MAX_RETRIES} retries: {e}") from e
-                logger.warning(f"GET {path} attempt {attempt} failed: {e}. Retrying in {delay}s...")
+                logger.warning("GET %s attempt %s failed: %s. Retrying in %ss...", path, attempt, e, delay)
                 time.sleep(delay)
 
     def _post(self, path: str, body: Dict, signed: bool) -> Dict:
@@ -410,7 +410,7 @@ class BybitClient:
             except _RetryableError as e:
                 if delay is None:
                     raise RuntimeError(f"POST {path} failed after {self._MAX_RETRIES} retries: {e}") from e
-                logger.warning(f"POST {path} attempt {attempt} failed: {e}. Retrying in {delay}s...")
+                logger.warning("POST %s attempt %s failed: %s. Retrying in %ss...", path, attempt, e, delay)
                 time.sleep(delay)
 
     def _build_auth_headers(self, payload_str: str) -> Dict:

@@ -26,8 +26,7 @@ from core.portfolio_brain import (
 )
 from core.position_sizer import PositionSizer, PortfolioStateAdapter
 from core.decision_core import DecisionCore, TradingDecision
-from capital import get_current_balance, INITIAL_BALANCE, RISK_PERCENT
-from trade_manager import get_open_trades
+from capital import INITIAL_BALANCE, RISK_PERCENT
 
 if TYPE_CHECKING:
     from core.position_sizer import PositionSizingResult
@@ -246,19 +245,10 @@ class ReplayEngine:
             market_regime = snapshot.market_regime
             confidence_score = snapshot.confidence
             entropy_score = snapshot.entropy
-            
-            # Вычисляем portfolio_exposure (упрощённо для offline)
+
+            # Use snapshot data for portfolio_exposure (offline — no live DB)
             portfolio_exposure = 0.0
-            try:
-                open_trades = get_open_trades()
-                if open_trades:
-                    current_balance = get_current_balance()
-                    if current_balance > 0:
-                        total_exposure = sum(trade.get("size", 0) for trade in open_trades)
-                        portfolio_exposure = min(1.0, total_exposure / current_balance)
-            except Exception:
-                portfolio_exposure = 0.0
-            
+
             # Вызываем MetaDecisionBrain
             meta_result = self.meta_brain.evaluate(
                 market_regime=market_regime,
@@ -342,32 +332,10 @@ class ReplayEngine:
             PortfolioAnalysis или None (если нет открытых позиций или ошибка)
         """
         try:
-            # Получаем открытые сделки
-            open_trades = get_open_trades()
-            if not open_trades:
-                return None  # Нет позиций - портфельный анализ не нужен
-            
-            # Преобразуем в PositionSnapshot
-            open_positions = convert_trades_to_positions(open_trades)
-            
-            # Вычисляем PortfolioState
-            current_balance = get_current_balance()
-            risk_budget = current_balance * (RISK_PERCENT / 100.0) * len(open_trades)
-            
-            portfolio_state = calculate_portfolio_state(
-                open_positions=open_positions,
-                risk_budget=risk_budget,
-                initial_balance=INITIAL_BALANCE
-            )
-            
-            # Анализируем через Portfolio Brain
-            analysis = self.portfolio_brain.evaluate(
-                snapshot=snapshot,
-                open_positions=open_positions,
-                portfolio_state=portfolio_state
-            )
-            
-            return analysis
+            # Offline replay — no live DB access.
+            # Without historical portfolio state in the snapshot,
+            # we skip portfolio analysis (assume no open positions).
+            return None
         except Exception:
             # В случае ошибки не блокируем - просто пропускаем
             return None
@@ -388,35 +356,18 @@ class ReplayEngine:
             PositionSizingResult или None (если ошибка)
         """
         try:
-            # Вычисляем portfolio_state (используем ту же логику, что и в gatekeeper)
-            open_trades = get_open_trades()
-            portfolio_state = None
-            
-            if open_trades:
-                open_positions = convert_trades_to_positions(open_trades)
-                current_balance = get_current_balance()
-                risk_budget = current_balance * (RISK_PERCENT / 100.0) * len(open_trades)
-                portfolio_state = calculate_portfolio_state(
-                    open_positions=open_positions,
-                    risk_budget=risk_budget,
-                    initial_balance=INITIAL_BALANCE
-                )
-            else:
-                # Пустой портфель - создаём минимальный PortfolioState
-                portfolio_state = PortfolioState(
-                    total_exposure=0.0,
-                    long_exposure=0.0,
-                    short_exposure=0.0,
-                    net_exposure=0.0,
-                    risk_budget=get_current_balance() * (RISK_PERCENT / 100.0),
-                    used_risk=0.0
-                )
-            
-            # Используем PortfolioStateAdapter для совместимости с PositionSizer
+            # Offline replay — use INITIAL_BALANCE, empty portfolio (no live DB)
+            balance = INITIAL_BALANCE
+            portfolio_state = PortfolioState(
+                total_exposure=0.0,
+                long_exposure=0.0,
+                short_exposure=0.0,
+                net_exposure=0.0,
+                risk_budget=balance * (RISK_PERCENT / 100.0),
+                used_risk=0.0,
+            )
+
             portfolio_adapter = PortfolioStateAdapter(portfolio_state)
-            
-            # Получаем баланс
-            balance = get_current_balance()
             
             # Вызываем PositionSizer
             sizing_result = self.position_sizer.calculate(

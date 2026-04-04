@@ -27,6 +27,7 @@ export interface OpenPosition {
 }
 
 export interface TradeHistory {
+  id?: number
   symbol: string
   side: string
   entry_price: number
@@ -37,6 +38,7 @@ export interface TradeHistory {
 }
 
 export interface Signal {
+  id?: number
   symbol: string
   decision: string
   confidence: number | null

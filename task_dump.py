@@ -48,7 +48,7 @@ def dump_all_tasks(incident_id: str) -> Dict[str, Any]:
             task_dump = _dump_task(task, incident_id)
             task_dumps.append(task_dump)
         except Exception as e:
-            logger.error(f"TASK_DUMP_ERROR task={task.get_name()} error={type(e).__name__}: {e}")
+            logger.error("TASK_DUMP_ERROR task=%s error=%s: %s", task.get_name(), type(e).__name__, e)
             task_dumps.append({
                 "task_id": id(task),
                 "task_name": task.get_name(),
@@ -139,8 +139,9 @@ def log_task_dump(incident_id: str, context: str = "CRITICAL") -> None:
     
     # Логируем как structured JSON
     logger.critical(
-        f"TASK_DUMP_START incident_id={incident_id} context={context} "
-        f"total_tasks={dump['total_tasks']}"
+        "TASK_DUMP_START incident_id=%s context=%s "
+        "total_tasks=%s",
+        incident_id, context, dump['total_tasks']
     )
     
     # Логируем каждый task отдельно (для читаемости)
@@ -157,7 +158,7 @@ def log_task_dump(incident_id: str, context: str = "CRITICAL") -> None:
     
     # Полный dump в JSON формате (для парсинга)
     dump_json = json.dumps(dump, indent=2, default=str)
-    logger.critical(f"TASK_DUMP_FULL incident_id={incident_id} dump={dump_json}")
+    logger.critical("TASK_DUMP_FULL incident_id=%s dump=%s", incident_id, dump_json)
 
 
 def get_stalled_tasks(threshold_seconds: float = 60.0) -> List[Dict[str, Any]]:

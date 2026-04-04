@@ -609,7 +609,7 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if i <= 2:
             import logging
             logger = logging.getLogger(__name__)
-            logger.debug(f"Сигнал #{i} перед форматированием: symbol={symbol}, state={state}, risk={risk}, timestamp={timestamp}")
+            logger.debug("Сигнал #%s перед форматированием: symbol=%s, state=%s, risk=%s, timestamp=%s", i, symbol, state, risk, timestamp)
         
         # Защита от пустых значений
         if not state or state == '':

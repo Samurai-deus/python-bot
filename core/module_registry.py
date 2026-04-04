@@ -69,7 +69,7 @@ class ModuleRegistry:
             description: Описание модуля
         """
         if name in self._modules:
-            logger.warning(f"Module {name} already registered, overwriting")
+            logger.warning("Module %s already registered, overwriting", name)
         
         self._modules[name] = ModuleInfo(
             name=name,
@@ -80,8 +80,8 @@ class ModuleRegistry:
         )
         
         logger.info(
-            f"Module registered: {name} (criticality: {criticality.value}, "
-            f"timeout: {timeout_seconds or self._default_timeout}s)"
+            "Module registered: %s (criticality: %s, timeout: %ss)",
+            name, criticality.value, timeout_seconds or self._default_timeout
         )
     
     def get_module(self, name: str) -> Optional[ModuleInfo]:
@@ -121,14 +121,15 @@ class ModuleRegistry:
         module_info.criticality = criticality
         
         logger.info(
-            f"Module {name} criticality changed: {old_criticality.value} → {criticality.value}"
+            "Module %s criticality changed: %s → %s",
+            name, old_criticality.value, criticality.value
         )
     
     def unregister_module(self, name: str):
         """Удаляет модуль из реестра"""
         if name in self._modules:
             del self._modules[name]
-            logger.info(f"Module {name} unregistered")
+            logger.info("Module %s unregistered", name)
 
 
 # Глобальный экземпляр

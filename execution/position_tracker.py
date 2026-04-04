@@ -77,8 +77,8 @@ class PositionTracker:
         """Начать отслеживать позицию."""
         self._tracked[position.symbol] = position
         logger.info(
-            f"Tracking position: {position.symbol} {position.side} "
-            f"qty={position.qty} entry={position.entry_price}"
+            "Tracking position: %s %s qty=%s entry=%s",
+            position.symbol, position.side, position.qty, position.entry_price,
         )
 
     def remove(self, symbol: str) -> None:
@@ -124,8 +124,8 @@ class PositionTracker:
                 just_closed.append(tracked)
                 del self._tracked[symbol]
                 logger.info(
-                    f"Position closed detected: {symbol} {tracked.side} "
-                    f"pnl≈{tracked.unrealised_pnl:.2f}"
+                    "Position closed detected: %s %s pnl≈%.2f",
+                    symbol, tracked.side, tracked.unrealised_pnl,
                 )
             else:
                 # Позиция активна — обновляем метрики

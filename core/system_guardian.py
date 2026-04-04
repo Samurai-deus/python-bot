@@ -83,12 +83,12 @@ class AsyncToSyncAdapter:
             return future.result(timeout=timeout)
         except (asyncio.TimeoutError, TimeoutError):
             # Timeout → возвращаем fail-safe результат
-            logger.error(f"AsyncToSyncAdapter timeout (operation: {coro.__name__ if hasattr(coro, '__name__') else 'unknown'})")
+            logger.error("AsyncToSyncAdapter timeout (operation: %s)", coro.__name__ if hasattr(coro, '__name__') else 'unknown')
             return fail_safe_result
         except Exception as e:
             # Любой другой сбой → возвращаем fail-safe результат
             logger.error(
-                f"AsyncToSyncAdapter failed: {type(e).__name__}: {e}",
+                "AsyncToSyncAdapter failed: %s: %s", type(e).__name__, e,
                 exc_info=True
             )
             return fail_safe_result
@@ -189,16 +189,16 @@ class ModuleHealthMonitor:
                     )
                     return result is True
                 except asyncio.TimeoutError:
-                    logger.warning(f"Module {module_info.name} health check timeout")
+                    logger.warning("Module %s health check timeout", module_info.name)
                     return False
                 except Exception as e:
-                    logger.warning(f"Module {module_info.name} health check failed: {e}")
+                    logger.warning("Module %s health check failed: %s", module_info.name, e)
                     return False
             
             # Если метода health_check нет, считаем доступным если экземпляр существует
             return True
         except Exception as e:
-            logger.error(f"Error checking availability of {module_info.name}: {e}")
+            logger.error("Error checking availability of %s: %s", module_info.name, e)
             return False
     
     async def _check_data_validity(self, module_info) -> bool:
@@ -462,14 +462,14 @@ class PolicyEnforcer:
         """
         module_info = self.module_registry.get_module(module_name)
         if not module_info:
-            logger.error(f"Module {module_name} not found in registry")
+            logger.error("Module %s not found in registry", module_name)
             return False
         
         # RULE-1: CRITICAL MODULE FAILURE → SAFE_MODE
         if module_info.criticality == ModuleCriticality.CRITICAL:
             logger.critical(
-                f"CRITICAL module {module_name} failure ({failure_type}): {failure_details}. "
-                f"Transitioning to SAFE_MODE."
+                "CRITICAL module %s failure (%s): %s. Transitioning to SAFE_MODE.",
+                module_name, failure_type, failure_details
             )
             
             await self.state_machine.transition_to(
@@ -489,8 +489,8 @@ class PolicyEnforcer:
             current_state = self.state_machine.state
             if current_state == SystemState.RUNNING:
                 logger.warning(
-                    f"NON_CRITICAL module {module_name} failure ({failure_type}): {failure_details}. "
-                    f"Transitioning to DEGRADED."
+                    "NON_CRITICAL module %s failure (%s): %s. Transitioning to DEGRADED.",
+                    module_name, failure_type, failure_details
                 )
                 
                 await self.state_machine.transition_to(
@@ -699,14 +699,14 @@ class SystemGuardian:
         if critical_violations:
             # Критические нарушения → SAFE_MODE
             logger.critical(
-                f"CRITICAL invariant violations detected: {len(critical_violations)}. "
-                f"Transitioning to SAFE_MODE."
+                "CRITICAL invariant violations detected: %d. Transitioning to SAFE_MODE.",
+                len(critical_violations)
             )
             
             for violation in critical_violations:
                 logger.critical(
-                    f"INVARIANT VIOLATION: {violation.invariant_id} - {violation.message} "
-                    f"(module: {violation.module})"
+                    "INVARIANT VIOLATION: %s - %s (module: %s)",
+                    violation.invariant_id, violation.message, violation.module
                 )
             
             await self.state_machine.transition_to(
@@ -729,7 +729,8 @@ class SystemGuardian:
             # Предупреждения только логируются
             for violation in violations:
                 logger.warning(
-                    f"INVARIANT WARNING: {violation.invariant_id} - {violation.message}"
+                    "INVARIANT WARNING: %s - %s",
+                    violation.invariant_id, violation.message
                 )
 
 

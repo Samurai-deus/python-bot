@@ -147,14 +147,14 @@ class RiskExposureBrain:
             logger.debug("Risk Exposure: менее 2 символов в открытых позициях, корреляция = 0")
             return 0.0
         
-        logger.debug(f"Risk Exposure: анализ корреляций для {len(open_symbols)} открытых позиций: {open_symbols}")
+        logger.debug("Risk Exposure: анализ корреляций для %d открытых позиций: %s", len(open_symbols), open_symbols)
         
         # Анализируем корреляции
         try:
             correlations = analyze_market_correlations(symbols, candles_map, timeframe="15m")
-            logger.debug(f"Risk Exposure: получено корреляций для {len(correlations)} символов")
+            logger.debug("Risk Exposure: получено корреляций для %d символов", len(correlations))
         except Exception as e:
-            logger.error(f"Ошибка анализа корреляций в Risk Exposure Brain: {type(e).__name__}: {e}", exc_info=True)
+            logger.error("Ошибка анализа корреляций в Risk Exposure Brain: %s: %s", type(e).__name__, e, exc_info=True)
             return 0.0
         
         max_corr = 0.0
@@ -173,7 +173,7 @@ class RiskExposureBrain:
                             pair_corr = abs(corr_value)
                             max_corr = max(max_corr, pair_corr)
                             found_correlations.append((sym1, sym2, corr_value, "strong"))
-                            logger.debug(f"Risk Exposure: сильная корреляция {sym1}-{sym2}: {corr_value:.3f}")
+                            logger.debug("Risk Exposure: сильная корреляция %s-%s: %.3f", sym1, sym2, corr_value)
                             break
                     
                     # Также проверяем weak_correlations
@@ -184,7 +184,7 @@ class RiskExposureBrain:
                                 pair_corr = abs(corr_value)
                                 max_corr = max(max_corr, pair_corr)
                                 found_correlations.append((sym1, sym2, corr_value, "weak"))
-                                logger.debug(f"Risk Exposure: слабая корреляция {sym1}-{sym2}: {corr_value:.3f}")
+                                logger.debug("Risk Exposure: слабая корреляция %s-%s: %.3f", sym1, sym2, corr_value)
                                 break
                 
                 # Проверяем обратную корреляцию (sym2 -> sym1)
@@ -195,13 +195,13 @@ class RiskExposureBrain:
                             pair_corr = abs(corr_value)
                             max_corr = max(max_corr, pair_corr)
                             found_correlations.append((sym2, sym1, corr_value, "strong"))
-                            logger.debug(f"Risk Exposure: сильная корреляция {sym2}-{sym1}: {corr_value:.3f}")
+                            logger.debug("Risk Exposure: сильная корреляция %s-%s: %.3f", sym2, sym1, corr_value)
                             break
         
         if found_correlations:
-            logger.info(f"Risk Exposure: найдено {len(found_correlations)} корреляций между открытыми позициями, максимум: {max_corr:.3f}")
+            logger.info("Risk Exposure: найдено %d корреляций между открытыми позициями, максимум: %.3f", len(found_correlations), max_corr)
         else:
-            logger.debug(f"Risk Exposure: корреляций между открытыми позициями не найдено")
+            logger.debug("Risk Exposure: корреляций между открытыми позициями не найдено")
         
         return max_corr
     
