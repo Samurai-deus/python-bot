@@ -4032,6 +4032,7 @@ async def telegram_supervisor(system_state):
     """
     from telegram.ext import ApplicationBuilder
     from telegram.error import NetworkError, Conflict
+    from telegram.request import HTTPXRequest
     from telegram_bot import TOKEN
     from telegram_commands import setup_commands
     
@@ -4054,7 +4055,14 @@ async def telegram_supervisor(system_state):
         try:
             # Build Telegram application
             if app is None:
-                app = ApplicationBuilder().token(TOKEN).build()
+                polling_request = HTTPXRequest(
+                    connection_pool_size=10,
+                    pool_timeout=30.0,
+                    read_timeout=30.0,
+                    write_timeout=30.0,
+                    connect_timeout=30.0,
+                )
+                app = ApplicationBuilder().token(TOKEN).request(polling_request).build()
                 setup_commands(app)
             
             # Start polling
@@ -4093,7 +4101,10 @@ async def telegram_supervisor(system_state):
             async def _safe_polling():
                 """Wrapper to ensure polling errors are logged"""
                 try:
-                    await app.updater.start_polling()
+                    await app.updater.start_polling(
+                        poll_interval=2.0,
+                        drop_pending_updates=True,
+                    )
                 except asyncio.CancelledError:
                     logger.info("Telegram polling task cancelled")
                     raise
