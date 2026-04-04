@@ -1,6 +1,7 @@
 import { format, formatDistanceToNow } from 'date-fns'
 
 export function formatUSDT(value: number): string {
+  if (!isFinite(value)) return '$—'
   const abs = Math.abs(value)
   let maximumFractionDigits = 2
   if (abs > 0 && abs < 0.01) maximumFractionDigits = 6
@@ -40,7 +41,14 @@ export function formatQty(value: number): string {
   return value.toFixed(4)
 }
 
+// Bybit uses non-standard symbol names for some tokens
+const SYMBOL_DISPLAY: Record<string, string> = {
+  'SHIB1000USDT': '1000SHIB/USDT',
+  '1000PEPEUSDT': '1000PEPE/USDT',
+}
+
 export function formatSymbol(symbol: string): string {
+  if (SYMBOL_DISPLAY[symbol]) return SYMBOL_DISPLAY[symbol]
   if (symbol.endsWith('USDT')) {
     return symbol.slice(0, -4) + '/USDT'
   }

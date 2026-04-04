@@ -1,21 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useLatestSignals } from '../../hooks/useSignals'
 import { Badge } from '../../components/Badge'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { formatDate, formatSymbol } from '../../lib/formatters'
-
-// Must match SYMBOLS in config.py
-const KNOWN_SYMBOLS = [
-  'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
-  'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'POLUSDT',
-  'LINKUSDT', 'UNIUSDT', 'AAVEUSDT', 'ARBUSDT', 'OPUSDT',
-  'SUIUSDT', 'APTUSDT', 'SHIB1000USDT', '1000PEPEUSDT',
-  'ATOMUSDT', 'NEARUSDT', 'TONUSDT', 'INJUSDT', 'WLDUSDT',
-  'TIAUSDT', 'RENDERUSDT', 'EIGENUSDT', 'JUPUSDT',
-] as const
-
-const SYMBOLS: readonly string[] = ['ALL', ...KNOWN_SYMBOLS]
 
 function ConfidenceBar({ value }: { value: number | null }) {
   if (value === null) {
@@ -51,6 +39,13 @@ function ConfidenceBar({ value }: { value: number | null }) {
 export function Signals() {
   const [filter, setFilter] = useState('ALL')
   const { data: signals, isLoading, error } = useLatestSignals(50)
+
+  // Derive symbol list from actual signal data instead of hardcoding
+  const symbols = useMemo(() => {
+    if (!signals || signals.length === 0) return ['ALL']
+    const unique = Array.from(new Set(signals.map(s => s.symbol))).sort()
+    return ['ALL', ...unique]
+  }, [signals])
 
   const filtered = signals
     ? filter === 'ALL'
@@ -88,7 +83,7 @@ export function Signals() {
             fontFamily: 'monospace',
           }}
         >
-          {SYMBOLS.map(s => (
+          {symbols.map(s => (
             <option key={s} value={s}>
               {s === 'ALL' ? 'All Symbols' : formatSymbol(s)}
             </option>

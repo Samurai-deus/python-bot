@@ -12,6 +12,7 @@ class SystemHealthResponse(BaseModel):
     trading_paused: bool
     balance_usdt: float
     timestamp: str
+    trading_mode: str = "DRY_RUN"
 
 
 class BalanceResponse(BaseModel):

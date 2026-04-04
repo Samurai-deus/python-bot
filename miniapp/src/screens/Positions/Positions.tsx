@@ -283,6 +283,10 @@ function ProgressToTarget({ position: p }: { position: OpenPosition }) {
   if (!stop_loss || !take_profit) return null
 
   const isLong = p.side === 'LONG' || p.side === 'BUY'
+  // Sanity check: SL/TP must be on correct sides of entry
+  if (isLong && stop_loss >= take_profit) return null
+  if (!isLong && stop_loss <= take_profit) return null
+
   const price = current_price ?? entry_price
   const totalRange = Math.abs(take_profit - stop_loss)
   if (totalRange === 0) return null

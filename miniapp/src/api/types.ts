@@ -5,6 +5,7 @@ export interface SystemHealth {
   trading_paused: boolean
   balance_usdt: number
   timestamp: string
+  trading_mode: string
 }
 
 export interface Balance {
