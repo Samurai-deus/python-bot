@@ -260,9 +260,6 @@ def _init_pg_schema(conn) -> None:
         "original_stop": "REAL",
     }
     for col_name, col_type in _ALLOWED_COLUMNS.items():
-        if col_name not in _ALLOWED_COLUMNS:
-            logger.error("Rejected unknown column in ALTER TABLE: %s", col_name)
-            continue
         try:
             cursor.execute("SAVEPOINT sp_alter")
             cursor.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
@@ -800,6 +797,12 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
         )
         affected = cursor.rowcount
         conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            logger.exception("close_trade rollback failed for trade #%s", trade_id)
+        raise
     finally:
         conn.close()
     if affected > 0:
@@ -827,6 +830,12 @@ def update_trade_stop(trade_id: int, new_stop: float, breakeven: bool = False):
                 (new_stop, new_stop, updated_at, trade_id),
             )
         conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            logger.exception("update_trade_stop rollback failed for trade #%s", trade_id)
+        raise
     finally:
         conn.close()
 
@@ -842,6 +851,12 @@ def update_trade_partial(trade_id: int, partial_price: float, partial_pnl: float
             (partial_pnl, updated_at, trade_id),
         )
         conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            logger.exception("update_trade_partial rollback failed for trade #%s", trade_id)
+        raise
     finally:
         conn.close()
     logger.info("Частичное закрытие сделки #%s: PnL=%.2f USDT @ %s", trade_id, partial_pnl, partial_price)
