@@ -3,6 +3,7 @@ WebSocket endpoint — real-time push every 5 seconds.
 """
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, UTC
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -10,6 +11,13 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from api.deps import verify_ws_token
 
 logger = logging.getLogger(__name__)
+
+# Bounded executor: prevents thread leak when DB calls are slow.
+# wait_for(run_in_executor(None, fn)) cancels the Future but the thread
+# continues running — with the default unbounded pool this leaks threads.
+# A bounded pool (4 threads) caps the damage: slow calls queue up and
+# complete naturally instead of spawning infinite zombie threads.
+_ws_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ws-db")
 
 router = APIRouter(tags=["websocket"])
 
@@ -53,11 +61,17 @@ async def _push_loop(ws: WebSocket):
 
 
 async def _safe_run_sync(fn, default=None, timeout: float = 5.0):
-    """Run sync fn in executor with timeout. On timeout return default (no leaked threads)."""
+    """Run sync fn in bounded executor with timeout.
+
+    Uses _ws_executor (4 threads max) instead of the default unbounded pool.
+    On timeout the Future is cancelled but the thread finishes naturally
+    within the bounded pool — no infinite thread leak.
+    """
     loop = asyncio.get_running_loop()
-    # Create a proper Future so we can cancel the thread on timeout
     try:
-        return await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=timeout)
+        return await asyncio.wait_for(
+            loop.run_in_executor(_ws_executor, fn), timeout=timeout
+        )
     except asyncio.TimeoutError:
         logger.warning("_safe_run_sync timeout for %s — returning default", fn.__name__)
         return default
