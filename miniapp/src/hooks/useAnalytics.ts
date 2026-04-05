@@ -11,6 +11,7 @@ export function useAnalyticsSummary(days: number) {
     queryKey: ['analytics-summary', days],
     queryFn: () => fetchAnalyticsSummary(days),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   })
 }
 
@@ -19,6 +20,7 @@ export function useEquityCurve(days: number) {
     queryKey: ['equity-curve', days],
     queryFn: () => fetchEquityCurve(days),
     refetchInterval: 120_000,
+    refetchIntervalInBackground: false,
   })
 }
 
@@ -27,6 +29,7 @@ export function useBySymbol(days: number) {
     queryKey: ['by-symbol', days],
     queryFn: () => fetchBySymbol(days),
     refetchInterval: 120_000,
+    refetchIntervalInBackground: false,
   })
 }
 
@@ -35,5 +38,6 @@ export function useMonthlyTarget() {
     queryKey: ['monthly-target'],
     queryFn: fetchMonthlyTarget,
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   })
 }

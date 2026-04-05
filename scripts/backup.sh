@@ -7,7 +7,7 @@
 set -euo pipefail
 
 BACKUP_DIR="/data/backups"
-KEEP_DAYS=7
+KEEP_DAYS=30
 DATE=$(date +%Y%m%d_%H%M%S)
 
 mkdir -p "$BACKUP_DIR"

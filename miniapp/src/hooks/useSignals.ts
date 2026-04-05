@@ -6,5 +6,6 @@ export function useLatestSignals(limit = 20) {
     queryKey: ['signals-latest', limit],
     queryFn: () => fetchLatestSignals(limit),
     refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   })
 }

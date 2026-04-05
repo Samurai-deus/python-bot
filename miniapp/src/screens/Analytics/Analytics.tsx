@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo, memo } from 'react'
 import { createChart, AreaSeries, ColorType } from 'lightweight-charts'
 import type { Time } from 'lightweight-charts'
 import { useSettingsStore } from '../../store/useSettingsStore'
@@ -162,7 +162,7 @@ export function Analytics() {
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
+const StatCard = memo(function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <div style={{
       borderRadius: 14,
@@ -191,13 +191,29 @@ function StatCard({ label, value, color }: { label: string; value: string; color
       </p>
     </div>
   )
-}
+})
 
-function EquityCurveChart({ data }: { data: { points: number[]; timestamps: string[] } }) {
+const EquityCurveChart = memo(function EquityCurveChart({ data }: { data: { points: number[]; timestamps: string[] } }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Memoize expensive data processing (dedup + sort + parse)
+  const chartData = useMemo(() => {
+    const rawData = data.points.map((value, i) => {
+      const ts = data.timestamps[i]
+      const utcTs = /[Zz+\-]\d{0,4}$/.test(ts) ? ts : ts + 'Z'
+      return {
+        time: Math.floor(new Date(utcTs).getTime() / 1000) as Time,
+        value,
+      }
+    })
+    rawData.sort((a, b) => (a.time as number) - (b.time as number))
+    const seen = new Map<number, number>()
+    for (const d of rawData) seen.set(d.time as number, d.value)
+    return Array.from(seen.entries()).map(([time, value]) => ({ time: time as Time, value }))
+  }, [data])
+
   useEffect(() => {
-    if (!containerRef.current || data.points.length === 0) return
+    if (!containerRef.current || chartData.length === 0) return
 
     let chart: ReturnType<typeof createChart> | null = null
     let observer: ResizeObserver | null = null
@@ -232,23 +248,6 @@ function EquityCurveChart({ data }: { data: { points: number[]; timestamps: stri
         lineWidth: 2,
       })
 
-      // Deduplicate and sort by time (lightweight-charts requires strictly ascending times)
-      // Ensure UTC parsing: append 'Z' if no timezone indicator present
-      const rawData = data.points.map((value, i) => {
-        const ts = data.timestamps[i]
-        const utcTs = /[Zz+\-]\d{0,4}$/.test(ts) ? ts : ts + 'Z'
-        return {
-          time: Math.floor(new Date(utcTs).getTime() / 1000) as Time,
-          value,
-        }
-      })
-      rawData.sort((a, b) => (a.time as number) - (b.time as number))
-      // Remove duplicates (keep last value for same timestamp)
-      const seen = new Map<number, number>()
-      for (const d of rawData) seen.set(d.time as number, d.value)
-      const chartData = Array.from(seen.entries()).map(([time, value]) => ({ time: time as Time, value }))
-
-      if (chartData.length === 0) return
       series.setData(chartData)
       chart.timeScale().fitContent()
 
@@ -265,10 +264,10 @@ function EquityCurveChart({ data }: { data: { points: number[]; timestamps: stri
     }
 
     return () => {
-      try { observer?.disconnect() } catch { /* already disconnected */ }
-      try { chart?.remove() } catch { /* already removed */ }
+      if (observer) { try { observer.disconnect() } catch { /* already disconnected */ } }
+      if (chart) { try { chart.remove() } catch { /* already removed */ } }
     }
-  }, [data])
+  }, [chartData])
 
   return <div ref={containerRef} style={{ width: '100%', height: 190 }} />
-}
+})

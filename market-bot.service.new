@@ -21,8 +21,8 @@ RestartSec=10
 # 10 = CRITICAL - рестартовать (deadlock detected)
 # 77 = CONFIG_ERROR - не рестартовать
 Restart=on-failure
-# systemd по умолчанию рестартует при exit code != 0, но мы хотим более точный контроль
-# Используем ExecStop для логирования exit code
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 # Timeouts
 TimeoutStartSec=30
@@ -38,6 +38,13 @@ StandardError=journal
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/root/market_bot /data
+PrivateDevices=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
 
 [Install]
 WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useSystemStore } from '../../store/useSystemStore'
 import { usePositionHistory } from '../../hooks/usePositions'
 import { Badge } from '../../components/Badge'
@@ -137,11 +137,11 @@ function OpenPositionsList({ positions }: { positions: OpenPosition[] }) {
 function HistoryList({ items }: { items: TradeHistory[] }) {
   const [symbolFilter, setSymbolFilter] = useState('ALL')
 
-  const symbols = ['ALL', ...Array.from(new Set(items.map(t => t.symbol))).sort()]
-  const sorted = [...items].sort((a, b) =>
+  const symbols = useMemo(() => ['ALL', ...Array.from(new Set(items.map(t => t.symbol))).sort()], [items])
+  const sorted = useMemo(() => [...items].sort((a, b) =>
     new Date(b.closed_at).getTime() - new Date(a.closed_at).getTime()
-  )
-  const filtered = symbolFilter === 'ALL' ? sorted : sorted.filter(t => t.symbol === symbolFilter)
+  ), [items])
+  const filtered = useMemo(() => symbolFilter === 'ALL' ? sorted : sorted.filter(t => t.symbol === symbolFilter), [sorted, symbolFilter])
 
   if (items.length === 0) {
     return (
