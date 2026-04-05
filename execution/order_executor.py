@@ -11,10 +11,11 @@ Order Executor — Phase 2.
 - Не знает о стратегии, индикаторах, сигналах
 """
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Tuple
 
 from exchange.bybit_client import BybitClient, OrderResult, BybitAPIError, get_bybit_client
 
@@ -69,8 +70,64 @@ class OrderExecutor:
     def __init__(self, client: Optional[BybitClient] = None):
         self._client = client or get_bybit_client()
         self._dry_run = _is_dry_run()
+        self._instrument_cache: Dict[str, Dict[str, float]] = {}
         mode = "DRY_RUN" if self._dry_run else ("TESTNET" if self._client._testnet else "LIVE")
         logger.info("OrderExecutor initialized [%s]", mode)
+
+    def _get_instrument_limits(self, symbol: str) -> Dict[str, float]:
+        """Fetch and cache min/max qty and step size from Bybit instrument info."""
+        if symbol in self._instrument_cache:
+            return self._instrument_cache[symbol]
+        try:
+            data = self._client.get_instruments_info(symbol)
+            instruments = data.get("list", [])
+            if instruments:
+                lot_filter = instruments[0].get("lotSizeFilter", {})
+                limits = {
+                    "minOrderQty": float(lot_filter.get("minOrderQty", "0.001")),
+                    "maxOrderQty": float(lot_filter.get("maxOrderQty", "1000000")),
+                    "qtyStep": float(lot_filter.get("qtyStep", "0.001")),
+                }
+            else:
+                logger.warning("No instrument info for %s, using defaults", symbol)
+                limits = {"minOrderQty": 0.001, "maxOrderQty": 1000000.0, "qtyStep": 0.001}
+        except Exception:
+            logger.warning("Failed to fetch instrument info for %s, using defaults", symbol, exc_info=True)
+            limits = {"minOrderQty": 0.001, "maxOrderQty": 1000000.0, "qtyStep": 0.001}
+        self._instrument_cache[symbol] = limits
+        return limits
+
+    def _validate_qty(self, symbol: str, qty: float) -> Tuple[float, Optional[str]]:
+        """
+        Validate and round qty to comply with Bybit instrument limits.
+
+        Returns (adjusted_qty, error_message). error_message is None if valid.
+        """
+        if qty <= 0:
+            return 0.0, f"qty must be positive, got {qty}"
+
+        limits = self._get_instrument_limits(symbol)
+        min_qty = limits["minOrderQty"]
+        max_qty = limits["maxOrderQty"]
+        step = limits["qtyStep"]
+
+        # Round down to step size
+        if step > 0:
+            precision = max(0, -int(math.log10(step))) if step < 1 else 0
+            qty = math.floor(qty / step) * step
+            qty = round(qty, precision)
+
+        if qty < min_qty:
+            return 0.0, (
+                f"{symbol}: qty {qty} below minimum {min_qty}"
+            )
+
+        if qty > max_qty:
+            return 0.0, (
+                f"{symbol}: qty {qty} exceeds maximum {max_qty}"
+            )
+
+        return qty, None
 
     def execute(self, request: TradeRequest) -> TradeResult:
         """
@@ -80,6 +137,22 @@ class OrderExecutor:
         только для ожидаемых ошибок API (недостаточный баланс, etc.).
         Неожиданные ошибки поднимаются наверх.
         """
+        # Validate position size against exchange limits
+        adjusted_qty, error = self._validate_qty(request.symbol, request.qty)
+        if error:
+            logger.error("Position size validation failed: %s", error)
+            return TradeResult(
+                success=False, order_id=None,
+                symbol=request.symbol, side=request.side, qty=request.qty,
+                entry_price=request.entry_price, stop_loss=request.stop_loss,
+                take_profit=request.take_profit, dry_run=self._dry_run,
+                error=f"Position size invalid: {error}",
+            )
+        if adjusted_qty != request.qty:
+            logger.info("Qty adjusted for %s: %.8f → %.8f (step alignment)", request.symbol, request.qty, adjusted_qty)
+            from dataclasses import replace
+            request = replace(request, qty=adjusted_qty)
+
         if self._dry_run:
             return self._dry_run_execute(request)
         return self._live_execute(request)
@@ -90,6 +163,17 @@ class OrderExecutor:
 
         side: сторона ТЕКУЩЕЙ позиции ("LONG" | "SHORT")
         """
+        # Validate qty for close too
+        adjusted_qty, error = self._validate_qty(symbol, qty)
+        if error:
+            logger.error("Close position size validation failed: %s", error)
+            return TradeResult(
+                success=False, order_id=None,
+                symbol=symbol, side=side, qty=qty,
+                entry_price=None, stop_loss=0.0, take_profit=None,
+                dry_run=self._dry_run, error=f"Position size invalid: {error}",
+            )
+        qty = adjusted_qty
         close_side = "Sell" if side == "LONG" else "Buy"
         request = TradeRequest(
             symbol=symbol,

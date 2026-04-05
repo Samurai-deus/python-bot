@@ -133,15 +133,42 @@ services:
       - '--storage.tsdb.retention.time=30d'
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
+    depends_on:
+      - alertmanager
     networks:
       - market-net
     deploy:
       resources:
         limits:
           memory: 96m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: market-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - market-net
+    deploy:
+      resources:
+        limits:
+          memory: 64m
     logging:
       driver: "json-file"
       options:
@@ -181,6 +208,7 @@ volumes:
   postgres_data:
   redis_data:
   prometheus_data:
+  alertmanager_data:
   grafana_data:
 
 networks:
