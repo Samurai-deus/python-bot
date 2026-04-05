@@ -80,7 +80,18 @@ export function useWebSocket() {
             typeof data === 'object' &&
             typeof data.timestamp === 'string' &&
             typeof data.system_state === 'string' &&
-            Array.isArray(data.positions)
+            Array.isArray(data.positions) &&
+            typeof data.trading_paused === 'boolean' &&
+            typeof data.balance_usdt === 'number' &&
+            isFinite(data.balance_usdt) &&
+            data.positions.length <= 200 &&
+            data.positions.every(
+              (p: Record<string, unknown>) =>
+                typeof p.symbol === 'string' &&
+                typeof p.side === 'string' &&
+                typeof p.entry_price === 'number' &&
+                isFinite(p.entry_price)
+            )
           ) {
             setSnapshot(data as WsSnapshot)
             touchSnapshot()

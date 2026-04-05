@@ -3,12 +3,24 @@ Description=Market Bot API
 After=network.target
 
 [Service]
-User=root
+User=botuser
+Group=botuser
 WorkingDirectory=/root/market_bot
 ExecStart=/root/market_bot/venv/bin/python /root/market_bot/run_api.py
 Restart=always
 RestartSec=5
 EnvironmentFile=/root/market_bot/.env
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/data /root/market_bot
+PrivateTmp=true
+NoNewPrivileges=true
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
 
 [Install]
 WantedBy=multi-user.target
