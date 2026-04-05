@@ -154,6 +154,7 @@ def validate_symbols(symbols: List[str], interval: str = "60") -> List[str]:
                 else:
                     invalid.append(symbol)
             except Exception:
+                logging.error("validate_symbols: failed to check %s", symbol, exc_info=True)
                 invalid.append(symbol)
 
     if invalid:

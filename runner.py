@@ -759,8 +759,8 @@ def check_single_instance() -> bool:
             try:
                 pid_path.unlink()
             except Exception:
-                pass
-    
+                logger.debug("Failed to unlink stale PID file", exc_info=True)
+
     # Создаём новый PID file
     try:
         with open(pid_path, 'w') as f:
@@ -1968,8 +1968,8 @@ async def run_market_analysis():
                 timeout=10.0
             )
         except Exception:
-            pass
-        
+            logger.warning("Failed to send error alert for critical analysis error", exc_info=True)
+
         return False
 
 
@@ -2329,8 +2329,8 @@ async def market_analysis_loop():
                             timeout=10.0
                         )
                     except Exception:
-                        pass
-                    
+                        logger.warning("Failed to send error alert for pause notification", exc_info=True)
+
                     # Проверяем shutdown во время паузы
                     # Используем await asyncio.sleep() с проверкой shutdown каждую секунду
                     try:
@@ -2616,7 +2616,7 @@ async def loop_guard_watchdog():
                             try:
                                 task_info["exception"] = str(task.exception())
                             except Exception:
-                                pass
+                                logger.debug("Failed to get task exception in loop guard dump", exc_info=True)
                         task_dump.append(task_info)
                     
                     logger.critical(
@@ -2839,7 +2839,7 @@ async def outcome_tracker_loop():
         logger.info("[OutcomeTracker] Loop stopped (shutdown during initial delay)")
         return
     except asyncio.TimeoutError:
-        pass
+        pass  # Expected: initial delay elapsed, proceed to outcome check loop
 
     while system_state.system_health.is_running and not shutdown_evt.is_set():
         try:
@@ -2856,7 +2856,7 @@ async def outcome_tracker_loop():
             await asyncio.wait_for(shutdown_evt.wait(), timeout=1800.0)  # 30 min
             break
         except asyncio.TimeoutError:
-            pass
+            pass  # Expected: sleep interval elapsed, proceed to next outcome check
 
     logger.info("[OutcomeTracker] Loop stopped")
 
@@ -2913,7 +2913,7 @@ async def paper_trading_monitor_loop():
                                 import price_cache as _pc
                                 _pc.update(symbol, current_price)
                             except Exception:
-                                pass
+                                logger.debug("Failed to update price_cache for %s", symbol, exc_info=True)
                             closed = check_trades(symbol, effective_price)
                             for closed_trade in closed:
                                 trade_pnl = closed_trade.get("pnl", 0)
@@ -3307,7 +3307,7 @@ async def _telegram_polling_task(app, shutdown_event):
             try:
                 await asyncio.wait_for(app.shutdown(), timeout=2.0)
             except Exception:
-                pass
+                logger.debug("Telegram app.shutdown failed during conflict cleanup", exc_info=True)
             # Wait 10 seconds to allow previous instance to fully stop
             # КРИТИЧНО: sleep с проверкой cancellation для быстрого отклика на shutdown
             try:
@@ -3328,16 +3328,16 @@ async def _telegram_polling_task(app, shutdown_event):
             try:
                 await asyncio.wait_for(app.shutdown(), timeout=2.0)
             except Exception:
-                pass
+                logger.debug("Telegram app.shutdown failed during start timeout cleanup", exc_info=True)
             raise
         except asyncio.CancelledError:
             # Cleanup при cancellation
             try:
                 await asyncio.wait_for(app.shutdown(), timeout=2.0)
             except Exception:
-                pass
+                logger.debug("Telegram app.shutdown failed during cancellation cleanup", exc_info=True)
             raise
-        
+
         # Ждём shutdown event (polling работает в фоне)
         # CRITICAL: Используем wait_for с таймаутом для предотвращения бесконечного ожидания
         # Таймаут 3600s (1 час) - достаточно для нормальной работы, но предотвращает зависание
@@ -3378,16 +3378,16 @@ async def _telegram_polling_task(app, shutdown_event):
             if app.updater and app.updater.running:
                 await app.updater.stop()
         except Exception:
-            pass
+            logger.debug("Telegram updater.stop failed during exception cleanup", exc_info=True)
         try:
             if app.running:
                 await app.stop()
         except Exception:
-            pass
+            logger.debug("Telegram app.stop failed during exception cleanup", exc_info=True)
         try:
             await app.shutdown()
         except Exception:
-            pass
+            logger.debug("Telegram app.shutdown failed during exception cleanup", exc_info=True)
         raise
 
 
@@ -3831,13 +3831,13 @@ async def start_http_server():
                 writer.write(response)
                 await writer.drain()
             except Exception:
-                pass
+                logger.debug("Failed to send shutdown response to HTTP client", exc_info=True)
             finally:
                 try:
                     if not writer.is_closing():
                         writer.close()
                 except Exception:
-                    pass
+                    logger.debug("Failed to close HTTP writer during shutdown", exc_info=True)
             return  # Немедленный выход - не обрабатываем запрос
         
         status_code = 500
@@ -3979,14 +3979,14 @@ async def start_http_server():
                 await writer.drain()
                 logger.error("HTTP RESPONSE 500: Critical error: %s: %s", type(e).__name__, e)
             except Exception:
-                pass
+                logger.debug("Failed to send HTTP 500 error response", exc_info=True)
         finally:
             # Закрываем writer (БЕЗ await wait_closed для безопасности event loop)
             try:
                 if not writer.is_closing():
                     writer.close()
             except Exception:
-                pass
+                logger.debug("Failed to close HTTP writer", exc_info=True)
     
     # УДАЛЕНО: Все handlers теперь на уровне модуля (выше)
     # УДАЛЕНО: Локальная таблица ROUTES - используем build_http_routes()
@@ -4004,16 +4004,6 @@ async def start_http_server():
 
 # УДАЛЕНО: Все дублирующие handlers внутри start_http_server()
 # Теперь используются handlers на уровне модуля через build_http_routes()
-
-async def _deprecated_start_control_plane():
-    """
-    DEPRECATED: Используйте start_http_server() вместо этого.
-    
-    Эта функция больше не используется - все handlers вынесены на уровень модуля.
-    """
-    logger.warning("_deprecated_start_control_plane() called - this function is deprecated and should not be used")
-    raise NotImplementedError("Use start_http_server() instead")
-
 
 # DEPRECATED: start_control_plane() removed - use start_http_server() instead
 
@@ -4093,16 +4083,16 @@ async def telegram_supervisor(system_state):
                 try:
                     await asyncio.wait_for(app.shutdown(), timeout=2.0)
                 except Exception:
-                    pass
+                    logger.debug("Telegram app.shutdown failed during initialize timeout cleanup", exc_info=True)
                 raise  # Перезапустим с backoff
             except asyncio.CancelledError:
                 # Cleanup при cancellation
                 try:
                     await asyncio.wait_for(app.shutdown(), timeout=2.0)
                 except Exception:
-                    pass
+                    logger.debug("Telegram app.shutdown failed during supervisor cancellation cleanup", exc_info=True)
                 raise  # Пробрасываем для правильного shutdown
-            
+
             # КРИТИЧНО: start_polling() - долгоживущая задача, запускаем её как task
             # и ждём shutdown event или cancellation, а не саму задачу
             # CRITICAL: Wrap in exception handler to ensure errors are logged
@@ -4160,7 +4150,7 @@ async def telegram_supervisor(system_state):
                     try:
                         await asyncio.wait_for(polling_task, timeout=2.0)
                     except (asyncio.CancelledError, asyncio.TimeoutError):
-                        pass
+                        logger.debug("Polling task cancel: CancelledError or timeout (expected)")
                     except Exception as e:
                         logger.debug("Error waiting for polling task cancellation: %s: %s", type(e).__name__, e)
                 
@@ -4579,8 +4569,8 @@ async def main():
                 timeout=5.0
             )
         except Exception:
-            pass
-        
+            logger.warning("Failed to send error alert for critical main loop error", exc_info=True)
+
         # HARDENING: Критическая ошибка → переход в FATAL через state machine
         # Централизованный exit handler обработает os._exit
         state_machine = get_state_machine()
@@ -4714,7 +4704,7 @@ async def main():
                             logger.warning("Task shutdown exception: %s: %s", type(r).__name__, r)
                     logger.critical("All tasks cancelled and completed")
             except RuntimeError:
-                pass
+                logger.debug("RuntimeError during task cancellation (no event loop)", exc_info=True)
             except Exception as e:
                 logger.debug("Error cancelling tasks: %s: %s", type(e).__name__, e)
             
@@ -4854,7 +4844,7 @@ async def main():
                             )
                             logger.debug("Telegram Bot HTTP client closed")
                         except (asyncio.TimeoutError, RuntimeError, AttributeError):
-                            pass
+                            logger.debug("Telegram Bot HTTP client close failed (timeout/runtime/attr)", exc_info=True)
                     # Альтернативный способ: закрыть connector напрямую (если доступен)
                     if hasattr(bot.request, '_client') and bot.request._client:
                         client = bot.request._client
@@ -4866,7 +4856,7 @@ async def main():
                                 )
                                 logger.debug("Telegram Bot HTTPX client connector closed")
                             except (asyncio.TimeoutError, RuntimeError, AttributeError):
-                                pass
+                                logger.debug("Telegram Bot HTTPX connector close failed (timeout/runtime/attr)", exc_info=True)
         except (ImportError, AttributeError, RuntimeError):
             # Bot не импортирован или уже закрыт - это нормально
             pass
@@ -4885,7 +4875,7 @@ async def main():
                     )
                     logger.debug("Async generators shut down")
                 except (asyncio.TimeoutError, RuntimeError):
-                    pass
+                    logger.debug("Async generators shutdown failed (timeout/runtime)", exc_info=True)
         except RuntimeError:
             # Event loop уже закрыт - это нормально
             pass

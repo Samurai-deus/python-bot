@@ -116,6 +116,7 @@ class ChaosEngine:
                 try:
                     await self._chaos_task
                 except asyncio.CancelledError:
+                    logger.debug("Chaos task cancelled during stop", exc_info=True)
                     pass
             
             chaos_type = self._active_chaos
@@ -170,6 +171,7 @@ class ChaosEngine:
                 future = asyncio.run_coroutine_threadsafe(async_lock.acquire(), loop)
                 future.result(timeout=0.1)  # Блокируем thread
             except Exception:
+                logger.debug("Cross-lock deadlock thread_worker exception (expected)", exc_info=True)
                 pass
             
             # Никогда не дойдём сюда
@@ -242,6 +244,7 @@ class ChaosEngine:
             try:
                 os.unlink(tmp_path)
             except Exception:
+                logger.debug("Failed to cleanup temp file %s", tmp_path, exc_info=True)
                 pass
     
     async def _recursive_await(self, incident_id: str, duration: float):
