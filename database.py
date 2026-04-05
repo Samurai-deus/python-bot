@@ -361,6 +361,7 @@ def _init_pg_schema(conn) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_symbol_status ON orders(symbol, status)")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS positions (
@@ -382,6 +383,7 @@ def _init_pg_schema(conn) -> None:
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol_status ON positions(symbol, status)")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pnl_history (
@@ -599,6 +601,7 @@ def _init_database(conn) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_symbol_status ON orders(symbol, status)")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS positions (
@@ -620,6 +623,7 @@ def _init_database(conn) -> None:
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol_status ON positions(symbol, status)")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pnl_history (

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
 import type { WsSnapshot } from '../api/types'
 
 type WsStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
@@ -12,11 +13,13 @@ interface SystemStore {
   touchSnapshot: () => void
 }
 
-export const useSystemStore = create<SystemStore>((set) => ({
-  snapshot: null,
-  wsStatus: 'connecting',
-  lastSnapshotAt: null,
-  setSnapshot: (snapshot) => set({ snapshot }),
-  setWsStatus: (wsStatus) => set({ wsStatus }),
-  touchSnapshot: () => set({ lastSnapshotAt: new Date() }),
-}))
+export const useSystemStore = create<SystemStore>()(
+  immer((set) => ({
+    snapshot: null,
+    wsStatus: 'connecting',
+    lastSnapshotAt: null,
+    setSnapshot: (snapshot) => set((state) => { state.snapshot = snapshot }),
+    setWsStatus: (wsStatus) => set((state) => { state.wsStatus = wsStatus }),
+    touchSnapshot: () => set((state) => { state.lastSnapshotAt = new Date() }),
+  }))
+)

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { immer } from 'zustand/middleware/immer'
 
 interface SettingsStore {
   analyticsDays: number
@@ -10,12 +11,12 @@ interface SettingsStore {
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(
-    (set) => ({
+    immer((set) => ({
       analyticsDays: 30,
       historyDays: 30,
-      setAnalyticsDays: (analyticsDays) => set({ analyticsDays }),
-      setHistoryDays: (historyDays) => set({ historyDays }),
-    }),
+      setAnalyticsDays: (d) => set((state) => { state.analyticsDays = d }),
+      setHistoryDays: (d) => set((state) => { state.historyDays = d }),
+    })),
     { name: 'miniapp-settings' }
   )
 )
