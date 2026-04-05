@@ -6,5 +6,6 @@ export function usePositionHistory(days: number) {
     queryKey: ['position-history', days],
     queryFn: () => fetchPositionHistory(days),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   })
 }

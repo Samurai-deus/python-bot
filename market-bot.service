@@ -9,14 +9,23 @@ User=botuser
 WorkingDirectory=/root/market_bot
 Environment="PATH=/root/market_bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/root/market_bot/venv/bin/python /root/market_bot/runner.py
-Restart=always
+Restart=on-failure
 RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=3
 StandardOutput=journal
 StandardError=journal
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/root/market_bot /data
+PrivateDevices=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
 
 [Install]
 WantedBy=multi-user.target

@@ -1,5 +1,7 @@
 global:
   resolve_timeout: 5m
+  http_config:
+    follow_redirects: true
 
 route:
   receiver: telegram

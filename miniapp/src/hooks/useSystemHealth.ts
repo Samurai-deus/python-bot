@@ -6,5 +6,6 @@ export function useSystemHealth() {
     queryKey: ['health'],
     queryFn: fetchHealth,
     refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   })
 }
