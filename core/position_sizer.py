@@ -178,7 +178,7 @@ class PositionSizer:
                     perf["win_rate"], perf["avg_win"], perf["avg_loss"],
                     self.config.min_risk_threshold,
                 )
-                base_risk = self.config.min_risk_threshold  # 0.1% — minimum safe size
+                base_risk = 0.5  # 0.5% conservative fallback — survives factor scaling
             else:
                 base_risk = kelly * 100  # fraction → %
             # Clamp между min_risk и config max (quarter-Kelly floor)
