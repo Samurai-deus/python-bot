@@ -1,0 +1,27 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: telegram
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - match:
+        severity: critical
+      receiver: telegram
+      repeat_interval: 1h
+
+receivers:
+  - name: telegram
+    webhook_configs:
+      - url: 'http://api:8000/api/system/alert-webhook'
+        send_resolved: true
+
+inhibit_rules:
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ['alertname']

@@ -739,8 +739,9 @@ class Gatekeeper:
             PortfolioAnalysis или None (если нет открытых позиций)
         """
         try:
-            # Use cached open trades if provided, otherwise fetch from DB
+            # open_trades must be cached by caller (evaluate_signal line 179)
             if open_trades is None:
+                logger.error("_check_portfolio called without open_trades — caller bug, fetching as fallback")
                 open_trades = get_open_trades()
             if not open_trades:
                 return None  # Нет позиций - портфельный анализ не нужен
@@ -836,8 +837,9 @@ class Gatekeeper:
             confidence_score = snapshot.confidence
             entropy_score = snapshot.entropy
 
-            # Use cached open trades if provided, otherwise fetch from DB
+            # open_trades must be cached by caller (evaluate_signal line 179)
             if open_trades is None:
+                logger.error("_check_meta_decision called without open_trades — caller bug, fetching as fallback")
                 open_trades = get_open_trades()
 
             # Вычисляем portfolio_exposure из открытых позиций
@@ -945,8 +947,9 @@ class Gatekeeper:
             Вызывается ПОСЛЕ всех проверок, но ДО отправки сигнала.
         """
         try:
-            # Use cached open trades if provided, otherwise fetch from DB
+            # open_trades must be cached by caller (evaluate_signal line 179)
             if open_trades is None:
+                logger.error("_check_position_sizer called without open_trades — caller bug, fetching as fallback")
                 open_trades = get_open_trades()
             portfolio_state = None
             
@@ -1151,8 +1154,9 @@ class Gatekeeper:
                 loss_7d_usd=loss_7d_usd
             )
             
-            # Собираем Exposure Snapshot (use cached open_trades if provided)
+            # Собираем Exposure Snapshot (open_trades cached by caller)
             if open_trades is None:
+                logger.error("_check_risk_core called without open_trades — caller bug, fetching as fallback")
                 open_trades = get_open_trades()
             open_positions = [
                 PositionSnapshot(

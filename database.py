@@ -12,15 +12,66 @@
 
 CSV остается для логов (signals_log.csv)
 """
+import functools
 import os
 import sqlite3
 import threading
+import time as _time
 from datetime import datetime, UTC, timedelta
 from typing import List, Dict, Optional
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# ========== TRANSIENT ERROR RETRY ==========
+
+_TRANSIENT_BACKOFF = (0.1, 0.5, 1.0)  # seconds between retries
+_MAX_RETRIES = 3
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Detect transient DB errors worth retrying."""
+    msg = str(exc).lower()
+    # SQLite: database locked / busy
+    if isinstance(exc, sqlite3.OperationalError):
+        return "locked" in msg or "busy" in msg
+    # PostgreSQL: check dynamically to avoid import at module level
+    try:
+        import psycopg2
+        # Connection lost, server closed, deadlock
+        if isinstance(exc, psycopg2.OperationalError):
+            return True
+        if isinstance(exc, psycopg2.extensions.TransactionRollbackError):
+            return True  # deadlock detected
+        if isinstance(exc, psycopg2.InterfaceError):
+            return "closed" in msg or "connection" in msg
+    except ImportError:
+        pass
+    return False
+
+
+def with_retry(func):
+    """Decorator: retry DB operations on transient failures with exponential backoff."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        last_exc = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:
+                if not _is_transient(exc) or attempt == _MAX_RETRIES - 1:
+                    raise
+                last_exc = exc
+                delay = _TRANSIENT_BACKOFF[min(attempt, len(_TRANSIENT_BACKOFF) - 1)]
+                logger.warning(
+                    "Transient DB error in %s (attempt %d/%d), retrying in %.1fs: %s",
+                    func.__name__, attempt + 1, _MAX_RETRIES, delay, exc,
+                )
+                _time.sleep(delay)
+        raise last_exc  # unreachable, but satisfies type checker
+    return wrapper
 
 # ========== DATABASE MODE ==========
 
@@ -743,6 +794,7 @@ def add_trade(
     return trade_id
 
 
+@with_retry
 def get_open_trades() -> List[Dict]:
     """Получает список всех открытых сделок."""
     conn = get_db_connection()
@@ -776,6 +828,7 @@ def get_open_trades() -> List[Dict]:
     ]
 
 
+@with_retry
 def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float) -> bool:
     """Закрывает сделку в базе данных.
 
@@ -813,6 +866,7 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
         return False
 
 
+@with_retry
 def update_trade_stop(trade_id: int, new_stop: float, breakeven: bool = False):
     """Обновляет стоп-лосс сделки (trailing stop / breakeven)."""
     conn = get_db_connection()
@@ -840,6 +894,7 @@ def update_trade_stop(trade_id: int, new_stop: float, breakeven: bool = False):
         conn.close()
 
 
+@with_retry
 def update_trade_partial(trade_id: int, partial_price: float, partial_pnl: float):
     """Записывает частичное закрытие (50% позиции)."""
     conn = get_db_connection()

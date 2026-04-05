@@ -1,0 +1,92 @@
+groups:
+  - name: market-bot-critical
+    interval: 30s
+    rules:
+      # API is down
+      - alert: APIDown
+        expr: up{job="market-bot-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Market Bot API is down"
+          description: "API endpoint has been unreachable for over 1 minute."
+
+      # High error rate (>5% of requests are 5xx)
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High API error rate (>5%)"
+          description: "More than 5% of API requests are returning 5xx errors."
+
+      # API latency p95 > 5s
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency (p95 > 5s)"
+
+  - name: market-bot-trading
+    interval: 60s
+    rules:
+      # No trades for 6 hours (during market hours)
+      - alert: NoTradesLong
+        expr: |
+          (time() - max(market_bot_last_trade_timestamp)) > 21600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No trades in 6+ hours"
+          description: "The bot has not executed any trades in over 6 hours."
+
+      # Drawdown > 10%
+      - alert: HighDrawdown
+        expr: market_bot_drawdown_percent > 10
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Drawdown exceeds 10%"
+          description: "Current drawdown is {{ $value }}%."
+
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # PostgreSQL down
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+
+      # Redis down
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis is down"
+
+      # Disk space > 85%
+      - alert: DiskSpaceHigh
+        expr: (node_filesystem_size_bytes - node_filesystem_avail_bytes) / node_filesystem_size_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk usage above 85%"
+          description: "Disk usage is at {{ $value | humanizePercentage }}."
