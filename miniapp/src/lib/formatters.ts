@@ -20,12 +20,18 @@ export function formatPnl(value: number): string {
   return `${sign}${formatUSDT(value)}`
 }
 
+// Ensure UTC parsing: append 'Z' if no timezone indicator present
+function parseUTC(iso: string): Date {
+  const utc = /[Zz+\-]\d{0,4}$/.test(iso) ? iso : iso + 'Z'
+  return new Date(utc)
+}
+
 export function formatDate(iso: string): string {
-  try { return format(new Date(iso), 'dd MMM, HH:mm') } catch { return iso }
+  try { return format(parseUTC(iso), 'dd MMM, HH:mm') } catch { return iso }
 }
 
 export function formatRelative(iso: string): string {
-  try { return formatDistanceToNow(new Date(iso), { addSuffix: true }) } catch { return iso }
+  try { return formatDistanceToNow(parseUTC(iso), { addSuffix: true }) } catch { return iso }
 }
 
 export function formatQty(value: number): string {

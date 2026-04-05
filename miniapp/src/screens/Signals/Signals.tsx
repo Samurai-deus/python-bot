@@ -110,7 +110,7 @@ export function Signals() {
           const accentColor = isBuy ? 'rgba(0,255,157,0.12)' : isSell ? 'rgba(255,68,102,0.12)' : 'var(--border)'
           return (
             <div
-              key={signal.id ?? `${signal.symbol}-${signal.timestamp}`}
+              key={signal.id ?? `${signal.symbol}-${signal.timestamp}-${i}`}
               className="fade-up"
               style={{
                 borderRadius: 16,

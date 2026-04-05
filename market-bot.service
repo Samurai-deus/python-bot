@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-# Security: run as dedicated non-root user (create with: useradd -r -s /sbin/nologin botuser)
-User=root
+# Security: run as dedicated non-root user (create with: useradd -r -s /sbin/nologin -d /root/market_bot botuser)
+User=botuser
 WorkingDirectory=/root/market_bot
 Environment="PATH=/root/market_bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/root/market_bot/venv/bin/python /root/market_bot/runner.py

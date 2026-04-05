@@ -23,7 +23,7 @@ if [[ "${1:-}" == "--first-run" ]]; then
 fi
 
 echo "[$(date)] Building Docker image..."
-$COMPOSE build --no-cache
+$COMPOSE build
 
 echo "[$(date)] Starting services..."
 $COMPOSE up -d

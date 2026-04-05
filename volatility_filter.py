@@ -34,7 +34,7 @@ def calculate_volatility_metrics(candles: List, period: int = 20) -> Dict:
     # Уровень волатильности
     if atr_pct < 0.5:
         volatility_level = "LOW"
-        is_tradeable = True  # Низкая волатильность - можно торговать
+        is_tradeable = True  # Низкая волатильность - меньше возможностей, но торгуемая
     elif atr_pct < 1.5:
         volatility_level = "NORMAL"
         is_tradeable = True
@@ -43,10 +43,10 @@ def calculate_volatility_metrics(candles: List, period: int = 20) -> Dict:
         is_tradeable = True  # Высокая, но торгуемая
     elif atr_pct < 5.0:
         volatility_level = "HIGH"
-        is_tradeable = False  # Слишком высокая - рискованно
+        is_tradeable = True  # Повышенная — торгуемая с осторожностью (reduced score)
     else:
         volatility_level = "EXTREME"
-        is_tradeable = False  # Экстремальная - не торгуем
+        is_tradeable = False  # Экстремальная (>5%) — не торгуем
     
     # Тренд волатильности (сравниваем текущий ATR с предыдущим)
     if len(candles) >= period * 2:
@@ -160,12 +160,15 @@ def get_volatility_score(volatility_metrics: Dict) -> Tuple[int, List[str]]:
     elif volatility_level == "LOW":
         score += 5
         reasons.append(f"Низкая волатильность ({atr_pct:.2f}%) - меньше возможностей")
-    elif volatility_level == "HIGH" and volatility_metrics.get("is_tradeable", False):
+    elif volatility_level == "HIGH" and atr_pct < 3.0:
         score += 7
         reasons.append(f"Высокая волатильность ({atr_pct:.2f}%) - больше возможностей, но выше риск")
-    elif volatility_level in ["HIGH", "EXTREME"]:
+    elif volatility_level == "HIGH" and atr_pct < 5.0:
+        score += 3
+        reasons.append(f"Повышенная волатильность ({atr_pct:.2f}%) - осторожная торговля")
+    elif volatility_level == "EXTREME":
         score += 0
-        reasons.append(f"⚠️ Слишком высокая волатильность ({atr_pct:.2f}%)")
+        reasons.append(f"⚠️ Экстремальная волатильность ({atr_pct:.2f}%)")
     
     # Тренд волатильности
     if volatility_trend == "DECREASING":

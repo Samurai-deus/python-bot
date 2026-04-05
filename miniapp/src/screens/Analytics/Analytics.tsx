@@ -233,10 +233,15 @@ function EquityCurveChart({ data }: { data: { points: number[]; timestamps: stri
       })
 
       // Deduplicate and sort by time (lightweight-charts requires strictly ascending times)
-      const rawData = data.points.map((value, i) => ({
-        time: Math.floor(new Date(data.timestamps[i]).getTime() / 1000) as Time,
-        value,
-      }))
+      // Ensure UTC parsing: append 'Z' if no timezone indicator present
+      const rawData = data.points.map((value, i) => {
+        const ts = data.timestamps[i]
+        const utcTs = /[Zz+\-]\d{0,4}$/.test(ts) ? ts : ts + 'Z'
+        return {
+          time: Math.floor(new Date(utcTs).getTime() / 1000) as Time,
+          value,
+        }
+      })
       rawData.sort((a, b) => (a.time as number) - (b.time as number))
       // Remove duplicates (keep last value for same timestamp)
       const seen = new Map<number, number>()
