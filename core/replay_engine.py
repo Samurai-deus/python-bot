@@ -17,8 +17,11 @@ ReplayEngine повторно прогоняет сохранённые SignalSn
 - Replay выявляет расхождения в решениях (drift detection)
 - Replay не торгует, только анализирует решения
 """
+import logging
 from dataclasses import dataclass, field
 from typing import List, Iterator, Optional, TYPE_CHECKING, Dict
+
+logger = logging.getLogger(__name__)
 from core.signal_snapshot import SignalSnapshot
 from core.portfolio_brain import (
     PortfolioBrain, PortfolioAnalysis, PortfolioDecision,
@@ -263,7 +266,7 @@ class ReplayEngine:
             
             return meta_result
         except Exception:
-            # В случае ошибки не блокируем - просто пропускаем
+            logger.error("Replay meta_decision failed for %s", snapshot.symbol, exc_info=True)
             return None
     
     def _replay_decision_core(
@@ -315,7 +318,7 @@ class ReplayEngine:
             
             return decision
         except Exception:
-            # В случае ошибки не блокируем - просто пропускаем
+            logger.error("Replay decision_core failed for %s", snapshot.symbol, exc_info=True)
             return None
     
     def _replay_portfolio(
@@ -337,9 +340,9 @@ class ReplayEngine:
             # we skip portfolio analysis (assume no open positions).
             return None
         except Exception:
-            # В случае ошибки не блокируем - просто пропускаем
+            logger.error("Replay portfolio failed for %s", snapshot.symbol, exc_info=True)
             return None
-    
+
     def _replay_position_sizer(
         self,
         snapshot: SignalSnapshot,
@@ -380,5 +383,5 @@ class ReplayEngine:
             
             return sizing_result
         except Exception:
-            # В случае ошибки не блокируем - просто пропускаем
+            logger.error("Replay position_sizer failed for %s", snapshot.symbol, exc_info=True)
             return None

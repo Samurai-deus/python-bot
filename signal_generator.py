@@ -227,7 +227,7 @@ def generate_signals_for_symbols(
                 import price_cache as _pc
                 _pc.update(symbol, float(last_5m[4]))
             except Exception:
-                pass
+                logger.error("Failed to update price_cache for %s", symbol, exc_info=True)
 
             # ATR нужен и стратегиям, и fallback-логике
             atr_15m = atr(candles_map["15m"])

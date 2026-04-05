@@ -53,7 +53,7 @@ class OpportunityAwareness:
             key_str = json.dumps(key_data, sort_keys=True)
             return hashlib.md5(key_str.encode()).hexdigest()
         except Exception:
-            # Если ошибка - используем только символ
+            logger.error("_get_cache_key error for %s, using fallback key", symbol, exc_info=True)
             return f"{symbol}_{datetime.now(UTC).timestamp()}"
     
     def _is_cache_valid(self, cache_entry: tuple) -> bool:
@@ -208,8 +208,8 @@ class OpportunityAwareness:
                 if volume_trend == "INCREASING":
                     return True
             except Exception:
-                pass
-        
+                logger.error("volume_analysis error in _check_accumulation for accumulation check", exc_info=True)
+
         return False
     
     def _check_divergence(self, candles: List) -> bool:
@@ -290,8 +290,7 @@ class OpportunityAwareness:
                         return True
         
         except Exception:
-            # Если ошибка при расчете - возвращаем False
-            pass
+            logger.error("_check_divergence error for RSI divergence calculation", exc_info=True)
         
         return False
     

@@ -6,10 +6,13 @@ Cognitive Filter Bot - фильтр человеческих ошибок
 - эмоциональные входы
 - FOMO-паттерны
 """
+import logging
 from typing import Dict, List, Optional
 from datetime import datetime, UTC, timedelta
 from core.decision_core import CognitiveState
 from trade_manager import get_open_trades
+
+logger = logging.getLogger(__name__)
 
 
 class CognitiveFilter:
@@ -109,6 +112,7 @@ class CognitiveFilter:
             finally:
                 conn.close()
         except Exception:
+            logger.debug("Failed to count trades per hour from DB", exc_info=True)
             new_trades_hour = 0
 
         if new_trades_hour > self.max_trades_per_hour:
@@ -133,6 +137,7 @@ class CognitiveFilter:
             finally:
                 conn.close()
         except Exception:
+            logger.debug("Failed to get recent trades from DB", exc_info=True)
             return []
 
     def _count_emotional_entries(self) -> int:

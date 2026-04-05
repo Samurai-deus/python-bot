@@ -194,6 +194,7 @@ class _PGConnection:
             try:
                 _pg_pool.putconn(self._conn, close=True)
             except Exception:
+                logger.debug("_PGConnection.close: putconn(close=True) also failed", exc_info=True)
                 pass
 
 
@@ -1064,12 +1065,14 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
                         try:
                             position_size = float(row[7])
                         except (ValueError, IndexError):
+                            logger.debug("CSV migrate: failed to parse position_size from row[7]=%r", row[7], exc_info=True)
                             pass
                     leverage = None
                     if len(row) > 8 and row[8]:
                         try:
                             leverage = float(row[8])
                         except (ValueError, IndexError):
+                            logger.debug("CSV migrate: failed to parse leverage from row[8]=%r", row[8], exc_info=True)
                             pass
                     close_price = close_reason = pnl = None
                     if status == "CLOSED" and len(row) >= 11:
@@ -1078,6 +1081,7 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
                             close_reason = row[10] if len(row) > 10 else None
                             pnl = float(row[11]) if len(row) > 11 and row[11] else None
                         except (ValueError, IndexError):
+                            logger.debug("CSV migrate: failed to parse close fields for row symbol=%s", symbol, exc_info=True)
                             pass
 
                     cursor.execute(

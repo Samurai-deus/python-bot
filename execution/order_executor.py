@@ -171,6 +171,7 @@ class OrderExecutor:
         try:
             mark_price = self._client.get_mark_price(request.symbol)
         except Exception:
+            logger.error("Could not fetch mark_price for SL validation on %s", request.symbol, exc_info=True)
             return request  # не можем получить цену — пропускаем валидацию
 
         if mark_price <= 0:

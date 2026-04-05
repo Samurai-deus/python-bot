@@ -595,6 +595,7 @@ class Gatekeeper:
         try:
             qty_step = client.get_qty_step(symbol)
         except Exception:
+            logger.error("Could not fetch qty_step for %s, using fallback 0.001", symbol, exc_info=True)
             qty_step = 0.001  # conservative fallback
         qty_step_d = Decimal(str(qty_step))
         raw_qty = position_size_usd / actual_entry  # use mark_price, not signal entry
@@ -849,6 +850,7 @@ class Gatekeeper:
                         total_exposure = sum(trade.get("position_size", 0) for trade in open_trades)
                         portfolio_exposure = min(1.0, total_exposure / current_balance)
             except Exception:
+                logger.error("Failed to calculate portfolio_exposure, defaulting to 0.0", exc_info=True)
                 portfolio_exposure = 0.0
 
             # Получаем signals_count_recent из system_state
@@ -875,6 +877,7 @@ class Gatekeeper:
                         except (TypeError, ValueError):
                             recent_outcomes.append(0.0)
             except Exception:
+                logger.error("Failed to fetch recent_outcomes for MetaDecisionBrain", exc_info=True)
                 recent_outcomes = None
 
             # H-20: Compute time_context based on UTC hour

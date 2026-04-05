@@ -8,6 +8,7 @@
     - Recovery Factor
     - Expectancy
 """
+import logging
 import math
 from typing import List, Optional, Tuple
 from datetime import datetime, UTC, timedelta
@@ -15,6 +16,8 @@ from capital import get_current_balance
 from config import INITIAL_BALANCE
 from database import get_trades_statistics
 from core.market_state import MarketState, normalize_state
+
+logger = logging.getLogger(__name__)
 
 
 def get_trade_statistics(days=1):
@@ -414,12 +417,14 @@ def get_full_statistics(days: int = 30) -> dict:
     try:
         closed_trades = get_closed_trades(days) or []
     except Exception:
+        logger.error("Failed to fetch closed_trades for extended stats (days=%d)", days, exc_info=True)
         closed_trades = []
 
     try:
         equity_points = get_equity_curve_points(days) or []
         equity_curve = [p['balance'] for p in equity_points]
     except Exception:
+        logger.error("Failed to fetch equity_curve for extended stats (days=%d)", days, exc_info=True)
         equity_curve = []
 
     # Вычисляем метрики

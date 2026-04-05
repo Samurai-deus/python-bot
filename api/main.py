@@ -36,6 +36,9 @@ async def lifespan(app: FastAPI):
     # Graceful shutdown: close PostgreSQL connection pool if open
     from database import close_pg_pool
     close_pg_pool()
+    # Shutdown the bounded WS thread pool so threads don't leak on restart
+    from api.routers.ws import _ws_executor
+    _ws_executor.shutdown(wait=False)
 
 
 app = FastAPI(

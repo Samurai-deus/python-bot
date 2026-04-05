@@ -223,6 +223,7 @@ class PerformanceTracker:
                 closed_at = t.get('closed_at', '')
                 hour = datetime.fromisoformat(closed_at).hour
             except Exception:
+                logger.debug("Could not parse closed_at '%s', defaulting hour=0", closed_at, exc_info=True)
                 hour = 0
 
             if 6 <= hour < 12:
