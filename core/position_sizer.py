@@ -168,18 +168,19 @@ class PositionSizer:
             perf = get_rolling_performance()
             kelly = kelly_fraction(perf["win_rate"], perf["avg_win"], perf["avg_loss"])
             if kelly <= 0:
-                # Negative expectancy — block the trade
-                return PositionSizingResult(
-                    position_allowed=False,
-                    final_risk=0.0,
-                    base_risk=0.0,
-                    confidence_factor=0.0,
-                    entropy_factor=0.0,
-                    portfolio_factor=0.0,
-                    reason="Kelly fraction <= 0: negative expectancy, trade blocked",
-                    position_size_usd=None
+                # Negative expectancy — use minimum conservative allocation.
+                # PositionSizer must NOT block trading entirely: that's DecisionCore's job.
+                # The bot needs to keep trading (at minimum size) so the rolling window
+                # can incorporate new wins and recover from a losing streak.
+                import logging as _log
+                _log.getLogger(__name__).info(
+                    "Kelly <= 0 (wr=%.2f, avgW=%.1f, avgL=%.1f) — using min allocation %.1f%%",
+                    perf["win_rate"], perf["avg_win"], perf["avg_loss"],
+                    self.config.min_risk_threshold,
                 )
-            base_risk = kelly * 100  # fraction → %
+                base_risk = self.config.min_risk_threshold  # 0.1% — minimum safe size
+            else:
+                base_risk = kelly * 100  # fraction → %
             # Clamp между min_risk и config max (quarter-Kelly floor)
             base_risk = max(self.config.min_risk_threshold, min(base_risk, self.config.max_risk_per_trade))
         except Exception as e:

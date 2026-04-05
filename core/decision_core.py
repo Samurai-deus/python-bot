@@ -69,7 +69,8 @@ class TradingDecision:
     max_position_size: Optional[float] = None  # Максимальный размер позиции
     max_leverage: Optional[float] = None  # Максимальное плечо
     recommendations: List[str] = None  # Рекомендации
-    
+    drawdown_size_multiplier: float = 1.0  # Множитель размера из-за drawdown (0.0-1.0)
+
     def __post_init__(self):
         if self.recommendations is None:
             self.recommendations = []
@@ -88,26 +89,33 @@ class DecisionCore:
         Состояние хранится в SystemState.
         Decision Core только читает из SystemState и принимает решения.
         """
-        self._drawdown_size_multiplier = 1.0
+        pass
 
     @property
     def drawdown_size_multiplier(self) -> float:
         """Returns position size multiplier based on current drawdown level.
 
-        1.0 = no drawdown reduction
-        0.5 = 10%+ drawdown, reduce size by 50%
-        0.25 = 15%+ drawdown, reduce size by 75%
-        0.0 = 20%+ drawdown, trading halted (24h pause)
-        25%+ drawdown = trading halted, requires manual reset
+        Thread-safe: computes from DB on every call, no mutable instance state.
         """
-        return self._drawdown_size_multiplier
-    
+        try:
+            from capital import current_drawdown_pct
+            dd = current_drawdown_pct()
+            if dd >= 20.0:
+                return 0.0
+            elif dd >= 15.0:
+                return 0.25
+            elif dd >= 10.0:
+                return 0.5
+            return 1.0
+        except Exception:
+            return 1.0
+
     def reset(self):
         """
         Сбрасывает состояние Decision Core (теперь не нужно - состояние в SystemState).
         Оставлено для обратной совместимости.
         """
-        self._drawdown_size_multiplier = 1.0
+        pass
     
     def should_i_trade(self, symbol: Optional[str] = None, system_state=None) -> TradingDecision:
         """
@@ -128,7 +136,8 @@ class DecisionCore:
             _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
             recommendations = []
             
-            # Graduated drawdown response
+            # Graduated drawdown response (thread-safe: local variable, no self mutation)
+            dd_multiplier = 1.0
             try:
                 from capital import current_drawdown_pct
                 dd = current_drawdown_pct()
@@ -137,12 +146,10 @@ class DecisionCore:
                         can_trade=False,
                         reason=f"DRAWDOWN BREAKER: просадка {dd:.1f}% >= 25% — требуется ручной сброс",
                         risk_level="HIGH",
-                        recommendations=["Торговля остановлена до ручного сброса"]
+                        recommendations=["Торговля остановлена до ручного сброса"],
+                        drawdown_size_multiplier=0.0,
                     )
                 elif dd >= 20.0:
-                    # 20%+ drawdown: halt for 24h then auto-resume at 50% size
-                    # Store multiplier for consumers; trading halted
-                    self._drawdown_size_multiplier = 0.0
                     return TradingDecision(
                         can_trade=False,
                         reason=f"DRAWDOWN BREAKER: просадка {dd:.1f}% >= 20% — торговля приостановлена на 24ч",
@@ -150,19 +157,18 @@ class DecisionCore:
                         recommendations=[
                             "Торговля приостановлена на 24 часа",
                             "После возобновления размер позиций = 50%"
-                        ]
+                        ],
+                        drawdown_size_multiplier=0.0,
                     )
                 elif dd >= 15.0:
-                    self._drawdown_size_multiplier = 0.25
+                    dd_multiplier = 0.25
                     recommendations.append(f"Просадка {dd:.1f}%: размер позиций снижен на 75%")
                     risk_level = "HIGH"
                 elif dd >= 10.0:
-                    self._drawdown_size_multiplier = 0.5
+                    dd_multiplier = 0.5
                     recommendations.append(f"Просадка {dd:.1f}%: размер позиций снижен на 50%")
                     if _RISK_ORDER.get("MEDIUM", 1) > _RISK_ORDER.get(risk_level, 0):
                         risk_level = "MEDIUM"
-                else:
-                    self._drawdown_size_multiplier = 1.0
             except Exception as e:
                 logger.error("Drawdown check failed: %s — blocking trade (fail-closed)", e)
                 return TradingDecision(
@@ -295,7 +301,8 @@ class DecisionCore:
                 risk_level=risk_level,
                 max_position_size=max_position_size,
                 max_leverage=max_leverage,
-                recommendations=recommendations
+                recommendations=recommendations,
+                drawdown_size_multiplier=dd_multiplier,
             )
             
             # ========== FAULT INJECTION (контролируемая) ==========
