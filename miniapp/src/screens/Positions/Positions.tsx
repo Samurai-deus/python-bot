@@ -188,7 +188,7 @@ function HistoryList({ items }: { items: TradeHistory[] }) {
 
       {filtered.map((t, i) => (
         <div
-          key={t.id ?? `${t.symbol}-${t.closed_at}`}
+          key={t.id ?? `${t.symbol}-${t.closed_at}-${i}`}
           className="fade-up"
           style={{
             borderRadius: 16,

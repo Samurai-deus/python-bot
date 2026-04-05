@@ -3,17 +3,17 @@ Description=Market Trading Bot (Controlled Architecture)
 After=network.target
 
 [Service]
-Type=notify
-User=root
+Type=simple
+User=botuser
 WorkingDirectory=/root/market_bot
 Environment="PATH=/root/market_bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/root/market_bot/venv/bin/python /root/market_bot/runner.py
 Restart=on-failure
 RestartSec=10
 
-# Watchdog configuration
-WatchdogSec=60
-NotifyAccess=all
+# Watchdog disabled (Type=simple, no systemd-python)
+# WatchdogSec=60
+# NotifyAccess=all
 
 # Exit code policy
 # 0 = SUCCESS (graceful shutdown) - не рестартовать
@@ -34,6 +34,10 @@ LimitNPROC=4096
 
 StandardOutput=journal
 StandardError=journal
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/root/market_bot /data
 
 [Install]
 WantedBy=multi-user.target
