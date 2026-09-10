@@ -9,6 +9,7 @@
 чтобы клиент, исполнитель и трекер смотрели в одну подменную биржу.
 """
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -128,3 +129,25 @@ def test_stale_signal_never_reaches_the_exchange(exchange, db):
     execute(signal())
     assert creates(exchange.fake) == []
     assert db.get_open_trades() == []
+
+
+@pytest.mark.parametrize("mark, atr, sent", [
+    (101.5, 2.0, True),    # 1,5 от входа при ATR 2 — исполняется
+    (102.5, 2.0, False),   # ушла вверх на 2,5 — вход уже другой
+    (97.5, 2.0, False),    # стоп (97) не пройден, но до него ушла больше чем на ATR
+    (102.5, None, True),   # ATR в сигнале нет — правило не применяется
+])
+def test_signal_further_than_one_atr_from_entry(exchange, db, mark, atr, sent):
+    """3.15: цена ушла от входа больше чем на 1 ATR в любую сторону — отказ до биржи."""
+    exchange.fake.marks["SOLUSDT"] = mark
+    execute(signal(atr=atr))
+    assert bool(creates(exchange.fake)) is sent
+    if not sent:
+        assert db.get_open_trades() == []
+        assert any("1 ATR" in m for m in exchange.messages)
+
+
+def test_generator_puts_atr_into_the_signal():
+    """Без ATR в сигнале правило молча не работает — поле кладёт signal_generator."""
+    text = (Path(__file__).resolve().parent.parent / "signal_generator.py").read_text(encoding="utf-8")
+    assert '"atr": atr_15m' in text
