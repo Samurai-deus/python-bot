@@ -21,7 +21,7 @@ import threading
 import time
 
 from config import INITIAL_BALANCE, MAX_POSITION_SIZE, MIN_POSITION_SIZE, RISK_PERCENT  # noqa: F401  (реэкспорт)
-from database import get_current_balance_from_db, get_total_open_positions_size
+from database import get_current_balance_from_db, get_open_margin, get_total_open_positions_size
 
 logger = logging.getLogger(__name__)
 
@@ -125,15 +125,17 @@ def get_available_capital() -> float:
     """
     Капитал, свободный для новой позиции (>= 0).
 
-    Бумажный режим: полный капитал минус номинал открытых позиций. Позиции
-    считаются без плеча — номинал целиком занимает капитал. Это консервативно:
-    на реальном счёте с плечом свободной маржи было бы больше.
+    Бумажный режим: полный капитал минус маржа открытых позиций (номинал /
+    плечо) — так же, как биржа считает свободный остаток счёта. До 10.09.2026
+    вычитался весь номинал, будто позиции без плеча. Пределы экспозиции (запас
+    до max_aggregate_exposure_pct в position_size, инварианты Risk Core)
+    по-прежнему считаются по номиналу от полного капитала.
     """
     if _real_orders_mode():
         snap = _wallet_snapshot()
         return max(snap[1], 0.0) if snap else 0.0
     equity = get_current_balance_from_db(INITIAL_BALANCE)
-    locked = get_total_open_positions_size()
+    locked = get_open_margin()
     return max(equity - locked, 0.0)
 
 

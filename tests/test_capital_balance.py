@@ -99,6 +99,7 @@ def test_capital_constants_have_a_single_source():
 def paper_100(paper, monkeypatch):
     monkeypatch.setattr(capital, "get_current_balance_from_db", lambda initial: 100.0)
     monkeypatch.setattr(capital, "get_total_open_positions_size", lambda: 0.0)
+    monkeypatch.setattr(capital, "get_open_margin", lambda: 0.0)
     monkeypatch.setattr(capital, "RISK_PERCENT", 2.0)
     monkeypatch.setattr(capital, "MIN_POSITION_SIZE", 5.0)
     monkeypatch.setattr(capital, "MAX_POSITION_SIZE", 1000.0)
