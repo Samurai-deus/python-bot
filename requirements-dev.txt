@@ -1,7 +1,7 @@
 # Development dependencies
 # Install: pip install -r requirements-dev.txt
 
-black>=24.3.0
+black>=26.5.1
 isort>=5.13.2
 flake8>=7.0.0
 pre-commit>=4.6.2
