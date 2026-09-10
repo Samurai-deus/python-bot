@@ -1194,6 +1194,30 @@ def get_total_open_positions_size() -> float:
         conn.close()
 
 
+
+def get_open_margin() -> float:
+    """
+    Маржа открытых сделок: номинал (после частичного закрытия — остаток),
+    делённый на плечо сделки. Столько капитала сделки занимают на счёте с
+    плечом — бумажный свободный капитал вычитает её так же, как биржа вычитает
+    маржу из totalAvailableBalance. Плечо не записано или меньше 1 — считается 1.
+    Экспозиция и пределы Risk Core — по номиналу: get_total_open_positions_size().
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q("SELECT COALESCE(SUM("
+               "(CASE WHEN partial_closed = 1 THEN position_size * ? ELSE position_size END) / "
+               "(CASE WHEN leverage IS NULL OR leverage < 1 THEN 1 ELSE leverage END)"
+               "), 0) AS total FROM trades WHERE status = 'OPEN' AND position_size IS NOT NULL"),
+            (1 - PARTIAL_CLOSE_FRACTION,),
+        )
+        return float(cursor.fetchone()["total"] or 0.0)
+    finally:
+        conn.close()
+
+
 def migrate_from_csv(csv_file: str = "demo_trades.csv"):
     """Мигрирует данные из CSV в базу данных."""
     if not os.path.exists(csv_file):
