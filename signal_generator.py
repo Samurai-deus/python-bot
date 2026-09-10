@@ -512,7 +512,9 @@ def generate_signals_for_symbols(
                     "score": score,
                     "mode": mode,
                     "rr_ratio": abs(target - entry) / abs(stop - entry) if abs(stop - entry) > 0 else 0,
-                    "volatility_pct": volatility_pct
+                    "volatility_pct": volatility_pct,
+                    # ATR 15m — для отказа по устаревшему сигналу в гейткипере (3.15)
+                    "atr": atr_15m,
                 }
                 
                 logger.info("%s: sending signal via Gatekeeper", symbol)

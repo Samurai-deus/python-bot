@@ -686,6 +686,19 @@ class Gatekeeper:
             )
             return
 
+        # Сигнал устарел и тогда, когда цена ушла от входа больше чем на 1 ATR (3.15):
+        # вход по такой цене — уже другая сделка, с другим соотношением риска и цели.
+        # ATR кладёт в сигнал signal_generator; без него правило не применяется.
+        signal_atr = float(signal_data.get("atr") or 0)
+        if mark_price > 0 and signal_atr > 0 and abs(mark_price - entry_price) > signal_atr:
+            logger.warning("[EXECUTOR] %s %s: сигнал устарел — mark %.6f дальше 1 ATR (%.6f) от входа %.6f",
+                           symbol, side, mark_price, signal_atr, entry_price)
+            AsyncToSyncAdapter.call_async(
+                send_message_async(f"⏭ Сигнал {symbol} {side} не исполнен: цена ушла от входа больше чем на 1 ATR."),
+                timeout=15.0,
+            )
+            return
+
         # Use mark_price as better approximation of actual fill
         actual_entry = mark_price if mark_price > 0 else entry_price
 
