@@ -20,7 +20,7 @@ uvicorn[standard]==0.34.3
 # Monitoring (Phase 6)
 prometheus-fastapi-instrumentator==7.0.2
 sentry-sdk[fastapi]==2.29.1
-redis==5.3.0
+redis==8.1.0
 
 # PostgreSQL (Phase 6)
 psycopg2-binary==2.9.11
