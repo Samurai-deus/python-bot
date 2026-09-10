@@ -33,7 +33,7 @@ const WS_LABELS: Record<string, string> = {
 }
 
 export function Dashboard() {
-  const { snapshot, wsStatus, lastSnapshotAt } = useSystemStore()
+  const { snapshot, wsStatus, lastSnapshotAt, authExpired } = useSystemStore()
   const [summaryDays, setSummaryDays] = useState<number>(1)
   // When MTD (0) is selected, we still fetch 30D summary for win_rate etc.
   const { data: summary, isLoading } = useAnalyticsSummary(summaryDays === 0 ? 30 : summaryDays)
@@ -42,8 +42,10 @@ export function Dashboard() {
   const { data: healthFallback } = useQuery({
     queryKey: ['health-fallback'],
     queryFn: fetchHealth,
-    enabled: wsStatus === 'disconnected',
-    refetchInterval: wsStatus === 'disconnected' ? 30_000 : false,
+    // Сессия истекла — не опрашиваем: сокет отключён именно поэтому, и
+    // запасной опрос раз в 30 с только копил бы ответы 401.
+    enabled: !authExpired && wsStatus === 'disconnected',
+    refetchInterval: !authExpired && wsStatus === 'disconnected' ? 30_000 : false,
   })
 
   const balance = snapshot?.balance_usdt ?? healthFallback?.balance_usdt
@@ -203,7 +205,8 @@ export function Dashboard() {
             color="var(--cyan)"
           />
           <StatTile
-            label="Win Rate"
+            // При MTD win rate всё равно за 30 дней — отдельного запроса за месяц нет.
+            label={summaryDays === 0 ? 'Win Rate 30D' : 'Win Rate'}
             value={formatPct(summary.win_rate)}
             color={summary.win_rate >= 50 ? 'var(--green)' : 'var(--red)'}
           />

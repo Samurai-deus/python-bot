@@ -10,30 +10,55 @@ from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+from telegram.ext import (
+    ApplicationHandlerStop, CallbackQueryHandler, CommandHandler, ContextTypes,
+    MessageHandler, TypeHandler, filters,
+)
 from telegram_bot import send_message
 from bot_statistics import get_trade_statistics, format_statistics_report, get_signals_statistics, get_full_statistics
 from trade_manager import get_open_trades
 from capital import get_current_balance
 from database import get_open_positions, get_closed_trades
-from config import INITIAL_BALANCE
+from capital import get_initial_balance
 from core.decision_core import get_decision_core
 from execution.gatekeeper import get_gatekeeper
 from brains.market_regime_brain import get_market_regime_brain
 from brains.risk_exposure_brain import get_risk_exposure_brain
 from brains.cognitive_filter import get_cognitive_filter
 
-# Admin guard — set ADMIN_CHAT_ID in .env to restrict critical commands to one user.
-# If unset (0), any user can issue commands but OTP is still required.
-_ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0"))
+# Кто владелец и кто допущен — решает utils.principals, единый источник для бота,
+# API и ассистента. Раньше здесь стоял int(os.environ.get("ADMIN_CHAT_ID", "0")):
+# при `ADMIN_CHAT_ID=` из шаблона это int("") → ValueError при импорте, и команды
+# молча не стартовали; а если строку удаляли, _is_admin() возвращал True всем.
+# Прежний комментарий «OTP is still required» вводил в заблуждение: код уходил
+# тому же, кто его запросил, — это защита от опечатки, а не от чужого человека.
 _OTP_TTL = 60  # seconds
 
 
 def _is_admin(update: Update) -> bool:
-    if _ADMIN_CHAT_ID == 0:
-        return True
+    from utils import principals
     user = update.effective_user
-    return user is not None and user.id == _ADMIN_CHAT_ID
+    return user is not None and principals.is_admin(user.id)
+
+
+async def _reject_unknown_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Фильтр допуска для ВСЕХ обновлений. Регистрируется в группе -1, то есть
+    срабатывает раньше любого хендлера — команд, текста и кнопок.
+
+    Раньше /balance, /positions, /history, /trades, /status и кнопки отвечали
+    любому, кто нашёл бота по имени, а /market_regime ещё и запускал синхронную
+    загрузку свечей в общем event loop с торговым циклом.
+
+    Посторонним не отвечаем вовсе: ответ на каждое сообщение позволил бы залпом
+    выжечь лимит исходящих бота, и уведомления владельцу начали бы задерживаться.
+    """
+    from utils import principals
+    user = update.effective_user
+    if user is not None and principals.is_allowed(user.id):
+        return
+    logger.warning("Telegram: обновление от user_id=%s отклонено", getattr(user, "id", None))
+    raise ApplicationHandlerStop
 
 
 def _generate_otp() -> str:
@@ -48,7 +73,12 @@ async def _request_confirmation(update: Update, context: ContextTypes.DEFAULT_TY
         "code": otp,
         "expires": time.time() + _OTP_TTL,
     }
-    label = "PAUSE trading" if action == "pause" else "RESUME trading"
+    label = {
+        "pause": "PAUSE trading",
+        "resume": "RESUME trading",
+        "reset_trades": "RESET all open trades",
+        "risk_reset": "RELEASE Risk Core HALT",
+    }.get(action, action)
     text = (
         f"⚠️ *Confirm {label}*\n\n"
         f"Reply with this code within {_OTP_TTL} seconds:\n"
@@ -97,6 +127,28 @@ async def cmd_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await update.message.reply_text("✅ *Trading resumed.*", parse_mode="Markdown")
             else:
                 await update.message.reply_text(f"❌ Cannot resume: {message}", parse_mode="Markdown")
+        elif action == "reset_trades":
+            import database
+            count = database.force_cancel_open_trades()
+            logger.warning(
+                "reset_trades: владелец %s подтвердил OTP, отменено позиций: %d",
+                update.effective_user.id, count,
+            )
+            await update.message.reply_text(
+                f"✅ Принудительно закрыто позиций: *{count}*\n"
+                "Risk Core разблокирован. Торговля возобновится на следующем цикле.",
+                parse_mode="Markdown",
+            )
+        elif action == "risk_reset":
+            from core.risk_core import get_risk_core
+            released = get_risk_core().reset_halt(by=f"telegram user {update.effective_user.id}")
+            if released:
+                await update.message.reply_text(
+                    "✅ *Risk Core: защёлка HALTED снята.* Торговля возобновится на следующем цикле.",
+                    parse_mode="Markdown",
+                )
+            else:
+                await update.message.reply_text("ℹ️ Risk Core не был в HALTED — снимать нечего.")
     except Exception as e:
         logger.error("Ошибка выполнения подтверждённого действия '%s': %s", action, e, exc_info=True)
         await update.message.reply_text("❌ Internal error executing the action.")
@@ -271,14 +323,14 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_func = update.callback_query.message.reply_text
 
     balance = get_current_balance()
-    pnl = balance - INITIAL_BALANCE
-    pnl_pct = (pnl / INITIAL_BALANCE * 100) if INITIAL_BALANCE else 0.0
+    pnl = balance - get_initial_balance()
+    pnl_pct = (pnl / get_initial_balance() * 100) if get_initial_balance() else 0.0
     pnl_sign = "+" if pnl >= 0 else ""
     pnl_emoji = "🟢" if pnl >= 0 else "🔴"
 
     msg = "💰 **БАЛАНС**\n\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    msg += f"• Начальный: `{INITIAL_BALANCE:.2f}` USDT\n"
+    msg += f"• Начальный: `{get_initial_balance():.2f}` USDT\n"
     msg += f"• Текущий:   `{balance:.2f}` USDT\n"
     msg += f"• {pnl_emoji} P&L: `{pnl_sign}{pnl:.2f}` USDT (`{pnl_sign}{pnl_pct:.2f}%`)\n"
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -378,8 +430,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Текущий баланс
         balance = get_current_balance()
-        pnl = balance - INITIAL_BALANCE
-        pnl_pct = (pnl / INITIAL_BALANCE) * 100
+        pnl = balance - get_initial_balance()
+        pnl_pct = (pnl / get_initial_balance() * 100) if get_initial_balance() else 0.0
         
         # Определяем статус
         status_emoji = "🟢" if pnl >= 0 else "🔴"
@@ -467,7 +519,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         heartbeat_status = f"💓 Активен ({time_since:.1f} ч назад)"
                     status_text += f"\n{heartbeat_status}"
             except Exception:
-                pass
+                logger.debug("status: строка heartbeat не собрана", exc_info=True)
         
         status_text += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         status_text += f"\n⏰ {datetime.now(UTC).strftime('%H:%M:%S UTC')}"
@@ -475,7 +527,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply_func(status_text, parse_mode="Markdown")
     except Exception as e:
         reply_func = update.message.reply_text if hasattr(update, 'message') else update.callback_query.message.reply_text
-        await reply_func(f"❌ Ошибка получения статуса: {e}")
+        logger.error("Ошибка получения статуса: %s: %s", type(e).__name__, e, exc_info=True)
+        await reply_func("❌ Ошибка получения статуса. Подробности — в логе бота.")
 
 
 async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -503,7 +556,7 @@ async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if candles:
                 prices[sym] = float(candles[-1][4])
         except Exception:
-            pass
+            logger.debug("positions: цена %s не получена", sym, exc_info=True)
 
     report = f"💼 **ОТКРЫТЫЕ СДЕЛКИ** (`{len(open_trades)}`)\n\n"
     report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -737,7 +790,10 @@ async def cmd_risk_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 risk_exposure_brain = get_risk_exposure_brain()
                 risk_exposure = risk_exposure_brain.analyze(SYMBOLS, all_candles, system_state)
             except Exception as e:
-                await reply_func(f"❌ **Ошибка при загрузке данных**\n\n{type(e).__name__}: {e}")
+                # Текст исключения — только в лог: исключения httpx несут URL запроса,
+                # а в URL к Telegram входит токен бота (2.10).
+                logger.error("Ошибка загрузки данных для команды: %s: %s", type(e).__name__, e, exc_info=True)
+                await reply_func("❌ **Ошибка при загрузке данных.** Подробности — в логе бота.")
                 return
         
         from system_state import get_system_state
@@ -892,7 +948,10 @@ async def cmd_market_regime(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 market_regime_brain = get_market_regime_brain()
                 regime = market_regime_brain.analyze(SYMBOLS, all_candles, system_state)
             except Exception as e:
-                await reply_func(f"❌ **Ошибка при загрузке данных**\n\n{type(e).__name__}: {e}")
+                # Текст исключения — только в лог: исключения httpx несут URL запроса,
+                # а в URL к Telegram входит токен бота (2.10).
+                logger.error("Ошибка загрузки данных для команды: %s: %s", type(e).__name__, e, exc_info=True)
+                await reply_func("❌ **Ошибка при загрузке данных.** Подробности — в логе бота.")
                 return
         
         if not regime:
@@ -960,7 +1019,10 @@ async def cmd_risk_exposure(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 risk_exposure_brain = get_risk_exposure_brain()
                 risk_exposure = risk_exposure_brain.analyze(SYMBOLS, all_candles, system_state)
             except Exception as e:
-                await reply_func(f"❌ **Ошибка при загрузке данных**\n\n{type(e).__name__}: {e}")
+                # Текст исключения — только в лог: исключения httpx несут URL запроса,
+                # а в URL к Telegram входит токен бота (2.10).
+                logger.error("Ошибка загрузки данных для команды: %s: %s", type(e).__name__, e, exc_info=True)
+                await reply_func("❌ **Ошибка при загрузке данных.** Подробности — в логе бота.")
                 return
         
         from system_state import get_system_state
@@ -1176,18 +1238,37 @@ async def cmd_reset_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update):
         await update.message.reply_text("❌ Unauthorized.")
         return
+    # Раньше выполнялось сразу, без OTP, в отличие от /pause и /resume. А последствия
+    # тяжелее: force_cancel_open_trades помечает сделки отменёнными ТОЛЬКО в базе —
+    # на бирже позиции остаются, Risk Core считает экспозицию нулевой и пропускает
+    # новые входы сверх лимитов.
     try:
-        import database
-        count = database.force_cancel_open_trades()
-        await update.message.reply_text(
-            f"✅ Принудительно закрыто позиций: *{count}*\n"
-            "Risk Core разблокирован. Торговля возобновится на следующем цикле.",
-            parse_mode="Markdown",
-        )
-        logger.warning("cmd_reset_trades: admin %s force-cancelled %d positions", update.effective_user.id, count)
+        await _request_confirmation(update, context, "reset_trades")
     except Exception as e:
         logger.error("Ошибка в команде /reset_trades: %s", e, exc_info=True)
-        await update.message.reply_text("❌ Ошибка при сбросе позиций.")
+        await update.message.reply_text("❌ Произошла внутренняя ошибка. Попробуйте позже.")
+
+
+async def cmd_risk_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Снять защёлку HALTED у Risk Core. Только владелец и только с кодом: снятие
+    возвращает боту право открывать позиции после того, как он сам решил, что
+    данным верить нельзя.
+    """
+    if not _is_admin(update):
+        await update.message.reply_text("❌ Unauthorized.")
+        return
+    try:
+        from core.risk_core import get_risk_core
+        risk_core = get_risk_core()
+        if not risk_core.halt_latched:
+            await update.message.reply_text("ℹ️ Risk Core не в HALTED — снимать нечего.")
+            return
+        await update.message.reply_text(f"⚠️ Risk Core остановлен. Причина: {risk_core.halt_reason}")
+        await _request_confirmation(update, context, "risk_reset")
+    except Exception as e:
+        logger.error("Ошибка в команде /risk_reset: %s", e, exc_info=True)
+        await update.message.reply_text("❌ Произошла внутренняя ошибка. Попробуйте позже.")
 
 
 def setup_commands(app):
@@ -1197,6 +1278,11 @@ def setup_commands(app):
     Args:
         app: Application instance от python-telegram-bot
     """
+    # Фильтр допуска — группа -1: раньше всех хендлеров и для всех типов
+    # обновлений (команды, текст, кнопки). Без него каждая команда ниже
+    # отвечала любому пользователю Telegram.
+    app.add_handler(TypeHandler(Update, _reject_unknown_users), group=-1)
+
     # Основные команды
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
@@ -1226,6 +1312,7 @@ def setup_commands(app):
     app.add_handler(CommandHandler("pause", cmd_pause))
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("reset_trades", cmd_reset_trades))
+    app.add_handler(CommandHandler("risk_reset", cmd_risk_reset))
 
     # OTP confirmation handler — must be after command handlers so commands take priority
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_confirm))

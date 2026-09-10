@@ -136,7 +136,8 @@ class PositionSizer:
         entropy: float,
         portfolio_state: PortfolioStateProtocol,
         symbol: str,
-        balance: Optional[float] = None
+        balance: Optional[float] = None,
+        stop_distance_pct: Optional[float] = None,
     ) -> PositionSizingResult:
         """
         Рассчитывает допустимый размер позиции.
@@ -225,8 +226,20 @@ class PositionSizer:
             )
         
         # ========== РАСЧЁТ РАЗМЕРА ПОЗИЦИИ ==========
-        # Размер позиции = (баланс * final_risk) / 100
-        position_size_usd = (balance * final_risk) / 100.0
+        # final_risk — это РИСК: доля баланса, которая теряется при срабатывании
+        # стопа (так он и описан в конфиге: «риск на сделку, % от баланса»).
+        # Номинал позиции = риск в долларах / расстояние до стопа.
+        #
+        # Раньше номиналом становился сам риск: balance × final_risk / 100. При
+        # балансе 100 $ это позиция 0,1–3 $ — ниже минимального ордера Bybit (5 $)
+        # по всем 28 символам конфига. Реальная биржа отклонила бы каждый ордер,
+        # а бумажный режим его «исполнял». Аудит 10.09.2026, находка M6.
+        if stop_distance_pct and stop_distance_pct > 0:
+            risk_usd = (balance * final_risk) / 100.0
+            position_size_usd = risk_usd / stop_distance_pct
+        else:
+            # Без стопа риск в номинал не пересчитать — прежняя формула как запасной путь
+            position_size_usd = (balance * final_risk) / 100.0
         
         return PositionSizingResult(
             position_allowed=True,

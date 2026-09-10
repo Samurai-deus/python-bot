@@ -1,28 +1,51 @@
+# Что НЕ попадает в образ.
+
+# Секреты и локальные данные
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.log.*
+*.csv
+.coverage
+
+# Окружения и кэш
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.env
-*.db
-*.log
-*.log.*
+.pytest_cache/
+
+# Всё, что не нужно для работы бота и API
 .git/
+.github/
 .gitignore
+.pre-commit-config.yaml
 tests/
 *.md
 miniapp/
 monitoring/
-scripts/
-!scripts/healthcheck.py
+deploy/
 archive/
 contracts/
 docs/
 operations/
 .planning/
 .claude/
-*.csv
 *.bat
 *.ps1
 *.service
 *.workspace
+
+# scripts/ — только то, что нужно внутри контейнера. Форма "scripts/*" с
+# исключениями, а не "scripts/" с исключениями: исключить файл внутри целиком
+# исключённого КАТАЛОГА старый билдер не умеет, и healthcheck молча пропадал
+# из образа, контейнер вечно считался unhealthy (аудит, находка M-8).
+scripts/*
+!scripts/healthcheck.py
+!scripts/backup_sqlite.py
+!scripts/smoke_auth.py

@@ -7,6 +7,7 @@ Risk & Exposure Brain - управление риском и экспозици�
 - плечи
 - перегрузки
 """
+from database import open_notional  # остаток позиции после частичного закрытия
 from typing import Dict, List, Optional
 from core.decision_core import RiskExposure
 from capital import get_current_balance
@@ -99,14 +100,16 @@ class RiskExposureBrain:
         
         balance = get_current_balance()
         if balance <= 0:
-            balance = INITIAL_BALANCE
+            # Счёт пуст — портфель перегружен по определению. Раньше здесь
+            # подставлялся начальный баланс, и слитый счёт выглядел здоровым.
+            return 100.0
         
         total_risk_usd = 0.0
         
         for trade in open_trades:
             entry = float(trade.get("entry", 0))
             stop = float(trade.get("stop", 0))
-            position_size_usd = float(trade.get("position_size", 0))
+            position_size_usd = open_notional(trade)
             side = trade.get("side", "LONG")
             
             if entry == 0 or position_size_usd == 0:
@@ -217,7 +220,7 @@ class RiskExposureBrain:
         
         for trade in open_trades:
             leverage = float(trade.get("leverage", 1.0))
-            position_size = float(trade.get("position_size", 0))
+            position_size = open_notional(trade)
             
             total_leverage_weighted += leverage * position_size
             total_size += position_size
@@ -236,10 +239,12 @@ class RiskExposureBrain:
         
         balance = get_current_balance()
         if balance <= 0:
-            balance = INITIAL_BALANCE
+            # Счёт пуст — портфель перегружен по определению. Раньше здесь
+            # подставлялся начальный баланс, и слитый счёт выглядел здоровым.
+            return 100.0
         
         total_exposure = sum(
-            float(trade.get("position_size", 0)) 
+            open_notional(trade)
             for trade in open_trades
         )
         

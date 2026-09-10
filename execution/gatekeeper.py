@@ -3,6 +3,7 @@ Gatekeeper - между сигналами и пользователем
 
 Проверяет сигналы через Decision Core и Portfolio Brain перед отправкой пользователю.
 """
+from database import open_notional  # остаток позиции после частичного закрытия
 from typing import Dict, Optional, List
 from trading_mode import get_trading_mode, TradingMode
 from core.decision_core import get_decision_core, TradingDecision
@@ -19,7 +20,7 @@ from core.risk_core import (
     TradingPermission
 )
 from trade_manager import get_open_trades
-from capital import get_current_balance, get_available_capital, INITIAL_BALANCE, RISK_PERCENT, MIN_POSITION_SIZE
+from capital import get_current_balance, get_available_capital, get_initial_balance, RISK_PERCENT, MIN_POSITION_SIZE
 from telegram_bot import send_message, send_chart, send_message_async, send_chart_async
 from core.system_guardian import AsyncToSyncAdapter
 from datetime import datetime, UTC, timedelta
@@ -46,6 +47,25 @@ except ImportError:
 
 # PositionSizer - обязательный импорт (ADR-004: fail-closed, INV-5)
 from core.position_sizer import PositionSizer, PortfolioStateAdapter
+
+
+def _signal_times(signals) -> list:
+    """
+    Метки времени недавних сигналов. datetime — как есть; ISO-строка (так они
+    вернутся из снимка состояния) — разобрать; остальное — пропустить. Раньше
+    строка в timestamp роняла проверку в исключение, а оно — в отказ на каждый сигнал.
+    """
+    out = []
+    for item in signals or []:
+        ts = item.get("timestamp") if isinstance(item, dict) else None
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+        if isinstance(ts, datetime):
+            out.append(ts if ts.tzinfo else ts.replace(tzinfo=UTC))
+    return out
 
 
 class Gatekeeper:
@@ -166,12 +186,27 @@ class Gatekeeper:
         try:
             # Defensive copy: modules below mutate position_size, so we must
             # not modify the caller's dict (prevents cross-module interference).
+            # Наружу уходит одно поле — одобренный размер, см. перед return True.
+            caller_signal_data = signal_data
+            caller_signal_data.pop("approved_position_size", None)
             signal_data = dict(signal_data)
 
             # Получаем system_state если не передан
             if system_state is None:
                 from system_state import get_system_state
                 system_state = get_system_state()
+
+            # ПРЕДОХРАНИТЕЛЬ — до всего остального. Раньше /pause ставил флаг,
+            # который здесь не читался, и сигнал проходил дальше; в режиме LIVE
+            # следующий цикл открывал позицию. Отказ здесь останавливает и
+            # бумажную сделку: signal_generator открывает её только после True.
+            # Risk Core здесь не спрашиваем — его состояние от прошлой оценки,
+            # возможно по другому символу; этот сигнал он оценит ниже сам.
+            from execution.kill_switch import trading_halt_reason
+            halt_reason = trading_halt_reason(system_state=system_state, include_risk_core=False)
+            if halt_reason:
+                logger.info("Gatekeeper: сигнал %s не пропущен — %s", symbol, halt_reason)
+                return False
 
             # Cache open trades once per signal evaluation to prevent TOCTOU race.
             # All sub-methods receive this cached list instead of querying DB independently.
@@ -377,6 +412,19 @@ class Gatekeeper:
 
             trace_entries.append(("DecisionCore", True, decision.reason, TraceBlockLevel.NONE))
             logger.info("[TRACE] DecisionCore → ALLOW → reason=%s", decision.reason)
+
+            # Множитель просадки (3.16). DecisionCore считал его (0,5 при просадке 10 %,
+            # 0,25 при 15 %) и возвращал, но размер не трогал никто — позиция при просадке
+            # оставалась полной. Уменьшение после одобрения Risk Core безопасно: меньшая
+            # позиция заведомо в пределах одобренной, а finalize_position_size ниже
+            # не пропустит её, если она окажется меньше минимального ордера биржи.
+            dd_multiplier = getattr(decision, "drawdown_size_multiplier", 1.0)
+            if dd_multiplier is not None and 0 < dd_multiplier < 1.0:
+                original_size = signal_data.get("position_size", 0.0)
+                if original_size > 0:
+                    signal_data["position_size"] = original_size * dd_multiplier
+                    logger.info("[DRAWDOWN] %s: размер %.2f → %.2f (множитель просадки %.2f)",
+                                symbol, original_size, signal_data["position_size"], dd_multiplier)
             
             # Портфельный анализ (если есть snapshot)
             portfolio_analysis = None
@@ -408,7 +456,9 @@ class Gatekeeper:
             # ADR-004: fail-closed — если модуль падает → BLOCK
             sizing_result = None  # инициализируем до условного блока
             if snapshot:
-                sizing_result = self._calculate_position_size(snapshot, portfolio_analysis, open_trades=open_trades)
+                sizing_result = self._calculate_position_size(
+                    snapshot, portfolio_analysis, open_trades=open_trades, signal_data=signal_data,
+                )
                 if sizing_result:
                     # Логируем решение PositionSizer
                     trace_entries.append(("PositionSizer", sizing_result.position_allowed, sizing_result.reason, TraceBlockLevel.NONE))
@@ -423,18 +473,26 @@ class Gatekeeper:
                         self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
                         return False
 
-                    # Применяем размер позиции из PositionSizer
-                    if sizing_result.position_size_usd:
-                        # Вычисляем множитель размера
-                        original_size = signal_data.get("position_size", 0.0)
-                        if original_size > 0:
-                            size_multiplier = sizing_result.position_size_usd / original_size
-                            signal_data["position_size"] = sizing_result.position_size_usd
-                            logger.info("[SIZER] size_multiplier=%.2f, final_risk=%.2f%%", size_multiplier, sizing_result.final_risk)
-                        else:
-                            # Если размера не было, используем рассчитанный
-                            signal_data["position_size"] = sizing_result.position_size_usd
-                            logger.info("[SIZER] position_size=%.2f USDT, final_risk=%.2f%%", sizing_result.position_size_usd, sizing_result.final_risk)
+                    # Итоговый размер: не больше одобренного Risk Core (выше он
+                    # оценивал именно signal_data["position_size"]) и не меньше
+                    # минимального ордера биржи. Раньше PositionSizer просто
+                    # затирал прошедший проверку риска размер своим (аудит, M6).
+                    from execution.sizing_guard import entry_price_from_signal, finalize_position_size
+                    final_size, size_block_reason = finalize_position_size(
+                        symbol,
+                        sizing_result.position_size_usd,
+                        signal_data.get("position_size", 0.0),
+                        entry_price_from_signal(signal_data),
+                    )
+                    if size_block_reason:
+                        logger.info("[SIZER] Trade blocked for %s: %s", symbol, size_block_reason)
+                        trace_entries.append(("SizingGuard", False, size_block_reason, TraceBlockLevel.NONE))
+                        self.blocked_signals_count += 1
+                        self._update_state()
+                        self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="BLOCK")
+                        return False
+                    signal_data["position_size"] = final_size
+                    logger.info("[SIZER] position_size=%.2f USDT, final_risk=%.2f%%", final_size, sizing_result.final_risk)
             
             # All checks passed — count as approved
             self.approved_signals_count += 1
@@ -507,6 +565,23 @@ class Gatekeeper:
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="ERROR")
                 # Не блокируем счетчик, так как проверка прошла успешно
 
+            # Одобренный размер — вызывающему. Все урезания (ALLOW_LIMITED, портфель,
+            # PositionSizer, finalize_position_size) делаются в копии, а бумажную
+            # сделку открывает signal_generator по своему словарю: до 10.09.2026 она
+            # открывалась по исходному размеру, больше одобренного и показанного в
+            # сообщении, и бумажные результаты расходились с тем, что разрешил риск.
+            caller_signal_data["approved_position_size"] = signal_data.get("position_size")
+
+            # Одобренное действие — в журнал Risk Core. До 10.09.2026 add_signal не
+            # вызывался нигде: лимиты действий в час и сутки и пауза между
+            # действиями видели пустой журнал и не срабатывали никогда.
+            if system_state is not None:
+                system_state.add_signal({
+                    "symbol": symbol,
+                    "side": signal_data.get("side"),
+                    "timestamp": datetime.now(UTC),
+                })
+
             # ========== EXECUTION (Phase 2) ==========
             # Размещаем ордер если режим TESTNET/LIVE
             self._execute_order(symbol, signal_data, sizing_result)
@@ -565,8 +640,17 @@ class Gatekeeper:
             return
 
         from exchange.bybit_client import get_bybit_client
-        from decimal import Decimal, ROUND_DOWN
         client = get_bybit_client()
+
+        # Одна позиция на символ (3.8) — проверка ДО ордера: трекер, биржа, журнал.
+        # Раньше «уже открыто» проверялось после отправки реального ордера, а
+        # трекер по символу молча перезаписывал прежнюю позицию.
+        from execution.exchange_ledger import open_position_reason
+        from execution.position_tracker import get_position_tracker as _get_tracker
+        busy = open_position_reason(symbol, client, _get_tracker())
+        if busy:
+            logger.info("[EXECUTOR] %s: ордер не отправлен — %s", symbol, busy)
+            return
 
         # Проверяем что контракт активен на бирже
         try:
@@ -589,17 +673,26 @@ class Gatekeeper:
         except Exception as _mp_err:
             logger.warning("[EXECUTOR] Could not fetch mark_price for %s: %s", symbol, _mp_err)
 
+        # Сигнал устарел, если цена уже прошла исходный стоп (3.15). Раньше стоп
+        # переносился на те же проценты от новой цены — и открывалась сделка,
+        # которую стратегия к этому моменту уже проиграла.
+        if mark_price > 0 and ((side == "LONG" and mark_price <= stop_loss) or
+                               (side == "SHORT" and mark_price >= stop_loss)):
+            logger.warning("[EXECUTOR] %s %s: сигнал устарел — mark %.6f уже за стопом %.6f",
+                           symbol, side, mark_price, stop_loss)
+            AsyncToSyncAdapter.call_async(
+                send_message_async(f"⏭ Сигнал {symbol} {side} не исполнен: цена уже прошла стоп."),
+                timeout=15.0,
+            )
+            return
+
         # Use mark_price as better approximation of actual fill
         actual_entry = mark_price if mark_price > 0 else entry_price
 
-        try:
-            qty_step = client.get_qty_step(symbol)
-        except Exception:
-            logger.error("Could not fetch qty_step for %s, using fallback 0.001", symbol, exc_info=True)
-            qty_step = 0.001  # conservative fallback
-        qty_step_d = Decimal(str(qty_step))
-        raw_qty = position_size_usd / actual_entry  # use mark_price, not signal entry
-        qty = float((Decimal(str(raw_qty)) / qty_step_d).to_integral_value(ROUND_DOWN) * qty_step_d)
+        # Количество — сырое: к шагу лота, пределам и минимальному номиналу его
+        # приводит исполнитель по фильтрам инструмента (Decimal, без значений по
+        # умолчанию). Раньше здесь при ошибке брался шаг 0.001.
+        qty = position_size_usd / actual_entry  # use mark_price, not signal entry
         if qty <= 0:
             logger.error("[EXECUTOR] Calculated qty=%.4f invalid for %s", qty, symbol)
             return
@@ -635,7 +728,8 @@ class Gatekeeper:
         from execution.position_tracker import get_position_tracker, TrackedPosition
 
         executor = get_order_executor()
-        client_order_id = f"mbot_{symbol}_{int(datetime.now(UTC).timestamp())}"
+        # orderLinkId создаёт исполнитель: прежний mbot_<символ>_<секунда> повторялся
+        # в пределах секунды и на длинных символах превышал 36 знаков, допустимых Bybit.
         request = TradeRequest(
             symbol=symbol,
             side=side,
@@ -643,7 +737,7 @@ class Gatekeeper:
             entry_price=None,  # Market ордер
             stop_loss=stop_loss,
             take_profit=take_profit,
-            client_order_id=client_order_id,
+            leverage=signal_data.get("leverage"),
         )
 
         try:
@@ -661,6 +755,10 @@ class Gatekeeper:
 
         if result.success:
             order_id = result.order_id
+            # Записываем то, что ушло на биржу: количество и цены после округления.
+            qty = result.qty
+            stop_loss = result.stop_loss
+            take_profit = result.take_profit
             logger.info(
                 "[EXECUTOR] Order placed: %s %s qty=%.4f order_id=%s dry_run=%s",
                 symbol, side, qty, order_id, result.dry_run,
@@ -699,10 +797,25 @@ class Gatekeeper:
                     take_profit=take_profit,
                     order_id=order_id,
                 ))
+                # Единый журнал (3.6): строка в trades — по факту исполненного ордера.
+                from execution.exchange_ledger import record_open
+                record_open(
+                    symbol=symbol, side=side, entry=actual_entry, stop=stop_loss, target=take_profit,
+                    qty=qty, leverage=signal_data.get("leverage"), order_id=order_id,
+                    strategy_name=signal_data.get("strategy_name"),
+                )
             except Exception as e:
                 logger.error(
                     "[EXECUTOR] DB/tracker error after order %s: %s: %s",
                     order_id, type(e).__name__, e, exc_info=True,
+                )
+                # Ордер исполнен, а записи нет — риск её не видит. Молчать нельзя.
+                AsyncToSyncAdapter.call_async(
+                    send_message_async(
+                        f"🚨 Ордер {order_id} ({symbol} {side}) исполнен, но запись в журнал не удалась: "
+                        f"{type(e).__name__}. Позиция может быть не учтена риском — проверьте вручную."
+                    ),
+                    timeout=15.0,
                 )
 
             tp_str = f"{take_profit:.4f}" if take_profit else "N/A"
@@ -714,6 +827,16 @@ class Gatekeeper:
                     f"🎯 Entry: {actual_entry:.4f}\n"
                     f"🛡 SL: {stop_loss:.4f} | TP: {tp_str}\n"
                     f"🆔 {order_id}"
+                ),
+                timeout=15.0,
+            )
+        elif result.state_unknown:
+            logger.critical("[EXECUTOR] Order state unknown for %s: %s", symbol, result.error)
+            AsyncToSyncAdapter.call_async(
+                send_message_async(
+                    f"🚨 Состояние ордера неизвестно: {symbol} {side}\n"
+                    f"{result.error}\n"
+                    f"Проверьте позицию на бирже вручную."
                 ),
                 timeout=15.0,
             )
@@ -756,7 +879,7 @@ class Gatekeeper:
             portfolio_state = calculate_portfolio_state(
                 open_positions=open_positions,
                 risk_budget=risk_budget,
-                initial_balance=INITIAL_BALANCE
+                initial_balance=get_initial_balance()
             )
             
             # Анализируем через Portfolio Brain
@@ -849,7 +972,7 @@ class Gatekeeper:
                     current_balance = get_current_balance()
                     if current_balance > 0:
                         # Упрощённый расчёт: сумма всех позиций / баланс
-                        total_exposure = sum(trade.get("position_size", 0) for trade in open_trades)
+                        total_exposure = sum(open_notional(trade) for trade in open_trades)
                         portfolio_exposure = min(1.0, total_exposure / current_balance)
             except Exception:
                 logger.error("Failed to calculate portfolio_exposure, defaulting to 0.0", exc_info=True)
@@ -931,6 +1054,7 @@ class Gatekeeper:
         snapshot: SignalSnapshot,
         portfolio_analysis: Optional[PortfolioAnalysis],
         open_trades: Optional[List] = None,
+        signal_data: Optional[Dict] = None,
     ):
         """
         Рассчитывает размер позиции через PositionSizer.
@@ -960,7 +1084,7 @@ class Gatekeeper:
                 portfolio_state = calculate_portfolio_state(
                     open_positions=open_positions,
                     risk_budget=risk_budget,
-                    initial_balance=INITIAL_BALANCE
+                    initial_balance=get_initial_balance()
                 )
             else:
                 # Пустой портфель - создаём минимальный PortfolioState
@@ -993,13 +1117,18 @@ class Gatekeeper:
                     reason=f"Insufficient available capital: ${balance:.2f} < ${MIN_POSITION_SIZE}"
                 )
 
+            # Расстояние до стопа — чтобы PositionSizer пересчитал риск в номинал
+            from execution.sizing_guard import stop_distance_from_signal
+            stop_distance_pct = stop_distance_from_signal(signal_data)
+
             # Вызываем PositionSizer
             sizing_result = self.position_sizer.calculate(
                 confidence=snapshot.confidence,
                 entropy=snapshot.entropy,
                 portfolio_state=portfolio_adapter,
                 symbol=snapshot.symbol,
-                balance=balance
+                balance=balance,
+                stop_distance_pct=stop_distance_pct,
             )
             
             return sizing_result
@@ -1142,13 +1271,14 @@ class Gatekeeper:
             stats_24h = get_trade_statistics(days=1) or {}
             stats_7d = get_trade_statistics(days=7) or {}
             
-            total_loss_usd = max(0, INITIAL_BALANCE - current_balance)
+            initial_balance = get_initial_balance()
+            total_loss_usd = max(0, initial_balance - current_balance)
             loss_24h_usd = abs(stats_24h.get("total_pnl", 0.0)) if stats_24h.get("total_pnl", 0) < 0 else 0.0
             loss_7d_usd = abs(stats_7d.get("total_pnl", 0.0)) if stats_7d.get("total_pnl", 0) < 0 else 0.0
             
             capital = CapitalSnapshot(
                 current_balance_usd=current_balance,
-                initial_balance_usd=INITIAL_BALANCE,
+                initial_balance_usd=initial_balance,
                 total_loss_usd=total_loss_usd,
                 loss_24h_usd=loss_24h_usd,
                 loss_7d_usd=loss_7d_usd
@@ -1162,7 +1292,7 @@ class Gatekeeper:
                 PositionSnapshot(
                     symbol=trade.get("symbol", ""),
                     side=trade.get("side", "LONG"),
-                    position_size_usd=float(trade.get("position_size", 0)),
+                    position_size_usd=open_notional(trade),
                     entry_price=float(trade.get("entry", 0)),
                     stop_price=float(trade.get("stop", 0)),
                     leverage=trade.get("leverage")
@@ -1187,8 +1317,10 @@ class Gatekeeper:
             # Собираем Behavioral Counters
             # Упрощенная реализация - в реальной системе это должно отслеживаться
             recent_signals = getattr(system_state, 'recent_signals', []) if system_state else []
-            actions_last_hour = len([s for s in recent_signals if (datetime.now(UTC) - s.get('timestamp', datetime.now(UTC))).total_seconds() < 3600])
-            actions_last_24h = len([s for s in recent_signals if (datetime.now(UTC) - s.get('timestamp', datetime.now(UTC))).total_seconds() < 86400])
+            recent_times = _signal_times(recent_signals)
+            _now = datetime.now(UTC)
+            actions_last_hour = sum(1 for t in recent_times if (_now - t).total_seconds() < 3600)
+            actions_last_24h = sum(1 for t in recent_times if (_now - t).total_seconds() < 86400)
             
             # Compute ACTUAL consecutive losses (count from most recent trade backward)
             consecutive_losses = 0
@@ -1225,7 +1357,7 @@ class Gatekeeper:
                 actions_last_24h=actions_last_24h,
                 consecutive_losses=consecutive_losses,
                 last_loss_timestamp=last_loss_timestamp,
-                last_action_timestamp=recent_signals[-1].get('timestamp') if recent_signals else None
+                last_action_timestamp=max(recent_times) if recent_times else None
             )
             
             # Собираем System Health Flags

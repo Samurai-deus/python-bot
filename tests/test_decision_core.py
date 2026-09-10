@@ -100,7 +100,18 @@ class TestDecisionCoreRiskExposure:
 
 
 class TestDecisionCoreOpportunity:
-    def test_low_readiness_score_blocks(self, system_state):
+    def test_low_readiness_score_recommends_but_does_not_block(self, system_state):
+        """
+        Низкая готовность — рекомендация, а не запрет.
+
+        Тест раньше требовал can_trade is False и падал с апреля: блокировку сняли
+        намеренно коммитом 9cd0053 «restore trading — 3 cascading blocks removed».
+        Причина в коде: readiness_score считает паттерны накопления и сжатия
+        волатильности, которых в нисходящем тренде не бывает ни у одного символа,
+        то есть счёт обнуляется поголовно — а SHORT-сигналы при этом остаются
+        валидными. Прежний вариант глушил всю торговлю в падающем рынке.
+        Тест не обновили вместе с кодом, и красный CI это скрывал.
+        """
         symbol = "BTCUSDT"
         system_state.opportunities = {
             symbol: Opportunity(
@@ -113,7 +124,35 @@ class TestDecisionCoreOpportunity:
         }
         dc = DecisionCore()
         result = dc.should_i_trade(symbol=symbol, system_state=system_state)
-        assert result.can_trade is False
+
+        assert result.can_trade is True, "низкая готовность не должна запрещать торговлю"
+        assert any("готовность" in r.lower() for r in result.recommendations), (
+            f"ожидалась рекомендация о низкой готовности, получено: {result.recommendations}"
+        )
+
+    def test_high_readiness_score_produces_no_readiness_warning(self, system_state):
+        """
+        Обратный случай: при высокой готовности предупреждения быть не должно.
+        Без него тест выше проходил бы и на коде, который выдаёт эту рекомендацию
+        всегда, независимо от счёта.
+        """
+        symbol = "BTCUSDT"
+        system_state.opportunities = {
+            symbol: Opportunity(
+                volatility_squeeze=True,
+                accumulation=True,
+                divergence=False,
+                suspicious_silence=False,
+                readiness_score=0.9,
+            )
+        }
+        dc = DecisionCore()
+        result = dc.should_i_trade(symbol=symbol, system_state=system_state)
+
+        assert result.can_trade is True
+        assert not any("готовность" in r.lower() for r in result.recommendations), (
+            f"при готовности 0.9 предупреждения быть не должно: {result.recommendations}"
+        )
 
 
 class TestDecisionCoreFaultInjection:

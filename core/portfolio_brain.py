@@ -7,6 +7,7 @@ Portfolio Brain - портфельный анализ сигналов.
 PortfolioBrain НЕ анализирует рынок.
 Он анализирует систему как целое.
 """
+from database import open_notional  # остаток позиции после частичного закрытия
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
@@ -517,7 +518,7 @@ def convert_trades_to_positions(open_trades: List[Dict], current_prices: Optiona
         symbol = trade.get("symbol")
         side = trade.get("side", "LONG")
         entry_price = trade.get("entry", 0.0)
-        position_size = trade.get("position_size", 0.0)
+        position_size = open_notional(trade)
 
         if not position_size or position_size <= 0:
             continue  # Skip trades with no valid position size

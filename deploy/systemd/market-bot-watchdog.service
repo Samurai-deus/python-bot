@@ -1,0 +1,8 @@
+[Unit]
+Description=market-bot: сторож (проверки и алерты владельцу в Telegram)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/market-bot/watchdog.sh
+TimeoutStartSec=120

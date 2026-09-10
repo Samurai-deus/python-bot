@@ -113,7 +113,7 @@ def _dump_task(task: asyncio.Task, incident_id: str) -> Dict[str, Any]:
         if hasattr(task, '_created'):
             created_at = datetime.fromtimestamp(task._created, tz=UTC).isoformat()
     except Exception:
-        pass
+        logger.debug("task_dump: время создания задачи недоступно", exc_info=True)
     
     return {
         "task_id": task_id,

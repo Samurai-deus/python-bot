@@ -10,7 +10,9 @@ import type { OpenPosition, TradeHistory } from '../../api/types'
 export function Positions() {
   const [tab, setTab] = useState<'open' | 'history'>('open')
   const { snapshot } = useSystemStore()
-  const { data: history, isLoading, error } = usePositionHistory(30)
+  // История грузится, только когда открыта её вкладка: раньше запрос шёл и
+  // опрашивался раз в минуту на вкладке открытых позиций.
+  const { data: history, isLoading, error } = usePositionHistory(30, tab === 'history')
 
   return (
     <div className="grid-bg" style={{ padding: '16px 16px 0', minHeight: '100dvh' }}>

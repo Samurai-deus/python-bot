@@ -12,7 +12,7 @@
 Все архитектурные изменения должны следовать формальному процессу ADR (Architecture Decision Records).
 
 **См. документы:**
-- 📋 [ARCHITECTURE_FREEZE_v1.0.md](ARCHITECTURE_FREEZE_v1.0.md) — официальное объявление о заморозке
+- 📋 [ARCHITECTURE_FREEZE_v1.0.md](archive/ARCHITECTURE_FREEZE_v1.0.md) — официальное объявление о заморозке
 - 🏗️ [SYSTEM_ARCHITECTURE_CANONICAL.md](SYSTEM_ARCHITECTURE_CANONICAL.md) — каноническая архитектура (единственный источник истины)
 - 📝 [docs/adr/README.md](docs/adr/README.md) — процесс ADR
 
@@ -22,28 +22,30 @@
 
 ### Архитектура
 - **Каноническая архитектура:** [SYSTEM_ARCHITECTURE_CANONICAL.md](SYSTEM_ARCHITECTURE_CANONICAL.md)
-- **Архитектурная заморозка:** [ARCHITECTURE_FREEZE_v1.0.md](ARCHITECTURE_FREEZE_v1.0.md)
-- **Общая архитектура:** [ARCHITECTURE.md](ARCHITECTURE.md)
+- **Архитектурная заморозка:** [ARCHITECTURE_FREEZE_v1.0.md](archive/ARCHITECTURE_FREEZE_v1.0.md)
+- **Общая архитектура:** [ARCHITECTURE.md](archive/ARCHITECTURE.md)
 
 ### Процесс управления архитектурой
 - **Процесс ADR:** [docs/adr/README.md](docs/adr/README.md)
-- **Шаблон ADR:** [docs/adr/ADR-XXXX-title.md](docs/adr/ADR-XXXX-title.md)
+- **Шаблон ADR:** [docs/adr/TEMPLATE.md](docs/adr/TEMPLATE.md)
 
 ### Специализированная документация
-- [META_DECISION_BRAIN_ARCHITECTURE.md](META_DECISION_BRAIN_ARCHITECTURE.md)
-- [COGNITIVE_ENGINE_ARCHITECTURE.md](COGNITIVE_ENGINE_ARCHITECTURE.md)
-- [PORTFOLIO_BRAIN_ARCHITECTURE.md](PORTFOLIO_BRAIN_ARCHITECTURE.md)
-- [POSITION_SIZER_ARCHITECTURE.md](POSITION_SIZER_ARCHITECTURE.md)
-- [DRIFT_DETECTOR_ARCHITECTURE.md](DRIFT_DETECTOR_ARCHITECTURE.md)
-- [REPLAY_ENGINE_ARCHITECTURE.md](REPLAY_ENGINE_ARCHITECTURE.md)
-- [SIGNAL_SNAPSHOT_ARCHITECTURE.md](SIGNAL_SNAPSHOT_ARCHITECTURE.md)
-- [DECISION_TRACE_ARCHITECTURE.md](DECISION_TRACE_ARCHITECTURE.md)
-- [MARKET_STATE_ARCHITECTURE.md](MARKET_STATE_ARCHITECTURE.md)
+- [META_DECISION_BRAIN_ARCHITECTURE.md](archive/META_DECISION_BRAIN_ARCHITECTURE.md)
+- [COGNITIVE_ENGINE_ARCHITECTURE.md](contracts/COGNITIVE_ENGINE_ARCHITECTURE.md)
+- [PORTFOLIO_BRAIN_ARCHITECTURE.md](contracts/PORTFOLIO_BRAIN_ARCHITECTURE.md)
+- [POSITION_SIZER_ARCHITECTURE.md](contracts/POSITION_SIZER_ARCHITECTURE.md)
+- [DRIFT_DETECTOR_ARCHITECTURE.md](contracts/DRIFT_DETECTOR_ARCHITECTURE.md)
+- [REPLAY_ENGINE_ARCHITECTURE.md](contracts/REPLAY_ENGINE_ARCHITECTURE.md)
+- [SIGNAL_SNAPSHOT_ARCHITECTURE.md](contracts/SIGNAL_SNAPSHOT_ARCHITECTURE.md)
+- [DECISION_TRACE_ARCHITECTURE.md](contracts/DECISION_TRACE_ARCHITECTURE.md)
+- [MARKET_STATE_ARCHITECTURE.md](contracts/MARKET_STATE_ARCHITECTURE.md)
 
 ### Операционная документация
-- [START_BOT.md](START_BOT.md) — запуск бота
-- [SERVER_SETUP.md](SERVER_SETUP.md) — настройка сервера
-- [SERVICE_SETUP.md](SERVICE_SETUP.md) — настройка systemd service
+- [deploy/README.md](deploy/README.md) — прод: деплой, откат, бэкап, алерты
+- [docs/REMEDIATION_PLAN.md](docs/REMEDIATION_PLAN.md) — план исправлений и статус задач
+- [docs/AUDIT_2026-09-10.md](docs/AUDIT_2026-09-10.md) — аудит, из которого вырос план
+- [operations/RUNTIME_TESTS_README.md](operations/RUNTIME_TESTS_README.md) — runtime-тесты
+- [operations/RSO_README.md](operations/RSO_README.md) — RSO
 
 ---
 
@@ -105,20 +107,38 @@ pip install -r requirements.txt
 
 ### Запуск
 
-См. [START_BOT.md](START_BOT.md) для подробных инструкций.
+Локально — из корня проекта, с `.env` по образцу `.env.example` (режим торговли
+задаётся там же, по умолчанию ордера на биржу не уходят):
 
-**Быстрый запуск:**
 ```bash
 python runner.py
 ```
 
-**Запуск как systemd service (рекомендуется):**
+Прод — Docker Compose и `deploy/deploy.sh`, одной командой с рабочей машины:
+
 ```bash
-sudo cp market-bot.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable market-bot
-sudo systemctl start market-bot
+DEPLOY_HOST=<host> deploy/ship.sh release web smoke
 ```
+
+Подробно — [deploy/README.md](deploy/README.md): первый запуск, откат, бэкап и его
+копия вне сервера, алерты. Прежние пути — systemd-юниты, `install.sh`,
+`setup_*.sh`, `scripts/deploy.sh` — удалены 10.09.2026: они описывали другой
+сервер и разошлись с кодом.
+
+
+### Режимы торговли
+
+Режим задаётся флагами в `.env`; разбирает их одно место — `trading_mode.py`.
+Неразборчивое значение флага — ошибка запуска, а не тихое «нет».
+
+| Флаги | Режим | Что происходит |
+|---|---|---|
+| `LIVE_TRADING=true` | LIVE | реальные ордера на mainnet, реальные деньги |
+| `PAPER_TRADING=true` | PAPER | виртуальные сделки, биржа для ордеров не вызывается |
+| `BYBIT_TESTNET=true` и `DRY_RUN=false` | TESTNET | реальные ордера на testnet |
+| иначе | DRY_RUN | только сигналы |
+
+Прод сейчас в PAPER. Переход дальше — ступенями из `docs/REMEDIATION_PLAN.md` (Фаза 7).
 
 ---
 
@@ -153,7 +173,7 @@ python -m pytest tests/
 
 Для вопросов об архитектуре:
 - См. [SYSTEM_ARCHITECTURE_CANONICAL.md](SYSTEM_ARCHITECTURE_CANONICAL.md)
-- См. [ARCHITECTURE_FREEZE_v1.0.md](ARCHITECTURE_FREEZE_v1.0.md)
+- См. [ARCHITECTURE_FREEZE_v1.0.md](archive/ARCHITECTURE_FREEZE_v1.0.md)
 - См. [docs/adr/README.md](docs/adr/README.md)
 
 ---

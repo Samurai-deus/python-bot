@@ -44,17 +44,16 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN is required — set it in .env")
-if not ANTHROPIC_API_KEY:
-    raise ValueError("ANTHROPIC_API_KEY is required — set it in .env")
+# Проверка наличия токенов перенесена в main(): импорт модуля падать не должен.
 
-_raw_ids = os.getenv("ALLOWED_USER_IDS", "")
-ALLOWED_USER_IDS: set[int] = (
-    {int(x.strip()) for x in _raw_ids.split(",") if x.strip()}
-    if _raw_ids.strip()
-    else set()
-)
+# Доступ решает utils.principals: владелец (ADMIN_CHAT_ID) плюс ALLOWED_USER_IDS.
+# Раньше пустой ALLOWED_USER_IDS означал «пускать всех» — посторонние гоняли бы
+# дорогую модель за счёт владельца, а история каждого хранилась в памяти.
+
+# Сообщений в минуту на пользователя — страховка от залпа, который превращается
+# в счёт за API.
+RATE_LIMIT_PER_MINUTE = int(os.getenv("CLAUDE_RATE_LIMIT_PER_MINUTE", "10"))
+_recent_requests: dict[int, list[float]] = {}
 
 MODEL = "claude-opus-4-6"
 MAX_TOKENS = 4096
@@ -78,8 +77,22 @@ claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
 def is_allowed(user_id: int) -> bool:
-    """Проверяет доступ. Если ALLOWED_USER_IDS пустой — пускает всех."""
-    return not ALLOWED_USER_IDS or user_id in ALLOWED_USER_IDS
+    """Доступ: владелец или ALLOWED_USER_IDS. Пустая настройка — никому."""
+    from utils import principals
+    return principals.is_allowed(user_id)
+
+
+def within_rate_limit(user_id: int, now: float | None = None) -> bool:
+    """Скользящее окно в одну минуту на пользователя."""
+    import time as _time
+    now = _time.time() if now is None else now
+    window = [t for t in _recent_requests.get(user_id, []) if now - t < 60]
+    if len(window) >= RATE_LIMIT_PER_MINUTE:
+        _recent_requests[user_id] = window
+        return False
+    window.append(now)
+    _recent_requests[user_id] = window
+    return True
 
 
 def get_history(user_id: int) -> list[dict]:
@@ -165,6 +178,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not user_text:
         return
 
+    if not within_rate_limit(user.id):
+        await update.message.reply_text("⚠️ Слишком часто. Подожди минуту.")
+        return
+
     # Показываем «печатает...»
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
@@ -176,9 +193,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply = "⚠️ Превышен лимит запросов. Подожди немного и попробуй снова."
     except anthropic.APIConnectionError:
         reply = "⚠️ Ошибка соединения с Claude API. Проверь интернет."
-    except Exception as e:
+    except Exception:
+        # Текст исключения наружу не отдаём: в ответах API бывают идентификаторы
+        # запросов и сведения об организации. Подробности — в лог.
         logger.exception("Unexpected error from Claude API")
-        reply = f"⚠️ Ошибка: {e}"
+        reply = "⚠️ Внутренняя ошибка. Попробуй позже."
 
     # Telegram ограничивает сообщения до 4096 символов
     if len(reply) <= 4096:
@@ -193,11 +212,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 def main() -> None:
+    from utils import principals
+    if not TELEGRAM_TOKEN:
+        raise SystemExit("TELEGRAM_BOT_TOKEN is required — set it in .env")
+    if not ANTHROPIC_API_KEY:
+        raise SystemExit("ANTHROPIC_API_KEY is required — set it in .env")
+    principals.require_configured()
+
     logger.info("Starting Claude Assistant bot (model=%s)", MODEL)
-    if ALLOWED_USER_IDS:
-        logger.info("Access restricted to user IDs: %s", ALLOWED_USER_IDS)
-    else:
-        logger.warning("ALLOWED_USER_IDS not set — bot is open to everyone!")
+    logger.info("Access: owner + %d observer(s)", max(0, len(principals.allowed_ids()) - 1))
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 

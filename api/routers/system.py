@@ -16,12 +16,16 @@ router = APIRouter(prefix="/api/system", tags=["system"])
 @router.get("/health", response_model=SystemHealthResponse)
 async def get_health(_: dict = Depends(verify_auth)):
     from system_state_machine import get_state_machine
-    from database import get_current_balance_from_db
+    from capital import get_current_balance
     from trading_mode import get_trading_mode
 
     sm = get_state_machine()
     info = sm.get_state_info()
-    balance = await run_sync(get_current_balance_from_db)
+    # Баланс — из capital: он знает режим (кошелёк в TESTNET/LIVE, бумажный счёт
+    # иначе) и стартовый баланс из config. Раньше здесь вызывалась функция базы
+    # без аргумента, и её значение по умолчанию — 10 000 — показывалось в Mini App
+    # при бумажном счёте в 100 $.
+    balance = await run_sync(get_current_balance)
 
     return SystemHealthResponse(
         state=info["state"],

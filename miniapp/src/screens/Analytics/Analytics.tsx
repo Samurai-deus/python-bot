@@ -5,7 +5,7 @@ import { useSettingsStore } from '../../store/useSettingsStore'
 import { useAnalyticsSummary, useEquityCurve, useBySymbol } from '../../hooks/useAnalytics'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { formatPnl, formatPct, formatSymbol } from '../../lib/formatters'
+import { formatPnl, formatPct, formatSymbol, parseUTC } from '../../lib/formatters'
 import { logger } from '../../lib/logger'
 
 const DAYS_OPTIONS = [7, 30, 90]
@@ -198,14 +198,13 @@ const EquityCurveChart = memo(function EquityCurveChart({ data }: { data: { poin
 
   // Memoize expensive data processing (dedup + sort + parse)
   const chartData = useMemo(() => {
-    const rawData = data.points.map((value, i) => {
-      const ts = data.timestamps[i]
-      const utcTs = /[Zz+\-]\d{0,4}$/.test(ts) ? ts : ts + 'Z'
-      return {
-        time: Math.floor(new Date(utcTs).getTime() / 1000) as Time,
-        value,
-      }
-    })
+    // parseUTC общий с formatters — раньше здесь лежала копия того же выражения,
+    // и обе копии одинаково не понимали смещение вида +00:00, которое отдаёт бэкенд.
+    // Точки получали time = NaN и схлопывались в одну: NaN как ключ Map всегда один.
+    const rawData = data.points.map((value, i) => ({
+      time: Math.floor(parseUTC(data.timestamps[i]).getTime() / 1000) as Time,
+      value,
+    })).filter((d) => Number.isFinite(d.time as number))
     rawData.sort((a, b) => (a.time as number) - (b.time as number))
     const seen = new Map<number, number>()
     for (const d of rawData) seen.set(d.time as number, d.value)

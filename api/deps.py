@@ -1,19 +1,47 @@
 """
-Shared dependencies for FastAPI routes.
+Зависимости FastAPI: аутентификация (кто это) и авторизация (что ему можно).
+
+Проверка подписи Telegram initData здесь была реализована верно и такой осталась:
+секрет HMAC("WebAppData", bot_token), строка проверки из отсортированных пар без
+hash, сравнение через compare_digest. Изменилось то, что происходит ПОСЛЕ подписи.
+
+Раньше валидная подпись была единственным условием чтения. Но подпись доказывает
+только одно: initData выдал Telegram. Любой пользователь Telegram, открывший
+Mini App бота, получает такой же валидный initData — и видел баланс, позиции со
+стопами, историю сделок. А при пустом ADMIN_CHAT_ID (как в .env.example) ещё и
+менял ключи биржи. Теперь после подписи проверяется, КТО пришёл: читать могут
+допущенные (utils.principals.is_allowed), менять — только владелец.
+
+Разбор initData для HTTP и WebSocket раньше был продублирован построчно; теперь
+одна функция verify_init_data.
 """
 import asyncio
 import functools
-import logging
-import os
 import hashlib
 import hmac
+import json
+import logging
 import time
 from typing import Optional
 from urllib.parse import unquote
 
-from fastapi import Request, HTTPException
+from fastapi import HTTPException, Request
+
+from utils import principals
+from utils.env import env_flag, env_str
 
 logger = logging.getLogger(__name__)
+
+# initData выдаётся один раз при открытии Mini App и без переоткрытия не
+# обновляется, поэтому окно — сутки. Сокращение окна требует серверной сессии,
+# это задача 2.8 плана; здесь окно только вынесено в одну константу.
+INIT_DATA_MAX_AGE = 86400
+
+# В каких окружениях разрешено отключать аутентификацию. Всё остальное, включая
+# НЕзаданный ENVIRONMENT, считается боевым: DISABLE_AUTH=true, скопированный в
+# прод-.env из примера в CLAUDE.md, раньше открывал все роуты и давал админа
+# любому (заглушка user_id=0 проходила verify_admin).
+_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
 
 
 async def run_sync(fn, *args, **kwargs):
@@ -22,132 +50,148 @@ async def run_sync(fn, *args, **kwargs):
     return await loop.run_in_executor(None, functools.partial(fn, *args, **kwargs))
 
 
-def verify_ws_token(init_data: str) -> bool:
+def auth_disabled(kind: str = "http") -> bool:
     """
-    Validate Telegram InitData for WebSocket connections (query-param based).
-    Returns True if valid, DISABLE_AUTH=true, or DISABLE_WS_AUTH=true.
-    Uses 24-hour expiry (vs 5 min for HTTP) since WS connections are long-lived
-    and the token is retrieved once at app startup.
+    Отключена ли аутентификация. Флаг действует только в dev-окружении;
+    в любом другом он игнорируется с ошибкой в логе (а api.main на старте
+    ещё и откажется запускаться, см. enforce_security_config).
     """
-    if os.environ.get("DISABLE_AUTH", "false").lower() == "true":
-        logger.warning("DISABLE_AUTH=true: WS authentication is disabled — do NOT use in production")
-        return True
-    if os.environ.get("DISABLE_WS_AUTH", "false").lower() == "true":
-        logger.warning("DISABLE_WS_AUTH=true: WS authentication is disabled")
-        return True
+    requested = env_flag("DISABLE_AUTH") or (kind == "ws" and env_flag("DISABLE_WS_AUTH"))
+    if not requested:
+        return False
+    environment = env_str("ENVIRONMENT").lower()
+    if environment not in _DEV_ENVIRONMENTS:
+        logger.error(
+            "DISABLE_AUTH/DISABLE_WS_AUTH проигнорирован: ENVIRONMENT=%r не из %s",
+            environment, sorted(_DEV_ENVIRONMENTS),
+        )
+        return False
+    logger.warning("DISABLE_AUTH: аутентификация %s отключена (ENVIRONMENT=%s)", kind, environment)
+    return True
+
+
+class InitDataError(Exception):
+    """initData не прошёл проверку. Текст — для лога, наружу не отдаётся."""
+
+
+def verify_init_data(init_data: str, bot_token: str, max_age: int = INIT_DATA_MAX_AGE,
+                     now: Optional[float] = None) -> dict:
+    """
+    Проверяет подпись и свежесть initData, возвращает разобранные поля плюс
+    user_id (int). Бросает InitDataError при любом несоответствии.
+    """
     if not init_data:
-        return False
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        raise InitDataError("пустой initData")
     if not bot_token:
-        return False
+        raise InitDataError("не задан TELEGRAM_BOT_TOKEN")
+
     params = {}
     hash_value = None
     for part in init_data.split("&"):
         if "=" not in part:
             continue
         key, _, value = part.partition("=")
-        key = unquote(key)
-        value = unquote(value)
+        key, value = unquote(key), unquote(value)
         if key == "hash":
             hash_value = value
         else:
             params[key] = value
+
     if hash_value is None:
-        return False
-    try:
-        auth_date = int(params.get("auth_date", 0))
-    except (ValueError, TypeError):
-        return False
-    if abs(time.time() - auth_date) > 86400:  # 24h for WS (token retrieved once at app start)
-        return False
+        raise InitDataError("нет поля hash")
+
     check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     expected = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, hash_value)
+    if not hmac.compare_digest(expected, hash_value):
+        raise InitDataError("подпись не совпала")
+
+    # Свежесть — после подписи: auth_date входит в подписанную строку, так что
+    # проверять его до подписи значило бы доверять неподтверждённому значению.
+    try:
+        auth_date = int(params.get("auth_date", 0))
+    except (TypeError, ValueError):
+        raise InitDataError("некорректный auth_date")
+    current = time.time() if now is None else now
+    if abs(current - auth_date) > max_age:
+        raise InitDataError("initData просрочен")
+
+    try:
+        user = json.loads(params.get("user") or "{}")
+        user_id = int(user["id"])
+    except (ValueError, TypeError, KeyError):
+        raise InitDataError("в initData нет корректного user.id")
+
+    return {**params, "user_id": user_id, "username": user.get("username")}
 
 
-async def verify_auth(request: Request) -> Optional[dict]:
+def _dev_stub() -> dict:
+    return {"user_id": principals.admin_id() or 0, "username": "dev", "dev": True}
+
+
+async def verify_auth(request: Request) -> dict:
     """
-    Validate Telegram InitData HMAC-SHA256.
-    If DISABLE_AUTH=true, skip validation and return a stub user.
+    Кто пришёл и можно ли ему смотреть. 401 — не удалось удостовериться,
+    403 — удостоверились, но доступа нет.
     """
-    if os.environ.get("DISABLE_AUTH", "false").lower() == "true":
-        logger.warning("DISABLE_AUTH=true: HTTP authentication is disabled — do NOT use in production")
-        return {"user_id": 0, "username": "dev"}
+    if auth_disabled("http"):
+        return _dev_stub()
 
     init_data = request.headers.get("X-Telegram-Init-Data")
     if not init_data:
         raise HTTPException(status_code=401, detail="Missing Telegram InitData")
 
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    bot_token = env_str("TELEGRAM_BOT_TOKEN")
     if not bot_token:
+        logger.error("verify_auth: TELEGRAM_BOT_TOKEN не задан — проверить подпись нечем")
         raise HTTPException(status_code=500, detail="Authentication service unavailable")
 
-    # Parse init_data string
-    params = {}
-    hash_value = None
-    for part in init_data.split("&"):
-        if "=" not in part:
-            continue
-        key, _, value = part.partition("=")
-        key = unquote(key)
-        value = unquote(value)
-        if key == "hash":
-            hash_value = value
-        else:
-            params[key] = value
-
-    if hash_value is None:
-        raise HTTPException(status_code=401, detail="Missing hash in InitData")
-
-    # Check timestamp freshness (5 minutes)
     try:
-        auth_date = int(params.get("auth_date", 0))
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid auth_date in InitData")
-    # InitData is retrieved once at Mini App launch and cannot be refreshed
-    # without closing/reopening the app. Use 24h expiry (same as WS).
-    if abs(time.time() - auth_date) > 86400:
-        raise HTTPException(status_code=401, detail="InitData expired")
+        user = verify_init_data(init_data, bot_token)
+    except InitDataError as exc:
+        # Причину пишем в лог, наружу — одинаковый ответ: различие между
+        # «плохая подпись» и «просрочен» подсказывает атакующему, что менять.
+        logger.info("verify_auth: отказ — %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid Telegram InitData")
 
-    # Build check string
-    check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
+    if not principals.is_allowed(user["user_id"]):
+        logger.warning("verify_auth: user_id=%s не в списке допущенных", user["user_id"])
+        raise HTTPException(status_code=403, detail="Access denied")
 
-    # HMAC-SHA256 with secret key = HMAC-SHA256("WebAppData", bot_token)
-    secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    expected = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
-
-    if not hmac.compare_digest(expected, hash_value):
-        raise HTTPException(status_code=401, detail="Invalid InitData signature")
-
-    return params
+    return user
 
 
 async def verify_admin(request: Request) -> dict:
-    """
-    Validate Telegram InitData AND check that the user is the admin.
-    Uses ADMIN_CHAT_ID from env to restrict write operations.
-    """
-    params = await verify_auth(request)
-    if params.get("user_id") == 0 and params.get("username") == "dev":
-        return params  # DISABLE_AUTH mode — allow
-
-    admin_chat_id = os.environ.get("ADMIN_CHAT_ID", "")
-    if not admin_chat_id:
-        # No ADMIN_CHAT_ID configured — allow (backward compat, log warning)
-        logger.warning("ADMIN_CHAT_ID not set — all authenticated users have admin access")
-        return params
-
-    # Extract user ID from InitData "user" JSON field
-    import json as _json
-    user_json = params.get("user", "")
-    try:
-        user_data = _json.loads(user_json) if user_json else {}
-    except (ValueError, TypeError):
-        user_data = {}
-
-    user_id = str(user_data.get("id", ""))
-    if user_id != admin_chat_id:
+    """То же, что verify_auth, плюс требование быть владельцем."""
+    user = await verify_auth(request)
+    if user.get("dev"):
+        return user
+    if not principals.is_admin(user["user_id"]):
+        logger.warning("verify_admin: user_id=%s — не владелец, запись запрещена", user["user_id"])
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user
 
-    return params
+
+def ws_user(init_data: str) -> Optional[dict]:
+    """
+    Пользователь WebSocket: подпись, свежесть и допуск — или None. Раньше
+    проверялись только подпись и свежесть — живой поток позиций и баланса
+    получал любой пользователь Telegram. Пользователь нужен и для лимита
+    соединений на него (2.7).
+    """
+    if auth_disabled("ws"):
+        return _dev_stub()
+    try:
+        user = verify_init_data(init_data, env_str("TELEGRAM_BOT_TOKEN"))
+    except InitDataError as exc:
+        logger.info("verify_ws_token: отказ — %s", exc)
+        return None
+    if not principals.is_allowed(user["user_id"]):
+        logger.warning("verify_ws_token: user_id=%s не в списке допущенных", user["user_id"])
+        return None
+    return user
+
+
+def verify_ws_token(init_data: str) -> bool:
+    """Проверка initData для WebSocket (см. ws_user)."""
+    return ws_user(init_data) is not None

@@ -93,6 +93,7 @@ export interface WsSnapshot {
   timestamp: string
   system_state: string
   trading_paused: boolean
-  balance_usdt: number
+  /** null — сервер не успел посчитать баланс; позиции в снимке при этом верны. */
+  balance_usdt: number | null
   positions: OpenPosition[]
 }

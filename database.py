@@ -309,6 +309,7 @@ def _init_pg_schema(conn) -> None:
         "partial_pnl": "REAL",
         "strategy_name": "TEXT",
         "original_stop": "REAL",
+        "exchange_order_id": "TEXT",
     }
     for col_name, col_type in _ALLOWED_COLUMNS.items():
         try:
@@ -552,6 +553,7 @@ def _init_database(conn) -> None:
         "partial_pnl": "REAL",
         "strategy_name": "TEXT",
         "original_stop": "REAL",
+        "exchange_order_id": "TEXT",
     }
     for col_name, col_type in _ALLOWED_COLUMNS_SQLITE.items():
         if col_name not in _ALLOWED_COLUMNS_SQLITE:
@@ -777,6 +779,7 @@ def add_trade(
     position_size: Optional[float] = None,
     leverage: Optional[float] = None,
     strategy_name: Optional[str] = None,
+    exchange_order_id: Optional[str] = None,
 ) -> int:
     """Добавляет новую сделку в базу данных. Возвращает ID."""
     conn = get_db_connection()
@@ -786,10 +789,10 @@ def add_trade(
         trade_id = _exec_insert(
             cursor,
             """
-            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage, strategy_name, original_stop)
-            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
+            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage, strategy_name, original_stop, exchange_order_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)
             """,
-            (timestamp, symbol, side, entry, stop, target, position_size, leverage, strategy_name, stop),
+            (timestamp, symbol, side, entry, stop, target, position_size, leverage, strategy_name, stop, exchange_order_id),
         )
         conn.commit()
     finally:
@@ -827,6 +830,7 @@ def get_open_trades() -> List[Dict]:
             "partial_closed": row["partial_closed"] if "partial_closed" in row.keys() else 0,
             "partial_pnl": row["partial_pnl"] if "partial_pnl" in row.keys() else None,
             "original_stop": row["original_stop"] if "original_stop" in row.keys() else None,
+            "exchange_order_id": row["exchange_order_id"] if "exchange_order_id" in row.keys() else None,
         }
         for row in rows
     ]
@@ -1076,8 +1080,16 @@ def get_trades_statistics(days: int = 1) -> Dict:
     }
 
 
-def get_current_balance_from_db(initial_balance: float = 10000.0) -> float:
-    """Рассчитывает текущий баланс на основе закрытых сделок."""
+def get_current_balance_from_db(initial_balance: float) -> float:
+    """
+    Бумажный баланс: стартовый + PnL закрытых сделок.
+
+    Стартовый баланс — обязательный аргумент. Раньше у него было значение по
+    умолчанию 10 000, и вызов без аргумента (API /api/system/health, поток
+    WebSocket) показывал в Mini App 10 000 $ при бумажном счёте в 100 $ — третья
+    копия константы, пережившая сведение двух других в config.py.
+    Снаружи модуля капитала вызывать через capital.get_current_balance().
+    """
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -1086,18 +1098,96 @@ def get_current_balance_from_db(initial_balance: float = 10000.0) -> float:
         )
         row = cursor.fetchone()
         total_pnl = row["total_pnl"] or 0.0
+        # Частичный тейк открытой сделки — уже полученные деньги. Раньше они
+        # попадали в баланс только с финальным закрытием (там pnl включает
+        # partial_pnl, поэтому для закрытых сделок отдельно не добавляем).
+        cursor.execute(
+            _q("SELECT COALESCE(SUM(partial_pnl), 0) AS partial FROM trades "
+               "WHERE status = 'OPEN' AND partial_closed = 1")
+        )
+        total_pnl += cursor.fetchone()["partial"] or 0.0
     finally:
         conn.close()
-    return max(initial_balance + total_pnl, 10.0)
+    # Пол — ноль, а не 10 $. Прежний пол прятал слитый счёт: при балансе 100 $
+    # «нижние» 10 $ — это 10 % капитала, которого нет, и бот продолжал бы считать
+    # размеры позиций от несуществующих денег.
+    return max(initial_balance + total_pnl, 0.0)
+
+
+# Доля позиции, закрываемая на частичном тейке (trade_manager, стадия 3).
+PARTIAL_CLOSE_FRACTION = 0.5
+
+
+def open_notional(trade) -> float:
+    """
+    Номинал, который сделка держит сейчас: после частичного закрытия — остаток.
+    До 10.09.2026 экспозицию, занятый капитал и позиции в Mini App считали по
+    полному размеру и после частичного тейка — счёт выглядел загруженнее, чем был.
+    """
+    size = float(trade.get("position_size") or 0.0)
+    return size * (1 - PARTIAL_CLOSE_FRACTION) if trade.get("partial_closed") else size
+
+
+# ========== БАЗА КАПИТАЛА РЕАЛЬНЫХ РЕЖИМОВ ==========
+# Стартовая и пиковая equity кошелька для TESTNET и LIVE (capital.get_initial_balance).
+# Таблица создаётся при первом обращении: схема бумажного режима её не требует.
+
+def _ensure_capital_baseline_table(cursor) -> None:
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS capital_baseline ("
+        " mode TEXT PRIMARY KEY,"
+        " initial_equity DOUBLE PRECISION NOT NULL,"
+        " peak_equity DOUBLE PRECISION NOT NULL,"
+        " updated_at TEXT NOT NULL)"
+    )
+
+
+def get_capital_baseline(mode: str) -> Optional[Dict]:
+    """{'initial', 'peak'} для режима — или None, если база ещё не записана."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_capital_baseline_table(cursor)
+        cursor.execute(_q("SELECT initial_equity, peak_equity FROM capital_baseline WHERE mode = ?"), (mode,))
+        row = cursor.fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {"initial": float(row["initial_equity"]), "peak": float(row["peak_equity"])}
+
+
+def save_capital_baseline(mode: str, initial: float, peak: float) -> None:
+    """Записать или обновить базу капитала режима."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_capital_baseline_table(cursor)
+        now = datetime.now(UTC).isoformat()
+        cursor.execute(
+            _q("UPDATE capital_baseline SET initial_equity = ?, peak_equity = ?, updated_at = ? WHERE mode = ?"),
+            (initial, peak, now, mode),
+        )
+        if cursor.rowcount == 0:
+            cursor.execute(
+                _q("INSERT INTO capital_baseline (mode, initial_equity, peak_equity, updated_at) VALUES (?, ?, ?, ?)"),
+                (mode, initial, peak, now),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_total_open_positions_size() -> float:
-    """Sum of position_size for all OPEN trades (locked capital)."""
+    """Номинал открытых сделок (занятый капитал) — после частичного закрытия остаток."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
         cursor.execute(
-            _q("SELECT COALESCE(SUM(position_size), 0) AS total FROM trades WHERE status = 'OPEN' AND position_size IS NOT NULL")
+            _q("SELECT COALESCE(SUM(CASE WHEN partial_closed = 1 THEN position_size * ? ELSE position_size END), 0) "
+               "AS total FROM trades WHERE status = 'OPEN' AND position_size IS NOT NULL"),
+            (1 - PARTIAL_CLOSE_FRACTION,),
         )
         return float(cursor.fetchone()["total"] or 0.0)
     finally:
@@ -1196,6 +1286,20 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
 # ============================================================================
 
 
+def _snapshot_json_default(value):
+    """
+    JSON для снимка состояния: перечисление — его значение, дата — ISO-строка.
+    До 10.09.2026 снимок не сохранялся ни разу: в кэше сигналов лежат MarketState,
+    и json.dumps падал на каждом сохранении («not JSON serializable»).
+    """
+    from enum import Enum
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def save_system_state_snapshot(snapshot_data: Dict) -> int:
     """Сохраняет снимок SystemState в базу данных."""
     import json
@@ -1204,7 +1308,7 @@ def save_system_state_snapshot(snapshot_data: Dict) -> int:
     try:
         cursor = conn.cursor()
         timestamp = snapshot_data.get("timestamp", datetime.now(UTC).isoformat())
-        snapshot_json = json.dumps(snapshot_data)
+        snapshot_json = json.dumps(snapshot_data, default=_snapshot_json_default)
         snapshot_id = _exec_insert(
             cursor,
             "INSERT INTO system_state_snapshots (timestamp, snapshot_data) VALUES (?, ?)",
@@ -1403,7 +1507,7 @@ def get_open_positions() -> List[Dict]:
     for row in rows:
         d = dict(row)
         entry = d.get("entry") or 0.0
-        position_size = d.get("position_size") or 0.0
+        position_size = open_notional(d)  # после частичного закрытия — остаток
         # position_size is in USDT; qty = position_size / entry_price
         qty = (position_size / entry) if entry > 0 else 0.0
         result.append({

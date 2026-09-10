@@ -1,48 +1,77 @@
-# Secrets — never commit
+# ── Секреты — никогда не коммитим ────────────────────────────────────
+# 10.09.2026: токен бота утёк не через .py (его как раз убрали коммитом cd101a2),
+# а через закоммиченный __pycache__/telegram_bot.cpython-312.pyc — .pyc хранит строковые
+# литералы модуля целиком. Правило: игнорировать не только исходник с секретом, но и всё,
+# что порождено из него. Плюс gitleaks в pre-commit и push protection на GitHub.
 .env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
 
 # Telegram polling lock file
 .telegram_polling.lock
 
-# Python
+# ── Python ───────────────────────────────────────────────────────────
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 venv/
+.venv/
 env/
 ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Logs
+# ── Логи и рантайм-артефакты ─────────────────────────────────────────
 *.log
+*.log.*
 runner.log
+monitor.log
+last_heartbeat.txt
 
-# Coverage
+# ── Покрытие и отчёты ────────────────────────────────────────────────
 .coverage
 .coverage.*
 htmlcov/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# IDE
-.vscode/
-.idea/
-.cursor/
-.claude/
-*.swp
-*.swo
-
-# Test reports
+coverage.xml
 tests/rso_report_*.json
 tests/rso_report_*.md
 rso_report_*.json
 rso_report_*.md
 
-# OS
+# ── База данных ──────────────────────────────────────────────────────
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+backups/
+
+# ── Данные: CSV — рантайм, кроме тестовых фикстур ────────────────────
+*.csv
+!tests/fixtures/*.csv
+
+# ── IDE / рабочие области ────────────────────────────────────────────
+.vscode/
+.idea/
+.cursor/
+.claude/
+*.code-workspace
+*.swp
+*.swo
+
+# ── Node (miniapp) ───────────────────────────────────────────────────
+node_modules/
+miniapp/dist/
+miniapp/.vite/
+
+# ── OS ───────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-

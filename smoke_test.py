@@ -36,20 +36,23 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 def main() -> int:
     print("\n=== Bybit Testnet Smoke Test ===\n")
 
-    testnet = os.environ.get("BYBIT_TESTNET", "false").lower() == "true"
-    dry_run = os.environ.get("DRY_RUN", "true").lower() == "true"
+    # Режим спрашиваем у резолвера, а не разбираем переменные заново: смысл смоука
+    # в том, чтобы проверить ТО ЖЕ решение, которое примет бот, а не похожее на него.
+    from trading_mode import get_trading_mode, TradingMode
+    mode = get_trading_mode()
+    testnet = mode == TradingMode.TESTNET
     api_key = os.environ.get("BYBIT_API_KEY", "")
     api_secret = os.environ.get("BYBIT_API_SECRET", "")
 
     # --- Step 0: env sanity ---
     print("── Env ──────────────────────────────────────────────")
-    check("BYBIT_TESTNET=true", testnet, f"current: {os.environ.get('BYBIT_TESTNET')}")
-    check("DRY_RUN=false", not dry_run, f"current: {os.environ.get('DRY_RUN')}")
+    check("режим TESTNET", testnet, f"get_trading_mode() = {mode.value}")
     check("BYBIT_API_KEY set", bool(api_key), f"len={len(api_key)}")
     check("BYBIT_API_SECRET set", bool(api_secret), f"len={len(api_secret)}")
 
     if not testnet:
-        print("\n⚠️  BYBIT_TESTNET не true — выходим (не хотим рисковать реальными деньгами)")
+        print(f"\n⚠️  Режим {mode.value}, а не TESTNET — выходим (не хотим рисковать реальными деньгами)")
+        print("    Для TESTNET нужно: BYBIT_TESTNET=true и DRY_RUN=false, без LIVE_TRADING/PAPER_TRADING")
         return 1
     if not api_key or not api_secret:
         print("\n⚠️  API ключи не найдены в .env — выходим")

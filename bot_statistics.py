@@ -13,7 +13,7 @@ import math
 from typing import List, Optional, Tuple
 from datetime import datetime, UTC, timedelta
 from capital import get_current_balance
-from config import INITIAL_BALANCE
+from capital import get_initial_balance
 from database import get_trades_statistics
 from core.market_state import MarketState, normalize_state
 
@@ -37,14 +37,14 @@ def get_trade_statistics(days=1):
     
     # Добавляем total_pnl_pct и другие поля для совместимости
     current_balance = get_current_balance()
-    if INITIAL_BALANCE > 0:
-        stats['total_pnl_pct'] = ((current_balance - INITIAL_BALANCE) / INITIAL_BALANCE) * 100
+    if get_initial_balance() > 0:
+        stats['total_pnl_pct'] = ((current_balance - get_initial_balance()) / get_initial_balance()) * 100
     else:
         stats['total_pnl_pct'] = 0.0
     
     # Добавляем поля для совместимости со старым форматом
     stats['current_balance'] = current_balance
-    stats['initial_balance'] = INITIAL_BALANCE
+    stats['initial_balance'] = get_initial_balance()
     stats['wins'] = stats.get('winning_trades', 0)
     stats['losses'] = stats.get('losing_trades', 0)
     stats['period_days'] = days

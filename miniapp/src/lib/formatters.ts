@@ -20,10 +20,22 @@ export function formatPnl(value: number): string {
   return `${sign}${formatUSDT(value)}`
 }
 
-// Ensure UTC parsing: append 'Z' if no timezone indicator present
-function parseUTC(iso: string): Date {
-  const utc = /[Zz+\-]\d{0,4}$/.test(iso) ? iso : iso + 'Z'
-  return new Date(utc)
+// Признак часового пояса в конце ISO-строки: 'Z' либо смещение ±HH:MM / ±HHMM / ±HH.
+//
+// Прежнее выражение /[Zz+\-]\d{0,4}$/ не распознавало формат с двоеточием, а бэкенд
+// отдаёт именно его: datetime.now(UTC).isoformat() даёт "…+00:00". Проверка не
+// срабатывала, к строке дописывалась 'Z', получалось "…+00:00Z" — невалидная дата.
+// Дальше date-fns.format бросал RangeError, catch возвращал исходную строку, и в
+// интерфейсе вместо даты стояло сырое "2026-09-09T10:00:00.123456+00:00". В графике
+// эквити было хуже: там ошибка не ловилась, все точки получали time = NaN и
+// схлопывались в одну (NaN — единственный ключ Map), то есть график был пуст.
+//
+// Экспортируется ради теста и чтобы Analytics не заводил вторую копию выражения:
+// именно расхождение двух копий этой строки и делало баг незаметным при правке одной.
+export const TZ_SUFFIX = /(?:Z|[+-]\d{2}:?(?:\d{2})?)$/i
+
+export function parseUTC(iso: string): Date {
+  return new Date(TZ_SUFFIX.test(iso) ? iso : iso + 'Z')
 }
 
 export function formatDate(iso: string): string {

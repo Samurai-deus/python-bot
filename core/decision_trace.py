@@ -556,3 +556,11 @@ class DriftDetector:
             "comparison_stats": comparison_stats
         }
 
+
+def prune_decision_trace(days: int = 90, db_path: str = None) -> int:
+    """
+    Удалить трассы решений старше days дней (6.4). clear_old_records был, но не
+    вызывался нигде: на проде таблица росла на ~5 тыс. строк в сутки без предела.
+    """
+    trace = DecisionTrace(db_path) if db_path else DecisionTrace()
+    return trace.clear_old_records(days=days)
