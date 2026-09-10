@@ -199,6 +199,16 @@ class RiskCore:
         
         # FSM state (only state allowed)
         self._risk_state = RiskState.SAFE
+
+        # Защёлка HALTED. ADR-TRADING-RISK-CORE-001 (раздел 2) называет HALTED
+        # терминальным: «no auto-recovery». Код же перезаписывал _risk_state на
+        # каждом evaluate(), и HALTED молча снимался следующим нормальным
+        # сигналом. reset() при этом отказывался его сбрасывать, а другого пути
+        # сброса не было — то есть документация и код говорили противоположное.
+        # Теперь HALTED держится до явного reset_halt(), который вызывает
+        # владелец командой /risk_reset с подтверждением кодом.
+        self._halt_latched: bool = False
+        self._halt_reason: Optional[str] = None
         
         # Rolling counters (allowed state)
         self._behavioral_counters = BehavioralCounters(
@@ -250,8 +260,17 @@ class RiskCore:
         - If invariant unclear → DENY
         """
         try:
+            # Пока защёлка не снята владельцем, ответ один — DENY.
+            if self._halt_latched:
+                return TradingPermission.DENY, RiskState.HALTED, ViolationReport(
+                    violations=[f"HALTED с защёлкой: {self._halt_reason}. Сброс — /risk_reset"],
+                    highest_severity_state=RiskState.HALTED,
+                    violated_invariants=["HALT_LATCHED"],
+                )
+
             # Validate inputs (fail-closed)
             if not self._validate_inputs(intent, capital, exposure, behavioral, system_health):
+                self._latch_halt("некорректные входные данные оценки")
                 self._risk_state = RiskState.HALTED
                 violation_report = ViolationReport(
                     violations=["Invalid inputs detected"],
@@ -287,6 +306,8 @@ class RiskCore:
             
             # Update FSM state
             self._risk_state = new_state
+            if new_state == RiskState.HALTED:
+                self._latch_halt("нарушение инварианта уровня HALTED")
             
             # Determine trading permission from state
             permission = self._state_to_permission(new_state)
@@ -303,6 +324,7 @@ class RiskCore:
         except Exception as e:
             # Fail-closed: any exception → DENY
             logger.error("Risk Core evaluation failed: %s: %s", type(e).__name__, e, exc_info=True)
+            self._latch_halt(f"исключение внутри Risk Core: {type(e).__name__}")
             self._risk_state = RiskState.HALTED
             violation_report = ViolationReport(
                 violations=[f"Risk Core exception: {type(e).__name__}"],
@@ -676,6 +698,33 @@ class RiskCore:
         }
         return severity_map.get(state, 3)  # Unknown → highest severity
     
+    def _latch_halt(self, reason: str) -> None:
+        if not self._halt_latched:
+            logger.critical("Risk Core: HALTED — торговля остановлена до ручного сброса. Причина: %s", reason)
+        self._halt_latched = True
+        self._halt_reason = reason
+
+    @property
+    def halt_latched(self) -> bool:
+        return self._halt_latched
+
+    @property
+    def halt_reason(self) -> Optional[str]:
+        return self._halt_reason
+
+    def reset_halt(self, by: str) -> bool:
+        """
+        Снять защёлку HALTED. Только осознанным действием человека: вызывается
+        из /risk_reset после подтверждения кодом. False — если снимать было нечего.
+        """
+        if not self._halt_latched:
+            return False
+        logger.warning("Risk Core: HALTED снят вручную (%s). Была причина: %s", by, self._halt_reason)
+        self._halt_latched = False
+        self._halt_reason = None
+        self._risk_state = RiskState.SAFE
+        return True
+
     def reset(self):
         """
         Reset Risk Core state (for testing/recovery).

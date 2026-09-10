@@ -14,6 +14,9 @@ from indicators import atr, adx
 from states import market_direction, is_flat
 from volatility_filter import calculate_volatility_metrics
 from correlation_analysis import analyze_market_correlations
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class MarketRegimeBrain:
@@ -119,7 +122,7 @@ class MarketRegimeBrain:
                 else:
                     range_scores.append(1)
             except Exception:
-                pass
+                logger.debug("market_regime: сила тренда по ADX не оценена", exc_info=True)
             
             # Проверяем согласованность направлений
             direction_4h = market_direction(candles_4h) if candles_4h else "FLAT"

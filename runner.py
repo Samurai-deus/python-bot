@@ -44,9 +44,11 @@ except ImportError:
     HAS_FCNTL = False  # Windows
 
 # Импорты для работы бота
+from utils.env import env_flag
 from error_alert import error_alert
 from telegram_bot import send_message, send_message_async
 from health_monitor import send_heartbeat, send_heartbeat_async, HEARTBEAT_INTERVAL
+from utils import liveness
 from daily_report import generate_daily_report
 
 # Новые модули для контролируемой архитектуры
@@ -134,6 +136,17 @@ SAFE_MODE_TTL = 600.0  # 600 секунд (10 минут) - TTL для SAFE_MODE
 GRACEFUL_SHUTDOWN_TIMEOUT = 10.0  # 10 секунд - жёсткий таймаут на graceful shutdown
 FATAL_EXIT_CODE = 10  # Exit code для FATAL состояния (systemd restart)
 
+
+def _hard_exit(code: int) -> None:
+    """
+    Немедленное завершение процесса, минуя cleanup и atexit.
+
+    Единственная точка, где вызывается os._exit из сторожевых потоков, и точка
+    подмены для тестов: инвариант «FATAL ⇒ процесс обязан выйти» нужно уметь
+    проверить, не убивая при этом pytest (см. FatalReaper).
+    """
+    os._exit(code)
+
 # ========== THREAD WATCHDOG CONSTANTS ==========
 THREAD_WATCHDOG_INTERVAL = 5.0  # Проверка каждые 5 секунд
 THREAD_WATCHDOG_HEARTBEAT_TIMEOUT = 30.0  # 30 секунд без heartbeat → LOOP_STALL
@@ -196,30 +209,51 @@ class StructuredFormatter(logging.Formatter):
         return log_entry
 
 # Настройка структурированного логирования
-def setup_structured_logging():
-    """Настраивает структурированное логирование для production"""
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    
-    # Удаляем существующие handlers
-    root_logger.handlers.clear()
-    
-    # Создаём formatter
+def setup_structured_logging(enable_file: bool = False):
+    """
+    Настраивает структурированное логирование.
+
+    enable_file=False (при импорте) — только stdout. Файловый handler создаёт файл
+    на диске, а импорт модуля не должен ничего создавать: `import runner` в тестах
+    оставлял после себя runner.log, а в контейнере под non-root падал бы
+    PermissionError на /data/logs ещё до первой строки кода.
+
+    enable_file=True вызывается из main(). В Docker файл не нужен вовсе: stdout
+    забирает json-file драйвер, который умеет ротацию, — в отличие от FileHandler,
+    который писал бы в один файл без ограничения размера.
+    """
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+
     formatter = StructuredFormatter()
-    
-    # File handler
-    file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
-    
-    # Console handler (для systemd/journalctl)
+
+    # Console handler (для systemd/journalctl/docker logs) — всегда
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-    
-    return root_logger
+    root.addHandler(console_handler)
 
-# Инициализируем логирование
+    if enable_file:
+        # RotatingFileHandler, а не FileHandler: logrotate на хосте не покрывал
+        # /data/logs, а постоянно дописываемый файл не «стареет» и под mtime-чистку
+        # не попадает — рос без границы.
+        from logging.handlers import RotatingFileHandler
+        file_handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=50 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
+
+    # Токен бота — часть URL запросов к Telegram (/bot<токен>/getUpdates), а httpx
+    # на уровне INFO пишет каждый URL. Так утёк прежний токен (строки лога попали в
+    # tests/rso_report_*.json, а те — в публичный репозиторий), и так же в логах
+    # контейнера оказался новый после выкладки 10.09.2026.
+    from utils.log_redaction import install_log_redaction
+    install_log_redaction(root)
+
+    return root
+
+# Инициализируем логирование (без файла — файл подключает main())
 root_logger = setup_structured_logging()
 logger = logging.getLogger(__name__)
 
@@ -296,11 +330,14 @@ async def exit_safe_mode_via_recovery(reason: str, owner: str) -> bool:
             owner
         )
         # Re-arm ThreadWatchdog so it can detect future stalls
-        global _thread_watchdog
-        if _thread_watchdog is not None:
-            with _thread_watchdog.lifecycle_lock:
-                _thread_watchdog.lifecycle_state = ThreadWatchdogState.ARMED
-                _thread_watchdog.triggered = False
+        # Сторож живёт в _runtime_state. Раньше здесь читалось имя _thread_watchdog,
+        # которого в модуле нет вовсе (flake8 молчал из-за лишнего global): каждое
+        # успешное восстановление падало с NameError, и сторож не перевзводился.
+        watchdog = get_thread_watchdog()
+        if watchdog is not None:
+            with watchdog.lifecycle_lock:
+                watchdog.lifecycle_state = ThreadWatchdogState.ARMED
+                watchdog.triggered = False
             logger.info("ThreadWatchdog re-armed after recovery")
     return success
 
@@ -404,7 +441,6 @@ def get_analysis_metrics():
 
 def update_analysis_metrics(metrics_update: dict):
     """Обновляет глобальные метрики анализа"""
-    global _analysis_metrics
     with _metrics_lock:
         _analysis_metrics.update(metrics_update)
 
@@ -423,7 +459,6 @@ def record_analysis_duration(duration: float):
     - Each bucket counts all observations <= bucket value
     - Values < smallest bucket are still counted in smallest bucket
     """
-    global _prometheus_metrics
     with _metrics_lock:
         _prometheus_metrics["analysis_duration_sum"] += duration
         _prometheus_metrics["analysis_duration_count"] += 1
@@ -433,13 +468,11 @@ def record_analysis_duration(duration: float):
 
 def increment_scheduler_stalls():
     """Увеличивает счетчик scheduler stalls (NON-BLOCKING)"""
-    global _prometheus_metrics
     with _metrics_lock:
         _prometheus_metrics["scheduler_stalls_total"] += 1
 
 def increment_analysis_cycles():
     """Увеличивает счетчик завершенных циклов анализа (NON-BLOCKING)"""
-    global _prometheus_metrics
     with _metrics_lock:
         _prometheus_metrics["analysis_cycles_total"] += 1
 
@@ -449,7 +482,6 @@ def get_adaptive_system_state():
 
 def update_volatility_state(volatility_level: str):
     """Обновляет состояние волатильности (NON-BLOCKING)"""
-    global _adaptive_system_state
     # Нормализуем уровень волатильности: LOW, MEDIUM, HIGH
     if volatility_level in ["LOW", "NORMAL", "MEDIUM", "HIGH", "EXTREME"]:
         # Маппинг: LOW -> LOW, NORMAL/MEDIUM -> MEDIUM, HIGH/EXTREME -> HIGH
@@ -469,7 +501,6 @@ def pause_trading_manually():
     Returns:
         bool: True если успешно, False если уже приостановлена
     """
-    global _control_plane_state, _prometheus_metrics, _adaptive_system_state
     
     with _metrics_lock:
         if _control_plane_state["manual_pause_active"]:
@@ -492,7 +523,6 @@ def resume_trading_manually():
     Returns:
         tuple: (success: bool, message: str)
     """
-    global _control_plane_state, _prometheus_metrics, _adaptive_system_state
 
     # TOCTOU fix: all state checks and mutation happen inside a single lock
     # acquisition to prevent another thread from changing state between check
@@ -792,23 +822,24 @@ def get_last_heartbeat_timestamp() -> Optional[float]:
     Returns:
         Optional[float]: Unix timestamp последнего heartbeat или None
     """
-    global _heartbeat_lock
     with _heartbeat_lock:
         if system_state.system_health.last_heartbeat:
             return system_state.system_health.last_heartbeat.timestamp()
         return None
 
 
-def update_heartbeat_thread_safe():
+def update_heartbeat_thread_safe(when=None):
     """
     Thread-safe обновление heartbeat.
-    
+
     Вызывается из asyncio heartbeat loop для обновления timestamp,
     который читается ThreadWatchdog.
+
+    when — явная отметка времени (datetime с tz). Нужна тестам, чтобы
+    воспроизвести зависший loop, не подменяя приватные поля.
     """
-    global _heartbeat_lock
     with _heartbeat_lock:
-        system_state.update_heartbeat()
+        system_state.update_heartbeat(when)
 
 
 # ========== THREAD-BASED WATCHDOG ==========
@@ -849,15 +880,23 @@ class ThreadWatchdog:
     - ThreadWatchdog НЕ триггерит повторно (idempotent через lifecycle state)
     """
     
-    def __init__(self, state_machine_instance, heartbeat_timeout: float = THREAD_WATCHDOG_HEARTBEAT_TIMEOUT):
+    def __init__(self, state_machine_instance, heartbeat_timeout: float = THREAD_WATCHDOG_HEARTBEAT_TIMEOUT,
+                 exit_fn=None, check_interval: float = THREAD_WATCHDOG_INTERVAL):
         """
         HARDENING: Принимает state machine, не system_state.
         ThreadWatchdog работает только с state machine для thread-safe переходов.
+
+        exit_fn — подменяемая функция выхода, см. пояснение у FatalReaper.
+        check_interval — период опроса. Вынесен из константы в параметр, чтобы
+        тест на истечение TTL не ждал полный боевой цикл в 5 секунд: цикл
+        начинается с ожидания, поэтому первая проверка происходит не раньше него.
         """
         self.state_machine = state_machine_instance
         self.heartbeat_timeout = heartbeat_timeout
+        self.check_interval = check_interval
         self.thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
+        self._exit_fn = exit_fn or _hard_exit
         self.triggered = False  # Idempotent: предотвращает повторные срабатывания
         self.trigger_lock = threading.Lock()
         
@@ -962,7 +1001,7 @@ class ThreadWatchdog:
         while not self.stop_event.is_set():
             try:
                 # Проверяем каждые N секунд
-                if self.stop_event.wait(THREAD_WATCHDOG_INTERVAL):
+                if self.stop_event.wait(self.check_interval):
                     # stop_event установлен - выходим
                     break
                 
@@ -987,11 +1026,12 @@ class ThreadWatchdog:
                         
                         if duration >= safe_mode_ttl:
                             logger.critical(
-                                "THREAD_WATCHDOG: SAFE_MODE TTL expired - duration=%.1fs >= ttl=%ss, calling os._exit(%s) (invariant: SAFE_MODE TTL => exit even if asyncio stalled)",
+                                "THREAD_WATCHDOG: SAFE_MODE TTL expired - duration=%.1fs >= ttl=%ss, calling exit(%s) (invariant: SAFE_MODE TTL => exit even if asyncio stalled)",
                                 duration, safe_mode_ttl, FATAL_EXIT_CODE
                             )
-                            # КРИТИЧНО: os._exit напрямую, не через asyncio
-                            os._exit(FATAL_EXIT_CODE)
+                            # КРИТИЧНО: os._exit напрямую (через _hard_exit), не через asyncio
+                            self._exit_fn(FATAL_EXIT_CODE)
+                            return
                 
                 # HARDENING: Проверяем lifecycle state
                 with self.lifecycle_lock:
@@ -1148,20 +1188,29 @@ def get_thread_watchdog() -> Optional[ThreadWatchdog]:
 class FatalReaper:
     """
     HARDENING: Thread-level FATAL REAPER.
-    
+
     Отдельный daemon thread, который:
     - НЕ использует asyncio
     - Раз в 1-2 секунды проверяет state_machine.state == FATAL
-    - Если FATAL → вызывает os._exit(FATAL_EXIT_CODE)
-    
+    - Если FATAL → вызывает exit_fn(FATAL_EXIT_CODE)
+
     Это последний рубеж - убивает процесс даже если asyncio умер.
+
+    exit_fn существует ради тестируемости. Раньше здесь стоял голый os._exit, и
+    проверить инвариант «FATAL ⇒ процесс обязан выйти» было нечем: тест, который
+    его дёргал, убивал сам pytest — прогон обрывался на середине без сводки, с
+    кодом 10 и без единой строки о том, что вообще произошло. Единственной защитой
+    был skipif(CI == "true"), то есть в CI инвариант не проверялся вовсе, а локально
+    ломал прогон всех остальных тестов. Подменяемая функция выхода даёт проверить
+    ЧТО вызвано и С КАКИМ кодом, не завершая процесс.
     """
-    
-    def __init__(self, state_machine_instance, check_interval: float = 1.5):
+
+    def __init__(self, state_machine_instance, check_interval: float = 1.5, exit_fn=None):
         self.state_machine = state_machine_instance
         self.check_interval = check_interval
         self.thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
+        self._exit_fn = exit_fn or _hard_exit
     
     def start(self):
         """Запускает FATAL_REAPER в отдельном daemon thread"""
@@ -1213,13 +1262,14 @@ class FatalReaper:
                 
                 if current_state == SystemStateEnum.FATAL:
                     logger.critical(
-                        "FATAL_REAPER: FATAL state detected - calling os._exit(%s) (invariant: FATAL => process MUST exit)",
+                        "FATAL_REAPER: FATAL state detected - calling exit(%s) (invariant: FATAL => process MUST exit)",
                         FATAL_EXIT_CODE
                     )
-                    # КРИТИЧНО: os._exit, не sys.exit
-                    # os._exit убивает процесс немедленно, не вызывая cleanup
-                    # Это гарантирует выход даже если asyncio мёртв
-                    os._exit(FATAL_EXIT_CODE)
+                    # КРИТИЧНО: os._exit (через _hard_exit), не sys.exit —
+                    # убивает процесс немедленно, не вызывая cleanup, что
+                    # гарантирует выход даже если asyncio мёртв.
+                    self._exit_fn(FATAL_EXIT_CODE)
+                    return
                 
             except Exception as e:
                 # Критическая ошибка в reaper - логируем, но продолжаем
@@ -1711,7 +1761,8 @@ async def run_market_analysis():
         
         # Проверка через Decision Core (читает из SystemState)
         try:
-            global_decision = decision_core.should_i_trade(system_state=system_state)
+            # В пуле потоков: should_i_trade читает базу (а в LIVE — кошелёк по сети).
+            global_decision = await asyncio.to_thread(decision_core.should_i_trade, system_state=system_state)
         except RuntimeError as e:
             # Обработка fault injection или других RuntimeError из DecisionCore
             if "FAULT_INJECTION: decision_exception" in str(e):
@@ -1878,9 +1929,16 @@ async def run_market_analysis():
                 from database import cleanup_old_snapshots
                 snapshot = system_state.create_snapshot()
                 # Используем SystemStateSnapshotStore - entry point с fault injection
-                SystemStateSnapshotStore.save(snapshot)
+                await asyncio.to_thread(SystemStateSnapshotStore.save, snapshot)
                 # Очищаем старые snapshot'ы (оставляем последние 10)
-                cleanup_old_snapshots(keep_last_n=10)
+                await asyncio.to_thread(cleanup_old_snapshots, keep_last_n=10)
+                # Трассы решений — не старше 90 дней (6.4). Отдельный try: сбой
+                # очистки не должен выглядеть как ошибка сохранения снимка.
+                try:
+                    from core.decision_trace import prune_decision_trace
+                    await asyncio.to_thread(prune_decision_trace, 90)
+                except Exception as prune_err:
+                    logger.warning("Очистка трасс решений не удалась: %s", prune_err)
             except IOError as e:
                 # Обработка fault injection из storage layer
                 if "FAULT_INJECTION: storage_failure" in str(e):
@@ -1988,8 +2046,8 @@ async def market_analysis_loop():
     - Graceful shutdown support
     """
     # GLOBAL STATE (intentional)
-    global _adaptive_system_state, _control_plane_state
     logger.info("Market analysis loop started")
+    liveness.mark("analysis")  # отсчёт до первого оборота — от старта цикла
     
     # Use shutdown_event for proper cancellation semantics
     shutdown_evt = get_shutdown_event()
@@ -2051,13 +2109,10 @@ async def market_analysis_loop():
                     if _tracker.active_count() > 0:
                         _poll = await asyncio.to_thread(_tracker.poll)
                         for _closed in _poll.just_closed:
-                            _pnl = _closed.unrealised_pnl
-                            close_position_by_order_id(
-                                order_id=_closed.order_id,
-                                close_price=_closed.current_price or _closed.entry_price,
-                                close_reason="SL_OR_TP",
-                                realised_pnl=_pnl,
-                            )
+                            # Журнал закрывается по фактическому PnL биржи (closed-pnl),
+                            # а не по последнему нереализованному из опроса.
+                            from execution.exchange_ledger import record_close
+                            _pnl = await asyncio.to_thread(record_close, _closed)
                             logger.info(
                                 "[TRACKER] Position closed: %s %s pnl=%.2f",
                                 _closed.symbol, _closed.side, _pnl,
@@ -2095,6 +2150,7 @@ async def market_analysis_loop():
             record_analysis_duration(duration)
             # Увеличиваем счетчик завершенных циклов
             increment_analysis_cycles()
+            liveness.mark("analysis")  # оборот цикла завершён — метка для healthcheck
             
             # ========== АДАПТИВНАЯ СИСТЕМА ==========
             # Получаем текущее состояние для адаптации
@@ -2427,7 +2483,6 @@ async def runtime_heartbeat_loop():
     Также обнаруживает пропущенные heartbeats (признак застопорившегося event loop).
     """
     # GLOBAL STATE (intentional)
-    global _chaos_was_active, _prometheus_metrics
     logger.info("💓 Runtime heartbeat started (interval: 10s)")
     
     heartbeat_count = 0
@@ -2458,6 +2513,7 @@ async def runtime_heartbeat_loop():
             # Обновляем SystemState (thread-safe для ThreadWatchdog)
             system_state.update_heartbeat()
             update_heartbeat_thread_safe()  # Обновляем для ThreadWatchdog
+            liveness.mark("heartbeat")  # метка для healthcheck контейнера (utils/liveness.py)
             
             # Проверяем, не пропущены ли heartbeats (признак застопорившегося loop)
             # Если прошло больше чем 2 интервала - это stall
@@ -2869,7 +2925,17 @@ async def paper_trading_monitor_loop():
     При достижении SL/TP — закрывает сделку и отправляет отчёт в Telegram.
     """
     logger.info("📄 Paper trading monitor started")
+    from paper_fills import CandleWatermark
+    paper_watermark = CandleWatermark()
     shutdown_evt = get_shutdown_event()
+    from trading_mode import sends_real_orders
+    if sends_real_orders():
+        # В TESTNET/LIVE сделки ведёт биржа, строки журнала закрывает трекер позиций
+        # (execution/exchange_ledger.py). Задача остаётся живой: завершившуюся
+        # задачу супервизор счёл бы сбоем.
+        logger.info("📄 Бумажный монитор простаивает: режим с реальными ордерами")
+        await shutdown_evt.wait()
+        return
 
     while system_state.system_health.is_running and not shutdown_evt.is_set():
         try:
@@ -2877,7 +2943,8 @@ async def paper_trading_monitor_loop():
             from trade_reporter import generate_trade_report
             from data_loader import get_candles
 
-            open_trades = get_open_trades()
+            # База — в пуле потоков: синхронный запрос в async-функции держал весь цикл событий.
+            open_trades = await asyncio.to_thread(get_open_trades)
             if open_trades:
                 # Собираем уникальные символы с открытыми сделками
                 symbols_to_check = list({t["symbol"] for t in open_trades})
@@ -2888,25 +2955,11 @@ async def paper_trading_monitor_loop():
                         if candles:
                             candle = candles[-1]
                             current_price = float(candle[4])  # close price
-                            candle_low = float(candle[3])      # low price
-                            candle_high = float(candle[2])     # high price
-
-                            # Pre-check: use candle extremes for SL detection
-                            # so flash wicks that breach SL are not missed.
-                            # Determine effective price per trade side:
-                            # LONG SL uses candle low; SHORT SL uses candle high.
-                            from trade_manager import get_open_trades as _get_ot
-                            _sym_trades = [t for t in _get_ot() if t["symbol"] == symbol]
-                            effective_price = current_price
-                            for _t in _sym_trades:
-                                _side = _t.get("side", "LONG")
-                                _sl = _t.get("stop", 0)
-                                if _side == "LONG" and candle_low <= _sl:
-                                    # Candle low breached SL — use low as effective price
-                                    effective_price = min(effective_price, candle_low)
-                                elif _side == "SHORT" and candle_high >= _sl:
-                                    # Candle high breached SL — use high as effective price
-                                    effective_price = max(effective_price, candle_high)
+                            # Экстремумы — только появившиеся после прошлой проверки:
+                            # минимум, случившийся до подтягивания трейлинга, раньше
+                            # закрывал сделку по новому стопу задним числом.
+                            fresh_low, fresh_high = paper_watermark.fresh_extremes(
+                                symbol, candle[0], float(candle[3]), float(candle[2]))
 
                             # Обновляем кэш цен для WS snapshot (Mini App progress bar)
                             try:
@@ -2914,12 +2967,13 @@ async def paper_trading_monitor_loop():
                                 _pc.update(symbol, current_price)
                             except Exception:
                                 logger.debug("Failed to update price_cache for %s", symbol, exc_info=True)
-                            closed = check_trades(symbol, effective_price)
+                            closed = await asyncio.to_thread(
+                                check_trades, symbol, current_price, low=fresh_low, high=fresh_high)
                             for closed_trade in closed:
                                 trade_pnl = closed_trade.get("pnl", 0)
                                 logger.info(
                                     "[PAPER] Trade closed: %s %s @ %.4f (%s) pnl=%.2f",
-                                    symbol, closed_trade.get("side"), current_price,
+                                    symbol, closed_trade.get("side"), closed_trade.get("close_price", current_price),
                                     closed_trade.get("close_reason"), trade_pnl,
                                 )
                                 # Сбрасываем кэш сигнала И cooldown для символа,
@@ -3406,7 +3460,6 @@ async def handle_admin_status():
     - Этот endpoint НЕ изменяет safe_mode
     """
     # GLOBAL STATE (intentional) - только чтение
-    global _control_plane_state
     metrics = get_analysis_metrics()
     uptime = 0.0
     if metrics.get("start_time") is not None:
@@ -3431,7 +3484,6 @@ async def handle_admin_pause():
     - Если safe_mode == True, trading_paused уже должен быть True
     """
     # GLOBAL STATE (intentional)
-    global _prometheus_metrics, _control_plane_state
     logger.info("ADMIN COMMAND RECEIVED: pause")
     
     # REQUIREMENT: Concurrency safety - prevent race conditions
@@ -3467,7 +3519,6 @@ async def handle_admin_resume():
     - Метрики отражают реальный результат (blocked_safe_mode или success)
     """
     # GLOBAL STATE (intentional)
-    global _prometheus_metrics, _control_plane_state
     logger.info("ADMIN COMMAND RECEIVED: resume")
     
     # REQUIREMENT: Concurrency safety - prevent race conditions
@@ -3525,7 +3576,6 @@ async def handle_admin_resume():
 async def handle_metrics():
     """GET /metrics - возвращает Prometheus-совместимые метрики"""
     # GLOBAL STATE (intentional) - только чтение
-    global _control_plane_state, _prometheus_metrics
     metrics = get_analysis_metrics()
     prom_metrics = get_prometheus_metrics()
     
@@ -3655,7 +3705,8 @@ async def handle_chaos_inject():
         try:
             log_task_dump(incident_id, context="CHAOS_INJECTION_START")
         except Exception:
-            pass  # Не критично если task_dump не доступен
+            # Не критично, но след в логе нужен.
+            logger.debug("task_dump перед инъекцией хаоса недоступен", exc_info=True)
         
         return 200, json.dumps({
             "status": "chaos_injected",
@@ -4053,14 +4104,19 @@ async def telegram_supervisor(system_state):
         try:
             # Build Telegram application
             if app is None:
-                polling_request = HTTPXRequest(
-                    connection_pool_size=10,
-                    pool_timeout=30.0,
-                    read_timeout=30.0,
-                    write_timeout=30.0,
-                    connect_timeout=30.0,
+                # HTTP-клиенты — только из telegram_bot.build_request: там прокси.
+                # PTB держит ДВА клиента — для методов бота и для getUpdates. Если
+                # второй не задать, PTB создаст его сам, без прокси, и на хосте,
+                # где api.telegram.org напрямую недоступен, бот не получит ни одной
+                # команды при исправно работающей отправке.
+                from telegram_bot import build_request
+                app = (
+                    ApplicationBuilder()
+                    .token(TOKEN)
+                    .request(build_request())
+                    .get_updates_request(build_request())
+                    .build()
                 )
-                app = ApplicationBuilder().token(TOKEN).request(polling_request).build()
                 setup_commands(app)
             
             # Start polling
@@ -4318,8 +4374,18 @@ async def main():
     - Graceful shutdown via shutdown_event
     - systemd compatibility
     """
+    # Файловый лог подключаем здесь, а не при импорте: до этой точки модуль обязан
+    # импортироваться в любом окружении (тесты, статический анализ), ничего не создавая
+    # на диске. По умолчанию файла нет вовсе — логи забирает stdout, а в Docker их
+    # подхватывает json-file драйвер, который умеет ротацию. Прежний FileHandler писал
+    # в один файл без ограничения размера, а logrotate на хосте был настроен на другой
+    # путь и до него не доставал.
+    if env_flag("LOG_TO_FILE", default=False):
+        setup_structured_logging(enable_file=True)
+        logger.info("Логирование: stdout + файл %s (ротация 50 МБ × 3)", LOG_FILE)
+
     logger.critical("MAIN STARTED")
-    
+
     # ========== STATE MACHINE INITIALIZATION ==========
     # HARDENING: Инициализируем state machine с правильным TTL
     state_machine = get_state_machine(safe_mode_ttl=SAFE_MODE_TTL)
@@ -4433,6 +4499,27 @@ async def main():
     except Exception as e:
         logger.warning("Failed to send startup message (non-critical): %s: %s", type(e).__name__, e)
     
+    # Сверка позиций с биржей при старте (3.9) — только когда ордера реальные.
+    # Не удалась — торговля на паузе до /resume: без сверки неизвестно, что уже открыто.
+    try:
+        from trading_mode import sends_real_orders as _real_orders
+        if _real_orders():
+            from execution.exchange_ledger import reconcile_on_startup
+            _report = await asyncio.wait_for(asyncio.to_thread(reconcile_on_startup), timeout=90.0)
+            logger.info("Сверка позиций при старте: %s", _report.summary())
+            if _report.messages:
+                await send_message_async("🔄 Сверка позиций с биржей при старте:\n" + "\n".join(_report.messages))
+    except Exception as e:
+        logger.critical("Сверка позиций при старте не выполнена: %s: %s", type(e).__name__, e, exc_info=True)
+        pause_trading_manually()
+        try:
+            await send_message_async(
+                "🚨 Сверка позиций с биржей при старте не удалась — торговля на паузе. "
+                "Проверьте позиции на бирже и снимите паузу /resume."
+            )
+        except Exception:
+            logger.warning("Не удалось отправить тревогу о сверке", exc_info=True)
+
     # Создаём и отслеживаем все фоновые задачи
     # ВАЖНО: Порядок запуска критичен для предотвращения Conflict
     # 1. Control plane server УЖЕ запущен (выше)
@@ -4739,8 +4826,8 @@ async def main():
         try:
             await send_message_async("⏹ Торговый бот остановлен")
         except Exception:
-            # Ignore errors - notification is non-critical
-            pass
+            # Уведомление не критично для остановки, но след в логе нужен.
+            logger.debug("Уведомление об остановке бота не отправлено", exc_info=True)
         
         # Cleanup
         cleanup_pid_file()

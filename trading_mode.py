@@ -1,38 +1,54 @@
 """
-Trading mode resolver — Phase 2.
+Режим торговли — единственный источник истины.
 
-Единственное место, где читаются DRY_RUN / PAPER_TRADING / LIVE_TRADING из .env.
-Все модули импортируют get_trading_mode() вместо прямого чтения os.environ.
+Здесь и только здесь читаются LIVE_TRADING / PAPER_TRADING / BYBIT_TESTNET / DRY_RUN.
+Остальные модули спрашивают режим функциями ниже и НЕ обращаются к os.environ за
+этими именами. За соблюдением следит гейт в CI.
+
+Почему это важно (аудит 10.09.2026, блокер B-2): раньше те же переменные читались
+ещё в двух местах и по другому правилу — `value.lower() == "true"` вместо списка
+допустимых значений. При `BYBIT_TESTNET=1` режим определялся как TESTNET, гейткипер
+пропускал ордер как тестовый, в Telegram уходила пометка [TESTNET], а клиент биржи
+не признавал "1" за истину и отправлял ордер на https://api.bybit.com. Разбор
+значений вынесен в utils.env.env_flag, где перечислены обе стороны явно.
+
+Два вопроса, на которые отвечает этот модуль, и их важно не смешивать:
+
+  sends_real_orders()     — уходит ли ордер на биржу вообще
+  uses_testnet_endpoint() — на какой хост биржи мы при этом смотрим
+
+В DRY_RUN и PAPER_TRADING рыночные данные читаются с mainnet (нужны настоящие цены),
+но ордера не отправляются. В TESTNET и то и другое идёт на testnet-хост.
 """
-import os
 from enum import Enum
+
+from utils.env import env_flag
 
 
 class TradingMode(str, Enum):
-    DRY_RUN = "DRY_RUN"             # Сигналы в Telegram, биржа не вызывается
+    DRY_RUN = "DRY_RUN"              # Сигналы в Telegram, биржа не вызывается
     PAPER_TRADING = "PAPER_TRADING"  # Виртуальные сделки, биржа не вызывается
     TESTNET = "TESTNET"              # Реальные ордера на Bybit Testnet
-    LIVE = "LIVE"                    # Реальные ордера на Bybit Mainnet (Phase 6+)
+    LIVE = "LIVE"                    # Реальные ордера на Bybit Mainnet
 
 
 def get_trading_mode() -> TradingMode:
     """
-    Определить активный режим торговли из .env.
+    Активный режим торговли.
 
-    Приоритет (первый True побеждает):
-    1. LIVE_TRADING=true  → LIVE
-    2. PAPER_TRADING=true → PAPER_TRADING
-    3. BYBIT_TESTNET=true + DRY_RUN=false → TESTNET
-    4. иначе              → DRY_RUN (безопасный дефолт)
+    Приоритет (первый сработавший побеждает):
+      1. LIVE_TRADING=true                   → LIVE
+      2. PAPER_TRADING=true                  → PAPER_TRADING
+      3. BYBIT_TESTNET=true и DRY_RUN≠true   → TESTNET
+      4. иначе                               → DRY_RUN
+
+    DRY_RUN — безопасный дефолт: при пустом окружении ордера не уходят никуда.
     """
-    def _flag(name: str) -> bool:
-        return os.environ.get(name, "false").lower() in ("true", "1", "yes", "on")
-
-    if _flag("LIVE_TRADING"):
+    if env_flag("LIVE_TRADING"):
         return TradingMode.LIVE
-    if _flag("PAPER_TRADING"):
+    if env_flag("PAPER_TRADING"):
         return TradingMode.PAPER_TRADING
-    if _flag("BYBIT_TESTNET") and not _flag("DRY_RUN"):
+    if env_flag("BYBIT_TESTNET") and not env_flag("DRY_RUN"):
         return TradingMode.TESTNET
     return TradingMode.DRY_RUN
 
@@ -40,11 +56,35 @@ def get_trading_mode() -> TradingMode:
 def is_dry_run() -> bool:
     return get_trading_mode() == TradingMode.DRY_RUN
 
+
 def is_paper_trading() -> bool:
     return get_trading_mode() == TradingMode.PAPER_TRADING
+
 
 def is_testnet() -> bool:
     return get_trading_mode() == TradingMode.TESTNET
 
+
 def is_live() -> bool:
+    return get_trading_mode() == TradingMode.LIVE
+
+
+def sends_real_orders() -> bool:
+    """
+    Уходит ли ордер на биржу. Единственный предикат, по которому исполнитель
+    решает «отправлять или нет» — вместо собственного чтения DRY_RUN.
+    """
+    return get_trading_mode() in (TradingMode.TESTNET, TradingMode.LIVE)
+
+
+def uses_testnet_endpoint() -> bool:
+    """
+    Смотреть ли на testnet-хост биржи. Только режим TESTNET: в DRY_RUN и
+    PAPER_TRADING нужны настоящие рыночные данные с mainnet.
+    """
+    return get_trading_mode() == TradingMode.TESTNET
+
+
+def risks_real_money() -> bool:
+    """Ставит ли текущий режим под удар настоящие деньги. Для алертов и баннеров."""
     return get_trading_mode() == TradingMode.LIVE

@@ -2,6 +2,7 @@
 Settings endpoints — GET /api/settings, PUT /api/settings.
 Also: GET/PUT /api/settings/keys — encrypted API key management.
 """
+import asyncio
 import json
 import os
 from typing import List
@@ -188,13 +189,16 @@ async def list_keys(_user=Depends(verify_auth)):
 
 
 @router.put("/keys", response_model=KeysResponse)
-async def store_keys(body: StoreKeysRequest, _user=Depends(verify_admin)):
+async def store_keys(body: StoreKeysRequest, user=Depends(verify_admin)):
     """
     Encrypt and store Bybit API credentials in the database.
 
     Requires ENCRYPTION_KEY to be configured in .env.
     Values are encrypted with Fernet (AES-128-CBC + HMAC) before storage.
     """
+    import logging as _logging
+    log = _logging.getLogger(__name__)
+
     if not body.bybit_api_key.strip():
         raise HTTPException(400, "bybit_api_key must not be empty")
     if not body.bybit_api_secret.strip():
@@ -208,11 +212,33 @@ async def store_keys(body: StoreKeysRequest, _user=Depends(verify_admin)):
     try:
         enc_key = encrypt(body.bybit_api_key.strip())
         enc_secret = encrypt(body.bybit_api_secret.strip())
-    except RuntimeError as e:
-        raise HTTPException(500, f"Encryption error: {e}")
+    except RuntimeError:
+        # Текст исключения раньше уходил клиенту целиком ("Encryption error: …")
+        # и раскрывал детали настройки ключа шифрования. Детали — в лог.
+        log.error("store_keys: шифрование не удалось", exc_info=True)
+        raise HTTPException(500, "Encryption is not configured on the server")
 
     await run_sync(database.save_encrypted_api_key, "BYBIT_API_KEY", enc_key)
     await run_sync(database.save_encrypted_api_key, "BYBIT_API_SECRET", enc_secret)
 
+    # Смена ключей биржи — событие, о котором владелец должен узнать, даже если
+    # сделал это сам: если не сам — это единственный шанс заметить. Раньше
+    # не писалось даже в лог, кто именно поменял.
+    log.warning("store_keys: ключи Bybit заменены через Mini App, user_id=%s", user.get("user_id"))
+    asyncio.create_task(_notify_owner_keys_changed(user.get("user_id")))
+
     entries = await run_sync(database.list_encrypted_key_names)
     return KeysResponse(keys=[KeyEntry(**e) for e in entries])
+
+
+async def _notify_owner_keys_changed(user_id) -> None:
+    """Уведомление владельцу в Telegram. Сбой доставки не должен ронять запрос."""
+    import logging as _logging
+    try:
+        from telegram_bot import send_message_async
+        await send_message_async(
+            f"🔐 Ключи Bybit заменены через Mini App (user_id={user_id}). "
+            "Если это были не вы — немедленно отзовите ключи в кабинете Bybit."
+        )
+    except Exception:
+        _logging.getLogger(__name__).warning("store_keys: уведомление владельцу не доставлено", exc_info=True)

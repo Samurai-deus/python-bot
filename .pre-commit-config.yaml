@@ -1,4 +1,15 @@
+# Локальные гейты. Ставится: pip install pre-commit && pre-commit install
+#
+# gitleaks добавлен 10.09.2026 после утечки токена бота: он лежал в публичном репозитории
+# с января в закоммиченном .pyc (строковые литералы модуля видны в байт-коде как есть),
+# при том что из .py его убрали ещё в марте. detect-private-key такое не ловит —
+# он ищет только PEM-заголовки приватных ключей, а не токены Telegram/Bybit/Anthropic.
 repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.0
+    hooks:
+      - id: gitleaks
+
   - repo: https://github.com/psf/black
     rev: 24.3.0
     hooks:
@@ -26,6 +37,9 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+      # 500 КБ, а не 1000: в репозиторий уже уезжало 76 МБ venv-а. Порог должен
+      # мешать заметить лишнее, а не пропускать «ну почти влезло».
       - id: check-added-large-files
-        args: ["--maxkb=1000"]
+        args: ["--maxkb=500"]
       - id: detect-private-key
+      - id: check-merge-conflict

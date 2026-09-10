@@ -3,24 +3,36 @@ Bybit REST API client — Phase 2.
 
 Отвечает только за HTTP-коммуникацию с биржей:
 - Подписание запросов (HMAC-SHA256)
-- Retry с экспоненциальным backoff
+- Повторы с разными правилами для чтения, идемпотентной записи и создания ордера
 - Единый разбор ответов
 
 Принципы:
-- Только Testnet пока BYBIT_TESTNET=true в .env
 - Fail-closed: любая неопределённость → исключение, не None
 - Без бизнес-логики (стратегия, риск, размер позиции — не здесь)
+
+Повторы (переработано 10.09.2026, аудит торгового пути):
+- Подпись и метка времени строятся заново на каждой попытке. Раньше их строили
+  один раз до цикла, и попытка через 7 с уходила с меткой вне recv_window (5 с).
+- Чтение (GET) повторяется при 5xx, лимите запросов (10006), таймауте и обрыве
+  соединения. Раньше таймаут и обрыв не повторялись вовсе.
+- Создание ордера вслепую НЕ повторяется. При 5xx, таймауте, обрыве, мусорном
+  ответе ордер мог быть принят — это OrderStateUnknown, и исполнитель сверяет
+  его по orderLinkId. Дубль orderLinkId (110072) значит «биржа уже видела этот
+  ордер» — тоже OrderStateUnknown. Повторяется только отказ по лимиту запросов:
+  такой запрос биржа точно не приняла.
 """
 import hashlib
 import hmac
 import json
-import time
 import logging
 import os
+import re
 import threading
+import time
 import uuid
 from dataclasses import dataclass
-from typing import Dict, Optional, Any
+from decimal import Decimal
+from typing import Any, Dict, Optional, Union
 from urllib.parse import urlencode
 
 import requests
@@ -31,6 +43,30 @@ logger = logging.getLogger(__name__)
 
 _MAINNET_BASE = "https://api.bybit.com"
 _TESTNET_BASE = "https://api-testnet.bybit.com"
+
+Number = Union[Decimal, float, int, str]
+
+# orderLinkId: до 36 символов, буквы, цифры, дефис и подчёркивание (документация v5).
+_ORDER_LINK_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,36}$")
+
+
+def fmt_number(value: Number) -> str:
+    """
+    Число для API Bybit: без экспоненты. str(float) даёт '1e-05', и биржа такой
+    ордер не примет. Хвосты вида 0.21359999999999998 устраняет округление к шагу
+    в исполнителе — сюда приходит уже Decimal.
+    """
+    d = value if isinstance(value, Decimal) else Decimal(str(value))
+    text = format(d, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in ("", "-0") else text
+
+
+def new_order_link_id() -> str:
+    """Уникальный orderLinkId: миллисекунды + случайный хвост, 23 символа."""
+    return f"mb-{int(time.time() * 1000):x}-{uuid.uuid4().hex[:8]}"
+
 
 # ========== RESPONSE TYPES ==========
 
@@ -45,6 +81,7 @@ class OrderResult:
     price: Optional[float]
     status: str          # "Created" | "Filled" | "Cancelled" etc.
     time_in_force: str
+    order_link_id: str = ""
 
 
 @dataclass
@@ -69,26 +106,36 @@ class BalanceInfo:
     coin: str            # "USDT"
 
 
+@dataclass(frozen=True)
+class InstrumentFilters:
+    """Фильтры инструмента — единственный источник шагов и лимитов для ордера."""
+    symbol: str
+    status: str
+    tick_size: Decimal
+    qty_step: Decimal
+    min_qty: Decimal
+    max_market_qty: Decimal
+    min_notional: Decimal
+    max_leverage: Optional[Decimal]
+
+
 # ========== CLIENT ==========
 
 class BybitClient:
     """
     Тонкий HTTP-клиент для Bybit V5 API.
 
-    Умеет:
-    - Подписывать приватные запросы (HMAC-SHA256, timestamp + recv_window)
-    - Делать GET/POST с retry
-    - Разбирать стандартный Bybit V5 envelope {"retCode": 0, "result": ...}
-
-    Не умеет (намеренно):
-    - Решать, открывать ли позицию
-    - Считать размер позиции
-    - Знать о RiskCore, DecisionCore и т.д.
+    Не умеет (намеренно): решать, открывать ли позицию, считать размер,
+    знать о RiskCore и DecisionCore.
     """
 
     _RECV_WINDOW = 5000   # ms — рекомендовано Bybit
-    _MAX_RETRIES = 3
     _RETRY_DELAYS = (1, 2, 4)  # секунды между попытками
+    _FILTERS_TTL = 6 * 3600
+    _MAX_POSITION_PAGES = 50
+
+    ORDER_LINK_DUPLICATE = 110072
+    LEVERAGE_NOT_MODIFIED = 110043
 
     def __init__(
         self,
@@ -106,14 +153,18 @@ class BybitClient:
             )
 
         if testnet is None:
-            testnet = os.environ.get("BYBIT_TESTNET", "true").lower() == "true"
+            # Хост берётся из того же резолвера, что и режим: uses_testnet_endpoint()
+            # истинна ровно в режиме TESTNET. Раньше здесь был собственный разбор
+            # BYBIT_TESTNET, и при BYBIT_TESTNET=1 ордер уходил на mainnet.
+            from trading_mode import uses_testnet_endpoint
+            testnet = uses_testnet_endpoint()
         self._testnet = testnet
 
         self._base_url = _TESTNET_BASE if testnet else _MAINNET_BASE
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
 
-        self._qty_step_cache: Dict[str, float] = {}
+        self._filters_cache: Dict[str, tuple] = {}
 
         mode = "TESTNET" if testnet else "MAINNET"
         logger.info("BybitClient initialized [%s]: %s", mode, self._base_url)
@@ -123,7 +174,6 @@ class BybitClient:
         """
         Try to load API credentials from encrypted DB storage.
         Falls back to current values (possibly empty) on any error.
-        Fail-open: missing keys just mean unauthenticated (read-only) mode.
         """
         try:
             from database import get_encrypted_api_key
@@ -153,29 +203,15 @@ class BybitClient:
 
     def get_klines(self, symbol: str, interval: str, limit: int = 120) -> list:
         """Получить свечи (публичный endpoint, без ключей)."""
-        params = {
-            "category": "linear",
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit,
-        }
+        params = {"category": "linear", "symbol": symbol, "interval": interval, "limit": limit}
         data = self._get("/v5/market/kline", params=params, signed=False)
         candles = data.get("list", [])
         return list(reversed(candles))  # Bybit: новые → старые; нам нужно старые → новые
 
     def get_mark_price(self, symbol: str) -> float:
-        """
-        Получить текущую mark price символа (публичный endpoint).
-
-        Используется для валидации SL перед размещением ордера:
-        - SHORT (Sell): stop_loss должен быть > mark_price
-        - LONG (Buy): stop_loss должен быть < mark_price
-
-        Returns 0.0 при ошибке (caller должен обработать).
-        """
+        """Текущая mark price символа. 0.0 при ошибке — вызывающий обязан отказать."""
         try:
-            params = {"category": "linear", "symbol": symbol}
-            data = self._get("/v5/market/tickers", params=params, signed=False)
+            data = self._get("/v5/market/tickers", params={"category": "linear", "symbol": symbol}, signed=False)
             items = data.get("list", [])
             if items:
                 return float(items[0].get("markPrice") or 0)
@@ -184,35 +220,67 @@ class BybitClient:
         return 0.0
 
     def get_instruments_info(self, symbol: str) -> Dict:
-        """Получить параметры инструмента (min qty, step, tick size и т.д.)."""
-        params = {"category": "linear", "symbol": symbol}
-        return self._get("/v5/market/instruments-info", params=params, signed=False)
+        """Сырые параметры инструмента."""
+        return self._get("/v5/market/instruments-info", params={"category": "linear", "symbol": symbol}, signed=False)
+
+    def get_instrument_filters(self, symbol: str) -> InstrumentFilters:
+        """
+        Шаг цены, шаг и пределы количества, минимальный номинал, максимальное плечо.
+        Кэш 6 ч; биржа не ответила — устаревшее значение; значения нет вовсе —
+        исключение. Никаких значений по умолчанию: раньше исполнитель при ошибке
+        молча брал шаг 0.001, и ордер уходил с количеством, которое биржа не примет.
+        """
+        now = time.time()
+        cached = self._filters_cache.get(symbol)
+        if cached and now - cached[0] < self._FILTERS_TTL:
+            return cached[1]
+        try:
+            items = self.get_instruments_info(symbol).get("list") or []
+            if not items:
+                raise RuntimeError(f"нет данных инструмента {symbol}")
+            filters = self._parse_filters(symbol, items[0])
+        except Exception:
+            if cached:
+                logger.warning("instrument filters %s: биржа не ответила, беру значение из кэша", symbol)
+                return cached[1]
+            raise
+        self._filters_cache[symbol] = (now, filters)
+        return filters
+
+    @staticmethod
+    def _parse_filters(symbol: str, item: Dict) -> InstrumentFilters:
+        lot = item.get("lotSizeFilter") or {}
+        price = item.get("priceFilter") or {}
+        lev = item.get("leverageFilter") or {}
+
+        def required(value, name):
+            if value in (None, ""):
+                raise RuntimeError(f"{symbol}: в instruments-info нет {name}")
+            d = Decimal(str(value))
+            if d <= 0:
+                raise RuntimeError(f"{symbol}: {name}={value} — не положительное")
+            return d
+
+        return InstrumentFilters(
+            symbol=symbol,
+            status=item.get("status", ""),
+            tick_size=required(price.get("tickSize"), "priceFilter.tickSize"),
+            qty_step=required(lot.get("qtyStep"), "lotSizeFilter.qtyStep"),
+            min_qty=required(lot.get("minOrderQty"), "lotSizeFilter.minOrderQty"),
+            # Для рыночного ордера предел — maxMktOrderQty; maxOrderQty — для лимитных.
+            max_market_qty=required(lot.get("maxMktOrderQty") or lot.get("maxOrderQty"), "lotSizeFilter.maxMktOrderQty"),
+            min_notional=Decimal(str(lot.get("minNotionalValue") or "0")),
+            max_leverage=Decimal(str(lev["maxLeverage"])) if lev.get("maxLeverage") else None,
+        )
 
     def get_contract_status(self, symbol: str) -> str:
-        """Возвращает статус контракта: 'Trading', 'Closed', 'PreLaunch' и т.д."""
-        data = self.get_instruments_info(symbol)
-        items = data.get("list", [])
-        if items:
-            return items[0].get("status", "")
-        return ""
+        """Статус контракта: 'Trading', 'Closed', 'PreLaunch' и т.д."""
+        items = self.get_instruments_info(symbol).get("list", [])
+        return items[0].get("status", "") if items else ""
 
     def get_qty_step(self, symbol: str) -> float:
-        """
-        Получить qtyStep для символа (с кэшированием).
-
-        qtyStep — минимальный шаг количества контрактов на Bybit.
-        Ордер с qty не кратным qtyStep будет отклонён биржей.
-        """
-        if symbol not in self._qty_step_cache:
-            data = self.get_instruments_info(symbol)
-            instruments = data.get("list", [])
-            if instruments:
-                lot_filter = instruments[0].get("lotSizeFilter", {})
-                self._qty_step_cache[symbol] = float(lot_filter.get("qtyStep", "0.001"))
-            else:
-                logger.warning("No instruments info for %s, using default qtyStep=0.001", symbol)
-                self._qty_step_cache[symbol] = 0.001
-        return self._qty_step_cache[symbol]
+        """qtyStep символа (через фильтры инструмента, без значения по умолчанию)."""
+        return float(self.get_instrument_filters(symbol).qty_step)
 
     # ------------------------------------------------------------------ #
     #  Account data (требуют подписи)                                     #
@@ -233,10 +301,6 @@ class BybitClient:
         if entry is None:
             raise RuntimeError(f"Coin {coin} not found in wallet-balance response")
         # Bybit может вернуть "" для числовых полей (пустой счёт / testnet).
-        # `val or 0` превращает "" и None в 0 перед float().
-        # available_balance = walletBalance (баланс для торговли).
-        # availableToWithdraw — это другое: сколько можно вывести с биржи,
-        # может быть 0 даже при наличии средств (margin requirements).
         return BalanceInfo(
             total_equity=float(entry.get("equity") or 0),
             available_balance=float(entry.get("walletBalance") or 0),
@@ -244,34 +308,65 @@ class BybitClient:
             coin=coin,
         )
 
-    def get_positions(self, symbol: Optional[str] = None) -> list[PositionInfo]:
-        """Получить открытые позиции. symbol=None → все позиции."""
-        params: Dict[str, Any] = {"category": "linear", "settleCoin": "USDT"}
+    def get_positions(self, symbol: Optional[str] = None) -> list:
+        """
+        Открытые позиции, все страницы. Раньше читалась только первая страница
+        (по умолчанию 20 записей), и позиция со второй считалась закрытой.
+        """
+        params: Dict[str, Any] = {"category": "linear", "settleCoin": "USDT", "limit": 200}
         if symbol:
             params["symbol"] = symbol
-        data = self._get("/v5/position/list", params=params, signed=True)
         result = []
-        for p in data.get("list", []):
-            result.append(PositionInfo(
-                symbol=p["symbol"],
-                side=p.get("side", "None"),
-                size=float(p.get("size", 0)),
-                entry_price=float(p.get("avgPrice", 0)),
-                unrealised_pnl=float(p.get("unrealisedPnl", 0)),
-                leverage=float(p.get("leverage", 1)),
-                stop_loss=float(p["stopLoss"]) if p.get("stopLoss") else None,
-                take_profit=float(p["takeProfit"]) if p.get("takeProfit") else None,
-            ))
-        return result
+        cursor = None
+        for _ in range(self._MAX_POSITION_PAGES):
+            page = dict(params)
+            if cursor:
+                page["cursor"] = cursor
+            data = self._get("/v5/position/list", params=page, signed=True)
+            items = data.get("list") or []
+            for p in items:
+                result.append(PositionInfo(
+                    symbol=p["symbol"],
+                    side=p.get("side", "None"),
+                    size=float(p.get("size") or 0),
+                    entry_price=float(p.get("avgPrice") or 0),
+                    unrealised_pnl=float(p.get("unrealisedPnl") or 0),
+                    leverage=float(p.get("leverage") or 1),
+                    stop_loss=float(p["stopLoss"]) if p.get("stopLoss") else None,
+                    take_profit=float(p["takeProfit"]) if p.get("takeProfit") else None,
+                ))
+            cursor = data.get("nextPageCursor")
+            if not cursor or not items:
+                return result
+        raise RuntimeError(f"position/list: больше {self._MAX_POSITION_PAGES} страниц — ответ не сходится")
+
+    def get_closed_pnl(self, symbol: str, start_time_ms: int, limit: int = 50) -> list:
+        """Закрытый PnL по символу начиная с start_time_ms (/v5/position/closed-pnl)."""
+        data = self._get(
+            "/v5/position/closed-pnl",
+            params={"category": "linear", "symbol": symbol, "startTime": int(start_time_ms), "limit": limit},
+            signed=True,
+        )
+        return data.get("list") or []
 
     def get_open_orders(self, symbol: str) -> list:
         """Получить открытые ордера по символу."""
-        data = self._get(
-            "/v5/order/realtime",
-            params={"category": "linear", "symbol": symbol},
-            signed=True,
-        )
+        data = self._get("/v5/order/realtime", params={"category": "linear", "symbol": symbol}, signed=True)
         return data.get("list", [])
+
+    def find_order(self, symbol: str, order_link_id: str) -> Optional[Dict]:
+        """
+        Ордер по orderLinkId в любом статусе — или None. Сначала order/realtime
+        (по orderLinkId отдаёт и исполненные), затем order/history: после
+        перезапуска сервера биржи исполненные ордера видны только там.
+        """
+        params = {"category": "linear", "symbol": symbol, "orderLinkId": order_link_id}
+        for path in ("/v5/order/realtime", "/v5/order/history"):
+            data = self._get(path, params=params, signed=True)
+            for item in data.get("list") or []:
+                if item.get("orderLinkId") == order_link_id:
+                    return item
+        return None
 
     # ------------------------------------------------------------------ #
     #  Order management (требуют подписи)                                 #
@@ -281,141 +376,167 @@ class BybitClient:
         self,
         symbol: str,
         side: str,               # "Buy" | "Sell"
-        qty: float,
+        qty: Number,
         order_type: str = "Market",
-        price: Optional[float] = None,
-        stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None,
+        price: Optional[Number] = None,
+        stop_loss: Optional[Number] = None,
+        take_profit: Optional[Number] = None,
         time_in_force: str = "GTC",
         reduce_only: bool = False,
         client_order_id: Optional[str] = None,
+        position_idx: int = 0,
     ) -> OrderResult:
         """
-        Разместить ордер.
+        Разместить ордер. Одна попытка (кроме отказа по лимиту запросов).
 
-        Args:
-            symbol: Торговая пара ("BTCUSDT")
-            side: "Buy" для LONG, "Sell" для SHORT
-            qty: Количество контрактов
-            order_type: "Market" | "Limit"
-            price: Цена для Limit ордера
-            stop_loss: Цена SL (опционально)
-            take_profit: Цена TP (опционально)
-            time_in_force: "GTC" | "IOC" | "FOK" | "PostOnly"
-            reduce_only: True для закрытия позиции
-            client_order_id: Пользовательский ID ордера (опционально)
+        Raises:
+            OrderStateUnknown: запрос мог дойти до биржи — сверить по orderLinkId.
+            BybitAPIError: биржа ордер отклонила.
+            BybitUnavailable: биржа отклоняла по лимиту запросов все попытки.
         """
+        link_id = client_order_id or new_order_link_id()
+        if not _ORDER_LINK_ID_RE.match(link_id):
+            raise ValueError(f"orderLinkId {link_id!r}: до 36 символов, буквы, цифры, '-' и '_'")
         body: Dict[str, Any] = {
             "category": "linear",
             "symbol": symbol,
             "side": side,
             "orderType": order_type,
-            "qty": str(qty),
+            "qty": fmt_number(qty),
             "timeInForce": time_in_force,
+            # 0 — односторонний режим позиций; явно, а не на усмотрение биржи.
+            "positionIdx": position_idx,
+            "orderLinkId": link_id,
         }
         if price is not None:
-            body["price"] = str(price)
+            body["price"] = fmt_number(price)
         if stop_loss is not None:
-            body["stopLoss"] = str(stop_loss)
+            body["stopLoss"] = fmt_number(stop_loss)
         if take_profit is not None:
-            body["takeProfit"] = str(take_profit)
+            body["takeProfit"] = fmt_number(take_profit)
         if reduce_only:
             body["reduceOnly"] = True
-        # Always set orderLinkId for idempotency — prevents duplicate orders on retry
-        body["orderLinkId"] = client_order_id or f"mb-{uuid.uuid4().hex[:16]}"
 
-        data = self._post("/v5/order/create", body=body, signed=True)
-        # Bybit V5 /v5/order/create возвращает только orderId и orderLinkId.
-        # orderStatus отсутствует в ответе — для актуального статуса нужен /v5/order/realtime.
+        try:
+            data = self._post("/v5/order/create", body=body, signed=True,
+                              retry_network=False, retry_server=False)
+        except BybitAPIError as e:
+            if e.code == self.ORDER_LINK_DUPLICATE:
+                raise OrderStateUnknown(link_id, "биржа уже знает этот orderLinkId") from e
+            raise
+        except BybitUnavailable:
+            raise
+        except (_ServerError, requests.RequestException, BybitBadResponse) as e:
+            raise OrderStateUnknown(link_id, f"{type(e).__name__}: {e}") from e
+
+        # Ответ order/create — только orderId и orderLinkId; статус — через find_order.
         return OrderResult(
             order_id=data.get("orderId", ""),
             symbol=symbol,
             side=side,
             order_type=order_type,
-            qty=qty,
-            price=price,
+            qty=float(Decimal(str(qty))),
+            price=float(Decimal(str(price))) if price is not None else None,
             status="Created",
             time_in_force=time_in_force,
+            order_link_id=data.get("orderLinkId") or link_id,
         )
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         """Отменить ордер. Возвращает True при успехе."""
-        body = {
-            "category": "linear",
-            "symbol": symbol,
-            "orderId": order_id,
-        }
-        self._post("/v5/order/cancel", body=body, signed=True)
+        self._post("/v5/order/cancel", body={"category": "linear", "symbol": symbol, "orderId": order_id}, signed=True)
         return True
 
     def set_trading_stop(
         self,
         symbol: str,
-        stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None,
+        stop_loss: Optional[Number] = None,
+        take_profit: Optional[Number] = None,
         position_idx: int = 0,
     ) -> bool:
         """Установить/изменить SL и/или TP для открытой позиции."""
-        body: Dict[str, Any] = {
-            "category": "linear",
-            "symbol": symbol,
-            "positionIdx": position_idx,
-        }
+        body: Dict[str, Any] = {"category": "linear", "symbol": symbol, "positionIdx": position_idx}
         if stop_loss is not None:
-            body["stopLoss"] = str(stop_loss)
+            body["stopLoss"] = fmt_number(stop_loss)
         if take_profit is not None:
-            body["takeProfit"] = str(take_profit)
+            body["takeProfit"] = fmt_number(take_profit)
         self._post("/v5/position/trading-stop", body=body, signed=True)
         return True
+
+    def set_leverage(self, symbol: str, leverage: Number) -> None:
+        """
+        Плечо символа (одинаковое для обеих сторон — односторонний режим).
+        «Не изменилось» (110043) — успех. Раньше плечо не отправлялось никогда,
+        и биржа брала то, что стояло на счёте.
+        """
+        lev = fmt_number(leverage)
+        try:
+            self._post("/v5/position/set-leverage",
+                       body={"category": "linear", "symbol": symbol, "buyLeverage": lev, "sellLeverage": lev},
+                       signed=True)
+        except BybitAPIError as e:
+            if e.code == self.LEVERAGE_NOT_MODIFIED:
+                return
+            raise
 
     # ------------------------------------------------------------------ #
     #  Internal HTTP helpers                                              #
     # ------------------------------------------------------------------ #
 
     def _get(self, path: str, params: Dict, signed: bool) -> Dict:
-        url = self._base_url + path
-        if signed:
-            # Строим query string один раз и используем его в URL напрямую,
-            # чтобы подпись совпадала с тем, что реально отправляет requests.
-            query_string = urlencode(sorted(params.items()))
-            headers = self._build_auth_headers(query_string)
-            request_url = f"{url}?{query_string}"
-            request_params = None
-        else:
-            headers = {}
-            request_url = url
-            request_params = params
-        for attempt, delay in enumerate((*self._RETRY_DELAYS, None), start=1):
-            try:
-                resp = self._session.get(request_url, params=request_params, headers=headers, timeout=10)
-                return self._parse_response(resp, path)
-            except _RetryableError as e:
-                if delay is None:
-                    raise RuntimeError(f"GET {path} failed after {self._MAX_RETRIES} retries: {e}") from e
-                logger.warning("GET %s attempt %s failed: %s. Retrying in %ss...", path, attempt, e, delay)
-                time.sleep(delay)
+        return self._request("GET", path, params=params, signed=signed,
+                             retry_network=True, retry_server=True)
 
-    def _post(self, path: str, body: Dict, signed: bool) -> Dict:
+    def _post(self, path: str, body: Dict, signed: bool,
+              retry_network: bool = True, retry_server: bool = True) -> Dict:
+        return self._request("POST", path, body=body, signed=signed,
+                             retry_network=retry_network, retry_server=retry_server)
+
+    def _request(self, method: str, path: str, params: Optional[Dict] = None,
+                 body: Optional[Dict] = None, signed: bool = False,
+                 retry_network: bool = True, retry_server: bool = True) -> Dict:
         url = self._base_url + path
-        if signed:
-            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = self._build_auth_headers(body_str)
+        if method == "GET":
+            # Подписывается ровно та строка запроса, что уходит в URL.
+            query = urlencode(sorted((params or {}).items()))
+            target = f"{url}?{query}" if query else url
+            payload = query
         else:
-            body_str = json.dumps(body)
-            headers = {}
-        for attempt, delay in enumerate((*self._RETRY_DELAYS, None), start=1):
+            payload = json.dumps(body or {}, separators=(",", ":"), ensure_ascii=False)
+            target = url
+
+        attempt = 0
+        while True:
+            attempt += 1
+            headers = self._build_auth_headers(payload) if signed else {}
             try:
-                resp = self._session.post(url, data=body_str, headers=headers, timeout=10)
+                if method == "GET":
+                    resp = self._session.get(target, headers=headers, timeout=10)
+                else:
+                    resp = self._session.post(target, data=payload.encode("utf-8"), headers=headers, timeout=10)
                 return self._parse_response(resp, path)
-            except _RetryableError as e:
-                if delay is None:
-                    raise RuntimeError(f"POST {path} failed after {self._MAX_RETRIES} retries: {e}") from e
-                logger.warning("POST %s attempt %s failed: %s. Retrying in %ss...", path, attempt, e, delay)
-                time.sleep(delay)
+            except _RateLimited as e:
+                err: Exception = e
+            except _ServerError as e:
+                if not retry_server:
+                    raise
+                err = e
+            except (requests.Timeout, requests.ConnectionError) as e:
+                if not retry_network:
+                    raise
+                err = e
+            if attempt > len(self._RETRY_DELAYS):
+                raise BybitUnavailable(f"{method} {path}: {attempt} попыток без ответа: {err}") from err
+            delay = self._RETRY_DELAYS[attempt - 1]
+            logger.warning("%s %s attempt %s failed: %s. Retrying in %ss...", method, path, attempt, err, delay)
+            time.sleep(delay)
+
+    def _now_ms(self) -> int:
+        return int(time.time() * 1000)
 
     def _build_auth_headers(self, payload_str: str) -> Dict:
-        """Построить auth-заголовки для Bybit V5."""
-        ts = str(int(time.time() * 1000))
+        """Auth-заголовки Bybit V5: подпись над timestamp + key + recv_window + payload."""
+        ts = str(self._now_ms())
         recv_window = str(self._RECV_WINDOW)
         sign_payload = ts + self._api_key + recv_window + payload_str
         signature = hmac.new(
@@ -432,39 +553,35 @@ class BybitClient:
         }
 
     @staticmethod
-    def _parse_response(resp: requests.Response, path: str) -> Dict:
+    def _parse_response(resp, path: str) -> Dict:
         """Разобрать Bybit V5 envelope. Исключение при любой ошибке."""
         try:
             resp.raise_for_status()
         except requests.HTTPError as e:
             body = resp.text[:500]
-            # 5xx — временная ошибка сервера, имеет смысл повторить.
-            # 4xx — ошибка клиента (плохой запрос, неверная авторизация): повтор бессмысленен.
+            # 5xx — временная ошибка сервера; 4xx — ошибка клиента, повтор бессмысленен.
             if resp.status_code >= 500:
-                raise _RetryableError(f"HTTP {resp.status_code} for {path}: {body}") from e
+                raise _ServerError(f"HTTP {resp.status_code} for {path}: {body}") from e
             raise BybitAPIError(resp.status_code, body, path) from e
 
         try:
             data = resp.json()
         except ValueError as e:
-            raise RuntimeError(f"Non-JSON response from {path}: {resp.text[:200]}") from e
+            raise BybitBadResponse(f"Non-JSON response from {path}: {resp.text[:200]}") from e
 
         ret_code = data.get("retCode", -1)
         ret_msg = data.get("retMsg", "")
-
         if ret_code != 0:
-            # 10006 = rate limit — retryable
             if ret_code == 10006:
-                raise _RetryableError(f"Rate limit (10006) on {path}: {ret_msg}")
+                raise _RateLimited(f"Rate limit (10006) on {path}: {ret_msg}")
             raise BybitAPIError(ret_code, ret_msg, path)
-
         return data.get("result", {})
 
 
 # ========== EXCEPTIONS ==========
 
 class BybitAPIError(Exception):
-    """Ошибка Bybit API с кодом и сообщением."""
+    """Ошибка Bybit API с кодом и сообщением: биржа ответила отказом."""
     def __init__(self, code: int, message: str, path: str):
         super().__init__(f"Bybit API error {code} on {path}: {message}")
         self.code = code
@@ -472,8 +589,32 @@ class BybitAPIError(Exception):
         self.path = path
 
 
+class BybitUnavailable(RuntimeError):
+    """Все попытки исчерпаны: сеть, 5xx или лимит запросов."""
+
+
+class BybitBadResponse(RuntimeError):
+    """Ответ не разобрать (не JSON)."""
+
+
+class OrderStateUnknown(Exception):
+    """Запрос на создание ордера мог дойти до биржи — нужна сверка по orderLinkId."""
+    def __init__(self, order_link_id: str, reason: str):
+        super().__init__(f"order {order_link_id}: state unknown — {reason}")
+        self.order_link_id = order_link_id
+        self.reason = reason
+
+
 class _RetryableError(Exception):
-    """Внутренний сигнал для retry (rate limit, временная ошибка сети)."""
+    """Внутренний сигнал для повтора."""
+
+
+class _ServerError(_RetryableError):
+    """HTTP 5xx."""
+
+
+class _RateLimited(_RetryableError):
+    """retCode 10006: запрос отклонён лимитером, до исполнения не дошёл."""
 
 
 # ========== SINGLETON ==========

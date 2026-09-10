@@ -86,7 +86,7 @@ def analyze_spike_with_context(symbol: str, candles: List, timeframe: str = "15m
                 has_visible_reason = False  # Это признак неожиданного движения
         
     except Exception as e:
-        pass
+        logger.warning("spike_alert: разбор причины движения не удался: %s", e)
     
     # Определяем, нужно ли отправлять алерт
     should_alert = False
@@ -109,7 +109,6 @@ def send_spike_alert(symbol: str, spike_analysis: Dict):
     """
     Отправляет алерт о резком движении в Telegram.
     """
-    global _last_alerts
     
     # Проверяем, не отправляли ли мы недавно алерт для этого символа
     alert_key = f"{symbol}_{spike_analysis['timeframe']}"

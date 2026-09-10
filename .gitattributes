@@ -1,0 +1,21 @@
+# Окончания строк.
+#
+# Всё, что исполняется или читается на Linux, обязано быть с LF. Git на Windows с
+# core.autocrlf=true отдаёт CRLF и при checkout, и в git archive — а архив и есть
+# то, что уезжает на прод. 10.09.2026 так на сервер попал deploy.sh с первой
+# строкой "#!/bin/sh\r" и перестал запускаться («cannot execute: required file not
+# found»); те же окончания получили backup.sh и unit-файлы таймера бэкапа.
+* text=auto eol=lf
+
+# Windows-скрипты — с CRLF: PowerShell 5.1 и cmd с LF работают, но редакторы и
+# старые инструменты на Windows ждут CRLF.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.gif binary
+*.woff binary
+*.woff2 binary

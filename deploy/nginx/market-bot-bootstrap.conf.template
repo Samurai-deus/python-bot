@@ -1,0 +1,14 @@
+# Временный конфиг market-bot — только для выпуска первого сертификата.
+# deploy.sh ставит его, пока сертификата нет, выпускает сертификат через webroot
+# и сразу заменяет на market-bot.conf.template.
+server {
+    listen 80;
+    server_name __DOMAIN__;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 404;
+    }
+}

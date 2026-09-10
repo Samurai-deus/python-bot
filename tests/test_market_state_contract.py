@@ -147,17 +147,48 @@ class TestRuntimeFunctionsContract:
         assert result in ["LOW", "MEDIUM", "HIGH"]
     
     def test_risk_level_accepts_none(self):
-        """risk_level() должна работать с None"""
+        """
+        Неизвестное состояние 1h повышает риск, но само по себе не даёт HIGH.
+
+        Тест раньше ждал HIGH и падал: безусловный `return "HIGH"` при пустом 1h
+        сняли намеренно коммитом 4f8ac6a «restore signal generation for trending
+        markets». Причина в коде: determine_state() штатно возвращает None для
+        коротких таймфреймов в трендовом рынке — обычные трендовые свечи не
+        подходят ни под один из четырёх паттернов. Абсолютный запрет по такому
+        None глушил генерацию сигналов в тренде целиком. Теперь это +1 к счёту
+        риска наравне с прочими факторами.
+
+        Здесь риск = 1 (только неизвестный 1h; 30m и 15m различаются, но 15m=D
+        против 30m=None импульсом не считается) → MEDIUM.
+        """
         states = {
             "15m": MarketState.D,
             "30m": None,
             "1h": None
         }
-        
+
         result = risk_level(states)
-        
-        # Если 1h is None, должен вернуть HIGH
-        assert result == "HIGH"
+
+        assert result == "MEDIUM", (
+            "неизвестный 1h должен давать вклад в риск, а не абсолютный запрет"
+        )
+
+    def test_risk_level_high_requires_accumulated_conflicts(self):
+        """
+        HIGH возвращается при накоплении конфликтов (счёт ≥ 3), а не по одному
+        признаку. Обратная сторона теста выше: без неё он проходил бы и на
+        функции, которая никогда не возвращает HIGH.
+
+        Здесь: неизвестный 1h (+1), расхождение 30m и 15m (+1), отказ против
+        импульса 15m=D при 30m=A (+1) → счёт 3.
+        """
+        states = {
+            "15m": MarketState.D,
+            "30m": MarketState.A,
+            "1h": None
+        }
+
+        assert risk_level(states) == "HIGH"
     
     def test_risk_level_normalizes_strings(self):
         """

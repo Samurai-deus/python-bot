@@ -53,9 +53,18 @@ TIMEFRAMES = {
 
 CANDLE_LIMIT = 120
 
-# Параметры управления капиталом
-INITIAL_BALANCE = 10000.0  # Начальный баланс в USDT
-RISK_PERCENT = 2.0  # Риск на сделку (% от баланса)
-MIN_POSITION_SIZE = 10.0  # Минимальный размер позиции в USDT
-MAX_POSITION_SIZE = 1000.0  # Максимальный размер позиции в USDT
+# Параметры управления капиталом — ЕДИНСТВЕННОЕ место. До 10.09.2026 capital.py
+# держал собственные копии этих констант, и разные модули читали разные.
+from utils.env import env_float as _env_float
+
+# Стартовый баланс бумажного счёта (DRY_RUN и PAPER_TRADING). В TESTNET и LIVE баланс
+# берётся из кошелька биржи, это значение там не используется.
+INITIAL_BALANCE = _env_float("PAPER_INITIAL_BALANCE_USDT", 100.0)
+# Риск на сделку, % от баланса: сколько теряем при срабатывании стопа.
+RISK_PERCENT = _env_float("RISK_PERCENT", 2.0)
+# Минимальный номинал позиции — минимальный ордер Bybit (5 $ у всех linear-пар
+# конфига на 10.09.2026). Точную проверку по лоту и цене делает
+# market_data.instrument_limits; это значение — ранний отсев.
+MIN_POSITION_SIZE = _env_float("MIN_POSITION_SIZE_USDT", 5.0)
+MAX_POSITION_SIZE = _env_float("MAX_POSITION_SIZE_USDT", 1000.0)
 POSITION_ALLOCATION_PERCENT = 3.0  # Base % of available capital to allocate per trade (professional: 1-3%)

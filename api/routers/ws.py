@@ -6,9 +6,9 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, UTC
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from api.deps import verify_ws_token
+from api.deps import ws_user
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +22,39 @@ _ws_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ws-db")
 router = APIRouter(tags=["websocket"])
 
 
-class ConnectionManager:
-    def __init__(self):
-        self._connections: set[WebSocket] = set()
-        self._lock = asyncio.Lock()
+# Лимиты соединений (2.7). Каждое соединение раз в 5 секунд ходит в базу через
+# пул на 4 потока; без лимита один допущенный клиент мог открыть сколько угодно
+# сокетов и занять пул целиком. Mini App держит одно соединение, три — запас на
+# переподключение и второе устройство.
+MAX_CONNECTIONS_PER_USER = 3
+MAX_CONNECTIONS_TOTAL = 50
 
-    async def add(self, ws: WebSocket):
+
+class ConnectionManager:
+    def __init__(self, per_user: int = MAX_CONNECTIONS_PER_USER, total: int = MAX_CONNECTIONS_TOTAL):
+        self._connections: dict = {}  # WebSocket -> user_id
+        self._lock = asyncio.Lock()
+        self._per_user = per_user
+        self._total = total
+
+    async def add(self, ws: WebSocket, user_id=None) -> bool:
+        """Зарегистрировать соединение; False — лимит исчерпан, соединение закрыть."""
         async with self._lock:
-            self._connections.add(ws)
+            if len(self._connections) >= self._total:
+                return False
+            if sum(1 for uid in self._connections.values() if uid == user_id) >= self._per_user:
+                return False
+            self._connections[ws] = user_id
+            return True
 
     async def disconnect(self, ws: WebSocket):
         async with self._lock:
-            self._connections.discard(ws)
+            self._connections.pop(ws, None)
+
+    def count(self, user_id=None) -> int:
+        if user_id is None:
+            return len(self._connections)
+        return sum(1 for uid in self._connections.values() if uid == user_id)
 
 
 manager = ConnectionManager()
@@ -82,13 +103,16 @@ async def _safe_run_sync(fn, default=None, timeout: float = 5.0):
 
 async def _build_snapshot() -> dict:
     from system_state_machine import get_state_machine
-    from database import get_open_positions, get_current_balance_from_db
+    from database import get_open_positions
+    from capital import get_current_balance
 
     sm = get_state_machine()
     info = sm.get_state_info()
 
     positions_raw = await _safe_run_sync(get_open_positions, default=[])
-    balance = await _safe_run_sync(get_current_balance_from_db, default=None)
+    # Баланс — из capital, как в /api/system/health; раньше здесь вызывалась
+    # функция базы без аргумента со скрытым значением по умолчанию 10 000.
+    balance = await _safe_run_sync(get_current_balance, default=None)
 
     # Подтягиваем последние цены из кэша (обновляется signal_generator каждые ~5 мин)
     try:
@@ -122,37 +146,46 @@ async def _build_snapshot() -> dict:
 
 
 _PING_INTERVAL = 30  # seconds — send server-side ping if client is silent
-_AUTH_TIMEOUT = 10   # seconds — wait for auth message before closing
+# Сколько ждать сообщения с токеном после открытия сокета. Фронт шлёт его сразу
+# в onopen, так что 5 секунд — с запасом на мобильную сеть. Было 10: каждое
+# неаутентифицированное соединение держало слот вдвое дольше.
+_AUTH_TIMEOUT = 5
 
 
 @router.websocket("/api/ws")
-async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
+async def websocket_endpoint(ws: WebSocket):
     # Accept first so we can send a close frame on auth failure
     await ws.accept()
 
-    # Auth: prefer first message (token not exposed in URL/logs),
-    # fall back to query param for backward compatibility.
-    if not token:
-        try:
-            msg = await asyncio.wait_for(ws.receive_json(), timeout=_AUTH_TIMEOUT)
-            if isinstance(msg, dict) and msg.get("type") == "auth":
-                token = str(msg.get("token", ""))
-            else:
-                logger.warning("WS: unexpected first message type '%s'", msg.get("type") if isinstance(msg, dict) else type(msg))
-        except asyncio.TimeoutError:
-            logger.warning("WS: auth timeout — closing connection")
-            await ws.close(code=4001, reason="Auth timeout")
-            return
-        except Exception as exc:
-            logger.warning("WS: error waiting for auth message: %s", exc)
-            await ws.close(code=4001, reason="Auth error")
-            return
+    # Токен принимается ТОЛЬКО первым сообщением. Прежний запасной путь через
+    # ?token= в URL убран: адрес с query-строкой попадает в access-log nginx,
+    # то есть initData — ключ к данным бота на сутки — лежал бы в логах. Фронт
+    # этим путём не пользуется (miniapp/src/hooks/useWebSocket.ts шлёт auth-сообщение).
+    token = ""
+    try:
+        msg = await asyncio.wait_for(ws.receive_json(), timeout=_AUTH_TIMEOUT)
+        if isinstance(msg, dict) and msg.get("type") == "auth":
+            token = str(msg.get("token", ""))
+        else:
+            logger.warning("WS: unexpected first message type '%s'", msg.get("type") if isinstance(msg, dict) else type(msg))
+    except asyncio.TimeoutError:
+        logger.warning("WS: auth timeout — closing connection")
+        await ws.close(code=4001, reason="Auth timeout")
+        return
+    except Exception as exc:
+        logger.warning("WS: error waiting for auth message: %s", exc)
+        await ws.close(code=4001, reason="Auth error")
+        return
 
-    if not verify_ws_token(token):
+    user = ws_user(token)
+    if user is None:
         await ws.close(code=4001, reason="Unauthorized")
         return
 
-    await manager.add(ws)
+    if not await manager.add(ws, user.get("user_id")):
+        logger.warning("WS: лимит соединений исчерпан (user_id=%s, всего %s)", user.get("user_id"), manager.count())
+        await ws.close(code=4008, reason="Too many connections")
+        return
     task = asyncio.create_task(_push_loop(ws))
     try:
         # Keep-alive loop: detect stale connections via receive timeout.

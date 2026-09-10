@@ -2,18 +2,20 @@ import { useEffect, useRef } from 'react'
 import { useSystemStore } from '../store/useSystemStore'
 import { getInitData } from '../api/client'
 import { logger } from '../lib/logger'
-import type { WsSnapshot } from '../api/types'
+import { parseWsSnapshot } from '../lib/wsSnapshot'
 
 const MAX_RETRIES = 10
 const BASE_DELAY = 1000
 const MAX_DELAY = 30_000
 const CONNECT_TIMEOUT = 10_000  // close and retry if not opened within 10s
-const STALE_TIMEOUT = 15_000    // no message for 15s = stale, force reconnect
+// Сервер шлёт снимок раз в 5 с, но при медленной базе сборка снимка занимает до
+// ~15 с (два запроса по 5 с таймаута). Прежние 15 с давали ложные переподключения.
+const STALE_TIMEOUT = 40_000
 // WS close codes that mean auth failure — no point retrying with same token
 const AUTH_FAILURE_CODES = [4001, 4003]
 
 export function useWebSocket() {
-  const { setSnapshot, setWsStatus, touchSnapshot } = useSystemStore()
+  const { setSnapshot, setWsStatus, touchSnapshot, setAuthExpired } = useSystemStore()
   const retryRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -23,6 +25,12 @@ export function useWebSocket() {
 
     function connect() {
       if (destroyed) return
+      // Без initData сервер всё равно закроет сокет через 5 с — не открываем его зря.
+      if (!getInitData()) {
+        logger.warn('WS: нет initData — приложение открыто не из Telegram, сокет не открываю')
+        setWsStatus('disconnected')
+        return
+      }
       setWsStatus(retryRef.current === 0 ? 'connecting' : 'reconnecting')
 
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -44,7 +52,7 @@ export function useWebSocket() {
         if (staleTimer) clearTimeout(staleTimer)
         staleTimer = setTimeout(() => {
           if (!destroyed && ws.readyState === WebSocket.OPEN) {
-            logger.warn('WS stale — no message for 15s, forcing reconnect')
+            logger.warn(`WS stale — no message for ${STALE_TIMEOUT / 1000}s, forcing reconnect`)
             ws.close()
           }
         }, STALE_TIMEOUT)
@@ -53,11 +61,7 @@ export function useWebSocket() {
       ws.onopen = () => {
         clearTimeout(connectTimer)
         if (destroyed) { ws.close(); return }
-        // Auth: send token as first message
-        const token = getInitData()
-        if (token) {
-          ws.send(JSON.stringify({ type: 'auth', token }))
-        }
+        ws.send(JSON.stringify({ type: 'auth', token: getInitData() }))
         retryRef.current = 0
         setWsStatus('connected')
         resetStaleTimer()
@@ -74,26 +78,9 @@ export function useWebSocket() {
             ws.send(JSON.stringify({ type: 'pong' }))
             return
           }
-          // Validate required WsSnapshot fields before using
-          if (
-            data &&
-            typeof data === 'object' &&
-            typeof data.timestamp === 'string' &&
-            typeof data.system_state === 'string' &&
-            Array.isArray(data.positions) &&
-            typeof data.trading_paused === 'boolean' &&
-            typeof data.balance_usdt === 'number' &&
-            isFinite(data.balance_usdt) &&
-            data.positions.length <= 200 &&
-            data.positions.every(
-              (p: Record<string, unknown>) =>
-                typeof p.symbol === 'string' &&
-                typeof p.side === 'string' &&
-                typeof p.entry_price === 'number' &&
-                isFinite(p.entry_price)
-            )
-          ) {
-            setSnapshot(data as WsSnapshot)
+          const snapshot = parseWsSnapshot(data)
+          if (snapshot) {
+            setSnapshot(snapshot)
             touchSnapshot()
           } else {
             logger.warn('WS message failed validation', data)
@@ -108,10 +95,11 @@ export function useWebSocket() {
         if (staleTimer) clearTimeout(staleTimer)
         if (destroyed) return
 
-        // Auth failure — don't retry, token is invalid
+        // Auth failure — don't retry, token is invalid; показать баннер «откройте заново»
         if (AUTH_FAILURE_CODES.includes(e.code)) {
           logger.warn(`WS auth failure (code ${e.code}) — not retrying`)
           setWsStatus('disconnected')
+          setAuthExpired(true)
           return
         }
 
@@ -148,5 +136,5 @@ export function useWebSocket() {
       if (wsRef.current) wsRef.current.close()
       setWsStatus('disconnected')
     }
-  }, [setSnapshot, setWsStatus, touchSnapshot])
+  }, [setSnapshot, setWsStatus, touchSnapshot, setAuthExpired])
 }

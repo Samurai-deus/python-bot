@@ -3,6 +3,7 @@ import os
 import time as _time
 import warnings
 import asyncio
+import threading
 
 from dotenv import load_dotenv
 
@@ -17,15 +18,31 @@ from telegram.request import HTTPXRequest
 
 logger = logging.getLogger(__name__)
 
-_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-if not _token:
-    raise ValueError("TELEGRAM_BOT_TOKEN is not set. Add it to your .env file.")
-if not _chat_id:
-    raise ValueError("TELEGRAM_CHAT_ID is not set. Add it to your .env file.")
 
-TOKEN = _token
-CHAT_ID = _chat_id
+# ---------------------------------------------------------------------------
+# Конфигурация: читается ЛЕНИВО, при первой отправке, а не при импорте
+# ---------------------------------------------------------------------------
+# Раньше здесь стоял `raise ValueError` на уровне модуля. Импорт этого модуля тянут
+# error_alert → runner → tests/test_invariants.py, поэтому без TELEGRAM_BOT_TOKEN
+# в окружении падал СБОР тестов, а не тест: pytest не доходил до первого кейса.
+# Именно это делало CI красным на каждом коммите main (проверено 10.09.2026:
+# 16 из 16 запусков workflow ci.yml — failure), и именно поэтому 16 PR Dependabot,
+# включая закрывающие 82 известные уязвимости, висели невлитыми с апреля.
+#
+# Правило общее: модуль при импорте не обязан иметь рабочее окружение. Отсутствие
+# токена — ошибка ОТПРАВКИ, а не ошибка загрузки кода.
+def _get_token() -> str:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set. Add it to your .env file.")
+    return token
+
+
+def _get_chat_id() -> str:
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not chat_id:
+        raise RuntimeError("TELEGRAM_CHAT_ID is not set. Add it to your .env file.")
+    return chat_id
 
 # ---------------------------------------------------------------------------
 # Markdown helpers
@@ -61,16 +78,72 @@ async def _apply_rate_limit() -> None:
         _last_send_time = _time.monotonic()
 
 
-# Создаем Bot с увеличенным connection pool и таймаутом
-# Это решает проблему "Pool timeout: All connections in the connection pool are occupied"
-request = HTTPXRequest(
-    connection_pool_size=20,  # Увеличиваем размер пула
-    pool_timeout=30.0,  # Увеличиваем таймаут ожидания соединения
-    read_timeout=30.0,
-    write_timeout=30.0,
-    connect_timeout=30.0
-)
-bot = Bot(token=TOKEN, request=request)
+# ---------------------------------------------------------------------------
+# Ленивый singleton Bot
+# ---------------------------------------------------------------------------
+# Bot создаётся при первой отправке, а не при импорте: создание требует токена,
+# а импорт — нет (см. комментарий к _get_token выше).
+#
+# TELEGRAM_PROXY_URL: на прод-хосте (РФ) api.telegram.org
+# недоступен напрямую — curl отваливается по таймауту, HTTP 000. Bybit с того же
+# адреса открывается за 0,28 с, то есть блокируется именно Telegram. Поэтому
+# исходящие к Telegram идут через локальный sing-box (mixed inbound), а к бирже —
+# напрямую. Значение вида http://host.docker.internal:12334 задаётся в .env только
+# на проде; пустое значение = прямое соединение (локальная разработка). Схема http,
+# а не socks5: для SOCKS httpx требует пакет socksio, которого в зависимостях нет.
+_bot: "Bot | None" = None
+_bot_lock = threading.Lock()
+
+
+def build_request(connection_pool_size: int = 10) -> HTTPXRequest:
+    """
+    Единственное место, где создаётся HTTP-клиент для Telegram.
+
+    Клиентов у бота два: для отправки (методы Bot) и для приёма обновлений
+    (getUpdates в runner). Прокси нужен ОБОИМ. Сначала он был добавлен только в
+    отправку — и на прод-хосте бот писал бы владельцу, но не увидел бы ни одной
+    команды: getUpdates шёл бы напрямую и отваливался по таймауту. Поэтому никто,
+    кроме этого модуля, HTTPXRequest не создаёт; за этим следит тест.
+    """
+    kwargs = dict(
+        connection_pool_size=connection_pool_size,
+        pool_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        connect_timeout=30.0,
+    )
+    proxy = os.environ.get("TELEGRAM_PROXY_URL") or None
+    if proxy:
+        kwargs["proxy"] = proxy
+        logger.info("Telegram: HTTP-клиент через прокси %s", proxy)
+    return HTTPXRequest(**kwargs)
+
+
+def get_bot() -> Bot:
+    """Возвращает singleton Bot, создавая его при первом обращении."""
+    global _bot
+    if _bot is not None:
+        return _bot
+    with _bot_lock:
+        if _bot is not None:
+            return _bot
+        # connection_pool_size=20 — лечение "Pool timeout: All connections in
+        # the connection pool are occupied".
+        _bot = Bot(token=_get_token(), request=build_request(connection_pool_size=20))
+        return _bot
+
+
+def __getattr__(name: str):
+    # PEP 562: срабатывает только когда атрибута нет в модуле, то есть для
+    # старых обращений `telegram_bot.bot` / `TOKEN` / `CHAT_ID`. Новый код
+    # должен звать get_bot() / _get_token() / _get_chat_id() явно.
+    if name == "bot":
+        return get_bot()
+    if name == "TOKEN":
+        return _get_token()
+    if name == "CHAT_ID":
+        return _get_chat_id()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 async def _send(text, parse_mode=None, retry_count=2):
     """
@@ -91,19 +164,19 @@ async def _send(text, parse_mode=None, retry_count=2):
             if parse_mode:
                 try:
                     safe_text = escape_markdown(text) if parse_mode == "Markdown" else text
-                    result = await bot.send_message(chat_id=CHAT_ID, text=safe_text, parse_mode=parse_mode)
+                    result = await get_bot().send_message(chat_id=_get_chat_id(), text=safe_text, parse_mode=parse_mode)
                     logger.debug("Сообщение отправлено в Telegram с %s (message_id: %d)", parse_mode, result.message_id)
                     return result
                 except Exception as parse_error:
                     # Если ошибка парсинга, пробуем без parse_mode
                     if "parse" in str(parse_error).lower() or "markdown" in str(parse_error).lower():
                         logger.warning("Ошибка парсинга %s, пробуем без parse_mode: %s", parse_mode, parse_error)
-                        result = await bot.send_message(chat_id=CHAT_ID, text=text)
+                        result = await get_bot().send_message(chat_id=_get_chat_id(), text=text)
                         logger.debug("Сообщение отправлено в Telegram без parse_mode (message_id: %d)", result.message_id)
                         return result
                     raise
             else:
-                result = await bot.send_message(chat_id=CHAT_ID, text=text)
+                result = await get_bot().send_message(chat_id=_get_chat_id(), text=text)
                 logger.debug("Сообщение отправлено в Telegram (message_id: %d)", result.message_id)
                 return result
         except (TimedOut, NetworkError) as e:
@@ -134,8 +207,8 @@ async def _send_chart(symbol):
         f"?symbol=BYBIT:{symbol}"
     )
     try:
-        result = await bot.send_message(
-            chat_id=CHAT_ID,
+        result = await get_bot().send_message(
+            chat_id=_get_chat_id(),
             text=f"📈 {symbol} график\n{img_url}"
         )
         logger.debug("График отправлен в Telegram для %s", symbol)
@@ -200,12 +273,12 @@ def _cleanup_loop(loop: asyncio.AbstractEventLoop) -> None:
         if pending:
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
     except Exception:
-        pass
+        logger.debug("telegram_bot: отмена задач при закрытии цикла не удалась", exc_info=True)
     try:
         if not loop.is_closed():
             loop.close()
     except Exception:
-        pass
+        logger.debug("telegram_bot: закрытие цикла событий не удалось", exc_info=True)
 
 
 def _send_message_sync(text):

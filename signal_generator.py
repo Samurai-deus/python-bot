@@ -543,11 +543,20 @@ def generate_signals_for_symbols(
                             from demo_trades import log_demo_trade
                             from trade_manager import get_open_trades
                             zone = signal_data.get("zone")
-                            effective_pos_size = signal_data.get("position_size", pos_size)
+                            # Только размер, одобренный гейткипером: исходный pos_size
+                            # не прошёл урезаний риска. Нет одобренного — нет сделки.
+                            effective_pos_size = signal_data.get("approved_position_size")
                             already_open = any(
                                 t["symbol"] == symbol for t in get_open_trades()
                             )
-                            if zone and entry and stop and target and effective_pos_size and not already_open:
+                            from trading_mode import sends_real_orders
+                            if sends_real_orders():
+                                # В TESTNET/LIVE строку журнала пишет гейткипер по факту
+                                # исполненного ордера (3.6). Бумажная сделка рядом была бы
+                                # вторым журналом: бумажный монитор закрывал бы её по своим
+                                # уровням, пока реальная позиция жива.
+                                logger.debug("%s: real-orders mode — ledger row is written by gatekeeper", symbol)
+                            elif zone and entry and stop and target and effective_pos_size and not already_open:
                                 log_demo_trade(
                                     symbol, side, entry, stop, target,
                                     position_size=effective_pos_size,
