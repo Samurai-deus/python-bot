@@ -27,6 +27,12 @@ updates:
     groups:
       npm-minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # TypeScript 7 — нативный порт на Go; typescript-eslint 8 объявляет поддержку
+      # только typescript <6.1, и npm ci падает на peer-зависимостях (10.09.2026, PR #25).
+      # Снять, когда typescript-eslint поддержит 7.x.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     labels:
       - "dependencies"
       - "security"
