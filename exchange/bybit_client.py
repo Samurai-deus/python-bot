@@ -97,6 +97,13 @@ class PositionInfo:
     take_profit: Optional[float]
 
 
+def _num(value) -> Optional[float]:
+    """Число из ответа Bybit; "" и отсутствие поля — None: Bybit отдаёт "" и для нуля, и для неприменимого поля."""
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
 @dataclass
 class BalanceInfo:
     """Баланс кошелька."""
@@ -287,7 +294,19 @@ class BybitClient:
     # ------------------------------------------------------------------ #
 
     def get_wallet_balance(self, coin: str = "USDT") -> BalanceInfo:
-        """Получить баланс Unified Margin счёта."""
+        """
+        Баланс единого счёта (UNIFIED).
+
+        available_balance — свободное для новой позиции: totalAvailableBalance
+        уровня счёта. В кросс- и портфельной марже в нём уже вычтены маржа
+        позиций и ордеров и дисконт залога, учтён нереализованный PnL. Считается
+        в USD; для USDT-счёта это практически USDT. В изолированной марже поля
+        уровня счёта пустые — тогда остаток по монете: walletBalance минус маржа
+        позиций и ордеров, заблокированное и бонус.
+
+        До 10.09.2026 здесь стоял walletBalance: маржа открытых позиций из него
+        не вычитается, и свободный капитал завышался на всю эту маржу (аудит, L4).
+        """
         data = self._get(
             "/v5/account/wallet-balance",
             params={"accountType": "UNIFIED", "coin": coin},
@@ -296,17 +315,32 @@ class BybitClient:
         accounts = data.get("list", [])
         if not accounts:
             raise RuntimeError(f"Empty wallet-balance response for coin={coin}")
-        coins = accounts[0].get("coin", [])
-        entry = next((c for c in coins if c.get("coin") == coin), None)
-        if entry is None:
-            raise RuntimeError(f"Coin {coin} not found in wallet-balance response")
-        # Bybit может вернуть "" для числовых полей (пустой счёт / testnet).
+        account = accounts[0]
+        # Монету с нулевым балансом Bybit в ответ не включает — это ноль, а не ошибка.
+        entry = next((c for c in account.get("coin", []) if c.get("coin") == coin), None) or {}
+        if not entry:
+            self._warn_once("wallet-coin", "wallet-balance: монеты %s в ответе нет — баланс по ней нулевой", coin)
+        wallet = _num(entry.get("walletBalance")) or 0.0
+        available = _num(account.get("totalAvailableBalance"))
+        if available is None:
+            reserved = sum(_num(entry.get(k)) or 0.0 for k in ("totalPositionIM", "totalOrderIM", "locked", "bonus"))
+            available = wallet - reserved
+            self._warn_once("wallet-isolated",
+                            "wallet-balance: totalAvailableBalance пуст (изолированная маржа?) — "
+                            "свободный остаток посчитан по полям монеты %s", coin)
         return BalanceInfo(
-            total_equity=float(entry.get("equity") or 0),
-            available_balance=float(entry.get("walletBalance") or 0),
-            wallet_balance=float(entry.get("walletBalance") or 0),
+            total_equity=_num(entry.get("equity")) or 0.0,
+            available_balance=max(available, 0.0),
+            wallet_balance=wallet,
             coin=coin,
         )
+
+    def _warn_once(self, key: str, msg: str, *args) -> None:
+        """Предупреждение один раз на процесс: кошелёк спрашивают каждые несколько секунд."""
+        warned = self.__dict__.setdefault("_warned", set())
+        if key not in warned:
+            warned.add(key)
+            logger.warning(msg, *args)
 
     def get_positions(self, symbol: Optional[str] = None) -> list:
         """

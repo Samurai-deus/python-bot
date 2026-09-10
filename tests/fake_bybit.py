@@ -62,6 +62,8 @@ class FakeBybit:
         self.leverage_error = None
         self.create_status = "Filled"
         self.closed_pnl = []
+        # Счёт для /v5/account/wallet-balance: {"totalAvailableBalance": ..., "coin": [...]}
+        self.wallet = None
         # True — исполненный ордер заводит позицию в position/list, как на бирже.
         self.auto_positions = False
         self._faults = []
@@ -159,6 +161,8 @@ class FakeBybit:
                 return ok({"list": []})
             order = self.orders.get(params.get("orderLinkId"))
             return ok({"list": [order] if order else []})
+        if path == "/v5/account/wallet-balance":
+            return ok({"list": [self.wallet] if self.wallet else []})
         if path == "/v5/position/closed-pnl":
             since = int(params.get("startTime") or 0)
             items = [r for r in self.closed_pnl

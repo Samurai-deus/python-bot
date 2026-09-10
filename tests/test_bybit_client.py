@@ -155,3 +155,43 @@ def test_instrument_filters_have_no_defaults(client, fake):
     assert filters.max_market_qty == Decimal("5000"), "для рыночного ордера — maxMktOrderQty"
     with pytest.raises(RuntimeError):
         client.get_instrument_filters("NOPEUSDT")
+
+
+# ---------------------------------------------------------------------------
+# Баланс кошелька
+# ---------------------------------------------------------------------------
+
+def _wallet(total_available="", **coin):
+    entry = {"coin": "USDT", "equity": "105", "walletBalance": "100", **coin}
+    return {"accountType": "UNIFIED", "totalAvailableBalance": total_available, "coin": [entry]}
+
+
+def test_available_balance_excludes_margin_of_open_positions(client, fake):
+    """Раньше свободным считался walletBalance — маржа позиций из него не вычитается (L4)."""
+    fake.wallet = _wallet(total_available="61.5", totalPositionIM="40", totalOrderIM="3.5")
+    balance = client.get_wallet_balance()
+    assert balance.available_balance == pytest.approx(61.5)
+    assert balance.wallet_balance == pytest.approx(100) and balance.total_equity == pytest.approx(105)
+    [request] = fake.calls("GET", "/v5/account/wallet-balance")
+    assert request.sign_ok and request.params["accountType"] == "UNIFIED"
+
+
+def test_isolated_margin_falls_back_to_coin_fields(client, fake):
+    """В изолированной марже поля уровня счёта пустые — остаток считается по монете."""
+    fake.wallet = _wallet(totalPositionIM="40", totalOrderIM="3.5", locked="1", bonus="0.5")
+    assert client.get_wallet_balance().available_balance == pytest.approx(55)
+
+
+def test_available_balance_is_never_negative(client, fake):
+    fake.wallet = _wallet(total_available="-12.3")
+    assert client.get_wallet_balance().available_balance == 0
+
+
+def test_coin_absent_from_response_means_zero_balance(client, fake):
+    """Bybit не отдаёт монеты с нулевым балансом — это ноль, а не ошибка. Пустой ответ — ошибка."""
+    fake.wallet = {"accountType": "UNIFIED", "totalAvailableBalance": "0", "coin": []}
+    balance = client.get_wallet_balance()
+    assert (balance.total_equity, balance.available_balance, balance.wallet_balance) == (0, 0, 0)
+    fake.wallet = None
+    with pytest.raises(RuntimeError):
+        client.get_wallet_balance()
