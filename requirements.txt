@@ -6,7 +6,7 @@
 python-dotenv==1.2.3
 
 # Telegram Bot
-python-telegram-bot==21.11.1
+python-telegram-bot==22.8
 
 # HTTP Requests
 requests==2.34.2
