@@ -51,9 +51,8 @@ def _wallet_snapshot():
     """
     (equity, available) из кошелька или None, если спросить не удалось.
 
-    available — walletBalance из ответа биржи: в нём учтена и маржа открытых
-    позиций. Для точного свободного остатка нужен totalAvailableBalance уровня
-    счёта — это отдельная задача (аудит, находка L4).
+    available — свободный остаток счёта (BybitClient.get_wallet_balance):
+    маржа открытых позиций и ордеров из него уже вычтена.
     """
     now = time.time()
     with _wallet_lock:
