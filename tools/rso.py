@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import logging
 
+# Скрипт лежит в tools/: корень проекта по умолчанию — уровнем выше.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Настройка логирования для RSO (только для отладки, не для вывода)
 logging.basicConfig(
     level=logging.WARNING,
@@ -42,7 +45,7 @@ class RSOReader:
             project_root: Корневая директория проекта (по умолчанию текущая)
         """
         if project_root is None:
-            project_root = os.path.dirname(os.path.abspath(__file__))
+            project_root = _PROJECT_ROOT
         self.project_root = Path(project_root)
         self._sys_path_added = False
     
@@ -442,7 +445,7 @@ def main():
     args = parser.parse_args()
     
     # Определяем директории
-    project_root = args.project_root or os.path.dirname(os.path.abspath(__file__))
+    project_root = args.project_root or _PROJECT_ROOT
     output_dir = Path(args.output_dir) if args.output_dir else Path(project_root)
     output_dir.mkdir(parents=True, exist_ok=True)
     

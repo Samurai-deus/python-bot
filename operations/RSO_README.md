@@ -33,7 +33,7 @@ RSO не требует установки зависимостей, кроме 
 cd /path/to/market_bot
 
 # RSO готов к использованию
-python rso.py --help
+python tools/rso.py --help
 ```
 
 ## Использование
@@ -42,36 +42,36 @@ python rso.py --help
 
 ```bash
 # Запуск RSO (создаст JSON и Markdown отчеты)
-python rso.py
+python tools/rso.py
 ```
 
 ### Опции командной строки
 
 ```bash
 # Указать корневую директорию проекта
-python rso.py --project-root /path/to/market_bot
+python tools/rso.py --project-root /path/to/market_bot
 
 # Указать директорию для вывода отчетов
-python rso.py --output-dir /path/to/reports
+python tools/rso.py --output-dir /path/to/reports
 
 # Вывести только JSON отчет
-python rso.py --json-only
+python tools/rso.py --json-only
 
 # Вывести только Markdown отчет
-python rso.py --md-only
+python tools/rso.py --md-only
 ```
 
 ### Примеры использования
 
 ```bash
 # Стандартный запуск
-python rso.py
+python tools/rso.py
 
 # Запуск с указанием директорий
-python rso.py --project-root /root/market_bot --output-dir /tmp/rso_reports
+python tools/rso.py --project-root /root/market_bot --output-dir /tmp/rso_reports
 
 # Только JSON отчет
-python rso.py --json-only --output-dir /tmp/rso_reports
+python tools/rso.py --json-only --output-dir /tmp/rso_reports
 ```
 
 ## Формат вывода
@@ -166,7 +166,7 @@ RSO можно запускать периодически через cron:
 
 ```bash
 # Добавить в crontab (каждые 5 минут)
-*/5 * * * * cd /root/market_bot && python rso.py --output-dir /var/log/rso_reports >> /var/log/rso.log 2>&1
+*/5 * * * * cd /root/market_bot && python tools/rso.py --output-dir /var/log/rso_reports >> /var/log/rso.log 2>&1
 ```
 
 ## Безопасность

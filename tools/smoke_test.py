@@ -10,11 +10,14 @@ Testnet Smoke Test — запускать вручную перед Phase 5.
 Запуск:
     cd market_bot
     source venv/bin/activate   # или venv\\Scripts\\activate на Windows
-    python smoke_test.py
+    python tools/smoke_test.py
 """
 import os
 import sys
 import time
+
+# Скрипт лежит в tools/: корень проекта — уровнем выше, иначе пакеты бота не импортируются.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Подтягиваем .env до импорта клиента
 try:
