@@ -62,6 +62,8 @@ class FakeBybit:
         self.leverage_error = None
         self.create_status = "Filled"
         self.closed_pnl = []
+        # True — исполненный ордер заводит позицию в position/list, как на бирже.
+        self.auto_positions = False
         self._faults = []
         self._ids = itertools.count(1)
 
@@ -173,6 +175,13 @@ class FakeBybit:
                 "orderStatus": self.create_status, "qty": body["qty"],
                 "cumExecQty": body["qty"] if filled else "0",
             }
+            if filled and self.auto_positions and not body.get("reduceOnly"):
+                self.positions.append({
+                    "symbol": body["symbol"], "side": body["side"], "size": body["qty"],
+                    "avgPrice": str(self.marks.get(body["symbol"], 0)), "unrealisedPnl": "0",
+                    "leverage": self.leverage.get(body["symbol"], "1"),
+                    "stopLoss": body.get("stopLoss", ""), "takeProfit": body.get("takeProfit", ""),
+                })
             return ok({"orderId": oid, "orderLinkId": link})
         if path == "/v5/position/set-leverage":
             if self.leverage_error:
