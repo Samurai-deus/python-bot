@@ -12,13 +12,14 @@ Multi-stage exit logic:
 """
 import logging
 from datetime import datetime, UTC
-from typing import List, Dict
+from typing import Dict, List, Optional
 
 from database import (
     get_open_trades as db_get_open_trades,
     close_trade as db_close_trade,
     update_trade_stop,
     update_trade_partial,
+    PARTIAL_CLOSE_FRACTION,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,20 +68,51 @@ def _calc_pnl(trade: Dict, close_price: float, fraction: float = 1.0) -> float:
 
     # Если partial уже закрыт, остаток = 50%
     if trade.get("partial_closed") and fraction == 1.0:
-        position_size *= 0.5
+        position_size *= (1 - PARTIAL_CLOSE_FRACTION)
 
     if trade["side"] == "LONG":
         price_change_pct = (close_price - trade["entry"]) / trade["entry"]
     else:
         price_change_pct = (trade["entry"] - close_price) / trade["entry"]
 
-    return price_change_pct * position_size * fraction
+    gross = price_change_pct * position_size * fraction
+    # Комиссия биржи — за вход и за выход, с номинала закрываемой доли. Раньше
+    # бумажный PnL был без комиссий вовсе, а taker на Bybit — около 0,055 % с
+    # каждой стороны. На малом счёте и коротких движениях это заметная доля
+    # результата: без неё бумажная торговля систематически лучше реальной.
+    fee = position_size * fraction * _paper_fee_rate() * 2
+    return gross - fee
 
 
-def check_trades(symbol: str, current_price: float) -> List[Dict]:
+def _paper_fee_rate() -> float:
+    """Ставка комиссии за одну сторону сделки, доля (0.00055 = 0,055 %)."""
+    from utils.env import env_float
+    return env_float("PAPER_TAKER_FEE_PCT", 0.055) / 100.0
+
+
+def _stop_fill_price(side: str, stop: float) -> float:
+    """
+    Цена исполнения бумажного стопа. Стоп на бирже — ордер: он исполняется около
+    своей цены с проскальзыванием, а не по экстремуму свечи, которым его пробило.
+    До 10.09.2026 сделка закрывалась по минимуму (максимуму) свечи — убыток
+    записывался больше, чем стоп допускал бы на бирже.
+    """
+    from utils.env import env_float
+    slip = env_float("PAPER_STOP_SLIPPAGE_PCT", 0.05) / 100.0
+    return stop * (1 - slip) if side == "LONG" else stop * (1 + slip)
+
+
+def check_trades(symbol: str, current_price: float,
+                 low: Optional[float] = None, high: Optional[float] = None) -> List[Dict]:
     """
     Проверяет открытые сделки для символа.
     Multi-stage exit: SL → breakeven → partial TP → trailing → time exit → full TP.
+
+    low/high — экстремумы, появившиеся после прошлой проверки (paper_fills):
+    по ним определяется касание стопа и тейк-профита, которые на бирже стоят
+    ордерами. Исполнение — по уровню ордера. Остальные стадии, которые бот
+    ведёт сам, смотрят на текущую цену. Коснулись и стопа, и тейка в одном
+    интервале — считается стоп: порядок внутри свечи неизвестен.
 
     Returns:
         list: Закрытые сделки с результатами
@@ -114,14 +146,19 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
             current_r = (entry - current_price) / risk_distance
 
         # --- Stage 1: Hard Stop Loss ---
-        hit_sl = (side == "LONG" and current_price <= stop) or \
-                 (side == "SHORT" and current_price >= stop)
+        if side == "LONG":
+            sl_probe = min(current_price, low) if low is not None else current_price
+            hit_sl = sl_probe <= stop
+        else:
+            sl_probe = max(current_price, high) if high is not None else current_price
+            hit_sl = sl_probe >= stop
         if hit_sl:
-            pnl = _calc_pnl(trade, current_price)
+            fill = _stop_fill_price(side, stop)
+            pnl = _calc_pnl(trade, fill)
             # Добавляем partial_pnl если была частичная фиксация
             total_pnl = pnl + (trade.get("partial_pnl") or 0.0)
-            if db_close_trade(trade["id"], current_price, "STOP_LOSS", total_pnl):
-                closed_trades.append({**trade, "close_price": current_price, "close_reason": "STOP_LOSS", "pnl": total_pnl})
+            if db_close_trade(trade["id"], fill, "STOP_LOSS", total_pnl):
+                closed_trades.append({**trade, "close_price": fill, "close_reason": "STOP_LOSS", "pnl": total_pnl})
             continue
 
         # --- Stage 2: Breakeven stop (после +1R) ---
@@ -161,7 +198,7 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
 
         # --- Stage 3: Partial TP at 1.5R (50% позиции) ---
         if current_r >= 1.5 and not trade.get("partial_closed"):
-            partial_pnl = _calc_pnl(trade, current_price, fraction=0.5)
+            partial_pnl = _calc_pnl(trade, current_price, fraction=PARTIAL_CLOSE_FRACTION)
             update_trade_partial(trade["id"], current_price, partial_pnl)
             trade["partial_closed"] = 1
             trade["partial_pnl"] = partial_pnl
@@ -207,13 +244,17 @@ def check_trades(symbol: str, current_price: float) -> List[Dict]:
             continue
 
         # --- Stage 6: Full Take Profit ---
-        hit_tp = (side == "LONG" and current_price >= target) or \
-                 (side == "SHORT" and current_price <= target)
+        # Касание тенью свечи тоже считается — раньше засчитывался только проход
+        # стопа тенью, а тейка нет, и бумажная модель была несимметрично хуже биржи.
+        if side == "LONG":
+            hit_tp = (max(current_price, high) if high is not None else current_price) >= target
+        else:
+            hit_tp = (min(current_price, low) if low is not None else current_price) <= target
         if hit_tp:
-            pnl = _calc_pnl(trade, current_price)
+            pnl = _calc_pnl(trade, target)
             total_pnl = pnl + (trade.get("partial_pnl") or 0.0)
-            if db_close_trade(trade["id"], current_price, "TAKE_PROFIT", total_pnl):
-                closed_trades.append({**trade, "close_price": current_price, "close_reason": "TAKE_PROFIT", "pnl": total_pnl})
+            if db_close_trade(trade["id"], target, "TAKE_PROFIT", total_pnl):
+                closed_trades.append({**trade, "close_price": target, "close_reason": "TAKE_PROFIT", "pnl": total_pnl})
             continue
 
     return closed_trades

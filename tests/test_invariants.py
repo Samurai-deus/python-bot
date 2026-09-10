@@ -27,27 +27,55 @@ from runner import FatalReaper, ThreadWatchdog, ThreadWatchdogState, FATAL_EXIT_
 class TestFatalAlwaysExits:
     """Тест: FATAL всегда приводит к exit"""
 
-    @pytest.mark.skipif(os.getenv("CI") == "true", reason="os._exit kills test process")
     def test_fatal_reaper_exits_on_fatal(self):
-        """FATAL_REAPER должен вызвать os._exit при FATAL"""
-        state_machine = SystemStateMachine()
-        reaper = FatalReaper(state_machine, check_interval=0.1)
+        """
+        FATAL_REAPER обязан завершить процесс при FATAL — и обязан сделать это
+        с кодом FATAL_EXIT_CODE.
 
-        # Переводим в FATAL
+        Раньше этот тест звал настоящий os._exit и «проходил», убивая pytest:
+        прогон обрывался с кодом 10 без сводки, а инвариант в CI не проверялся
+        вовсе — его закрывал skipif(CI == "true"). Теперь выход подменяется,
+        и проверяется факт вызова и код.
+        """
+        state_machine = SystemStateMachine()
+        exit_calls = []
+        reaper = FatalReaper(state_machine, check_interval=0.05,
+                             exit_fn=lambda code: exit_calls.append(code))
+
         asyncio.run(state_machine.transition_to(
             SystemState.FATAL,
             "test: FATAL state",
             owner="test"
         ))
 
-        # Запускаем reaper
         reaper.start()
+        deadline = time.monotonic() + 5.0
+        while not exit_calls and time.monotonic() < deadline:
+            time.sleep(0.02)
+        reaper.stop()
 
-        # Ждём немного - reaper должен обнаружить FATAL и вызвать os._exit
-        time.sleep(0.5)
+        assert exit_calls, "FATAL_REAPER не вызвал выход при состоянии FATAL"
+        assert exit_calls[0] == FATAL_EXIT_CODE, (
+            f"FATAL_REAPER вышел с кодом {exit_calls[0]}, ожидался {FATAL_EXIT_CODE}: "
+            "systemd отличает штатный выход от фатального именно по коду"
+        )
 
-        # Если мы дошли сюда, os._exit не был вызван - тест провален
-        assert False, "FATAL_REAPER should have called os._exit"
+    def test_fatal_reaper_does_not_exit_while_running(self):
+        """
+        Обратная сторона того же инварианта: пока состояние не FATAL, reaper
+        обязан молчать. Без этой проверки тест выше проходил бы и на reaper-е,
+        который вызывает выход безусловно.
+        """
+        state_machine = SystemStateMachine()
+        exit_calls = []
+        reaper = FatalReaper(state_machine, check_interval=0.05,
+                             exit_fn=lambda code: exit_calls.append(code))
+
+        reaper.start()
+        time.sleep(0.3)
+        reaper.stop()
+
+        assert exit_calls == [], f"reaper вызвал выход вне FATAL: {exit_calls}"
 
     def test_fatal_reaper_stops_on_stop_event(self):
         """FATAL_REAPER должен остановиться при stop_event"""
@@ -68,37 +96,45 @@ class TestFatalAlwaysExits:
 class TestSafeModeTtlKillsProcess:
     """Тест: SAFE_MODE TTL убивает процесс"""
 
-    @pytest.mark.skipif(os.getenv("CI") == "true", reason="os._exit kills test process")
     def test_thread_watchdog_exits_on_safe_mode_ttl(self):
-        """ThreadWatchdog должен вызвать os._exit при истечении SAFE_MODE TTL"""
-        state_machine = SystemStateMachine(safe_mode_ttl=0.5)  # Короткий TTL для теста
+        """
+        Инвариант: истёкший TTL режима SAFE_MODE обязан убить процесс, даже если
+        asyncio встал. Проверяется через подменяемый выход — раньше тест звал
+        настоящий os._exit и уносил с собой весь прогон.
+        """
+        state_machine = SystemStateMachine(safe_mode_ttl=0.3)
 
-        # Переводим в SAFE_MODE
         asyncio.run(state_machine.transition_to(
             SystemState.SAFE_MODE,
             "test: SAFE_MODE",
             owner="test"
         ))
 
-        # Устанавливаем event loop для state machine
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         state_machine.set_event_loop(loop)
 
-        # Создаём watchdog
-        watchdog = ThreadWatchdog(state_machine, heartbeat_timeout=30.0)
+        exit_calls = []
+        watchdog = ThreadWatchdog(state_machine, heartbeat_timeout=30.0, check_interval=0.05,
+                                  exit_fn=lambda code: exit_calls.append(code))
         watchdog.start()
-
-        # Помечаем как armed
         watchdog.first_heartbeat_received = True
         watchdog.event_loop_set = True
         watchdog.arm()
 
-        # Ждём TTL + немного
-        time.sleep(0.7)
+        try:
+            deadline = time.monotonic() + 5.0
+            while not exit_calls and time.monotonic() < deadline:
+                time.sleep(0.02)
+        finally:
+            watchdog.stop()
+            loop.close()
+            asyncio.set_event_loop(None)
 
-        # Если мы дошли сюда, os._exit не был вызван - тест провален
-        assert False, "ThreadWatchdog should have called os._exit on SAFE_MODE TTL"
+        assert exit_calls, "ThreadWatchdog не вызвал выход по истечении SAFE_MODE TTL"
+        assert exit_calls[0] == FATAL_EXIT_CODE, (
+            f"выход с кодом {exit_calls[0]}, ожидался {FATAL_EXIT_CODE}"
+        )
 
     def test_thread_watchdog_checks_safe_mode_ttl(self):
         """ThreadWatchdog должен проверять SAFE_MODE TTL"""
@@ -128,12 +164,18 @@ class TestWatchdogTriggersWithoutAsyncio:
         state_machine = SystemStateMachine()
 
         # Создаём watchdog
-        watchdog = ThreadWatchdog(state_machine, heartbeat_timeout=0.5)
+        watchdog = ThreadWatchdog(state_machine, heartbeat_timeout=0.5, check_interval=0.05)
 
-        # Устанавливаем старый heartbeat (имитация stall)
-        from runner import update_heartbeat_timestamp
-        old_time = time.time() - 1.0
-        update_heartbeat_timestamp(old_time)
+        # Имитируем зависший loop: heartbeat датирован прошлым.
+        # Функция называется update_heartbeat_thread_safe; имени
+        # update_heartbeat_timestamp в runner.py нет и, судя по git, не было —
+        # тест ссылался на несуществующее API и падал бы с ImportError. Этого никто
+        # не видел, потому что файл не доживал до него: первый же тест звал
+        # настоящий os._exit и уносил весь прогон.
+        from runner import update_heartbeat_thread_safe
+        old_dt = datetime.now(UTC) - timedelta(seconds=1.0)
+        old_time = old_dt.timestamp()
+        update_heartbeat_thread_safe(old_dt)
 
         # Устанавливаем event loop
         loop = asyncio.new_event_loop()
@@ -210,12 +252,13 @@ class TestThreadWatchdogIdempotent:
         state_machine = SystemStateMachine()
 
         # Создаём watchdog
-        watchdog = ThreadWatchdog(state_machine, heartbeat_timeout=0.5)
+        watchdog = ThreadWatchdog(state_machine, heartbeat_timeout=0.5, check_interval=0.05)
 
-        # Устанавливаем старый heartbeat
-        from runner import update_heartbeat_timestamp
-        old_time = time.time() - 1.0
-        update_heartbeat_timestamp(old_time)
+        # Имитируем зависший loop (см. пояснение в test_watchdog_detects_loop_stall)
+        from runner import update_heartbeat_thread_safe
+        old_dt = datetime.now(UTC) - timedelta(seconds=1.0)
+        old_time = old_dt.timestamp()
+        update_heartbeat_thread_safe(old_dt)
 
         # Устанавливаем event loop
         loop = asyncio.new_event_loop()
@@ -250,27 +293,35 @@ class TestEventQueueOverflow:
     """Тест: Переполнение очереди событий → FATAL"""
 
     def test_event_queue_overflow_triggers_fatal(self):
-        """Переполнение очереди событий должно привести к FATAL"""
-        state_machine = SystemStateMachine()
+        """
+        Переполнение очереди событий взводит аварийный выход с кодом 1 — ровно
+        один раз, сколько бы событий ни отбросилось сверх порога.
 
-        # Устанавливаем event loop
+        Раньше тест не проверял ничего, а взводил настоящий os._exit: через 10 с
+        фоновый поток гасил весь прогон pytest, если набор не успевал закончиться.
+        """
+        exits = []
+        state_machine = SystemStateMachine(exit_fn=exits.append, force_exit_delay=0.05)
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         state_machine.set_event_loop(loop)
 
-        # Заполняем очередь до предела
-        for i in range(15):  # Больше чем maxsize=10
+        # Очередь на 10 событий; цикл не запущен, поэтому события не разбираются
+        # и всё сверх 10 отбрасывается. Порог — 5 отбросов подряд.
+        for i in range(25):
             state_machine.trigger_loop_stall_thread_safe(
                 time_since_heartbeat=10.0 + i,
                 incident_id=f"test-{i}"
             )
 
-        # Ждём обработки
-        time.sleep(0.1)
+        deadline = time.monotonic() + 2.0
+        while not exits and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.2)  # второй поток, если бы его взвели, успел бы выстрелить
 
-        # Проверяем, что произошёл переход в FATAL из-за переполнения
-        # (если consecutive_drops >= max_consecutive_drops)
-        # Это зависит от реализации, но мы должны увидеть логи
+        assert exits == [1], "аварийный выход взводится один раз и с кодом 1"
+        assert state_machine._event_queue_drops >= state_machine._event_queue_max_consecutive_drops
 
         loop.close()
 

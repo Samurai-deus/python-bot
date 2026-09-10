@@ -1,3 +1,10 @@
+# Обновления зависимостей.
+#
+# Прежняя настройка открывала до 16 PR в неделю по одному на пакет и ни один
+# из них не гейтился: CI был красным всегда, поэтому PR копились. На 10.09.2026
+# висело 16 незакрытых, среди них обновления aiohttp и cryptography, закрывающие
+# 82 известные уязвимости. Теперь минорные и патч-обновления группируются в один
+# PR на экосистему, а мажорные приходят по одному — их надо смотреть глазами.
 version: 2
 updates:
   - package-ecosystem: "pip"
@@ -5,6 +12,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
     labels:
       - "dependencies"
       - "security"
@@ -14,6 +24,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
     labels:
       - "dependencies"
       - "security"
@@ -23,6 +36,14 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # Мажорную версию базового образа не бампаем автоматически. PR на
+      # python:3.14-slim выглядел бы безобидным — меняется одна строка Dockerfile, —
+      # но для psycopg2-binary==2.9.10 колёс под cp314 не существует, sdist требует
+      # libpq-dev и pg_config, которых в образе нет, и сборка падает. Переход на
+      # новый минор Python — отдельная работа с обновлением всех зависимостей.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     labels:
       - "dependencies"
 
@@ -31,5 +52,8 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns: ["*"]
     labels:
       - "dependencies"

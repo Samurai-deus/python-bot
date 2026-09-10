@@ -6,7 +6,7 @@ from telegram_bot import send_message
 from bot_statistics import get_trade_statistics, format_statistics_report
 from trade_manager import get_open_trades
 from capital import get_current_balance
-from config import INITIAL_BALANCE
+from capital import get_initial_balance
 
 
 def generate_daily_report():
@@ -49,7 +49,7 @@ def generate_daily_report():
         
         # Текущий баланс
         balance = get_current_balance()
-        total_pnl_pct = ((balance - INITIAL_BALANCE) / INITIAL_BALANCE) * 100
+        total_pnl_pct = (((balance - get_initial_balance()) / get_initial_balance()) * 100 if get_initial_balance() else 0.0)
         report += f"💰 **Текущий баланс:** {balance:.2f} USDT ({total_pnl_pct:+.2f}%)\n\n"
         
         # Открытые сделки

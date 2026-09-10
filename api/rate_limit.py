@@ -31,11 +31,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     tighter limit to protect state-changing operations.
     """
 
-    def __init__(self, app, redis_url: str | None = None) -> None:
+    def __init__(self, app, redis_url: str | None = None, client=None) -> None:
         super().__init__(app)
         self._read_limit = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120"))
         self._write_limit = int(os.environ.get("RATE_LIMIT_WRITE_PER_MINUTE", "10"))
         self._client = None
+
+        # Готовый клиент можно передать явно — ради тестов поведения при отказе
+        # Redis, без поднятого Redis и без двухсекундного таймаута соединения.
+        if client is not None:
+            self._client = client
+            return
 
         url = redis_url or os.environ.get("REDIS_URL", "redis://redis:6379")
         try:
@@ -53,27 +59,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         except Exception as exc:  # pragma: no cover
             logger.warning("Redis unavailable — rate limiting disabled: %s", exc)
 
-    # Trusted proxy IPs — only honour X-Forwarded-For from these
-    _TRUSTED_PROXIES = {"127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8"}
-
     @staticmethod
     def _client_ip(request: Request) -> str:
-        """Return real client IP, honouring X-Forwarded-For only from trusted proxies."""
-        import ipaddress
-        direct_ip = request.client.host if request.client else "unknown"
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded and direct_ip != "unknown":
-            try:
-                addr = ipaddress.ip_address(direct_ip)
-                trusted = any(
-                    addr in ipaddress.ip_network(n, strict=False)
-                    for n in RateLimitMiddleware._TRUSTED_PROXIES
-                )
-                if trusted:
-                    return forwarded.split(",")[0].strip()
-            except ValueError:
-                pass
-        return direct_ip
+        """
+        IP клиента — через общую utils.client_ip. Прежняя копия здесь брала
+        первый элемент X-Forwarded-For, то есть присланный клиентом: ротация
+        значения давала бесконечно много «разных IP» и обходила лимит.
+        """
+        from utils.client_ip import client_ip
+        return client_ip(request)
 
     async def dispatch(self, request: Request, call_next) -> Response:
         # Skip if Redis unavailable, excluded path, or preflight
@@ -116,7 +110,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if count == 1:
                 await self._client.expire(key, window + 5)
         except Exception as exc:
-            logger.error("Rate limit Redis error (fail-open): %s", exc)
+            # В бою при отказе Redis — отказ запросу, а не молчаливое выключение
+            # лимита. Раньше лимитер тихо выключался, а заметить это можно было
+            # только чтением логов: дефолт REDIS_URL без пароля при compose,
+            # требующем --requirepass, давал ошибку AUTH на КАЖДОМ запросе.
+            from utils.env import env_str
+            if env_str("ENVIRONMENT").lower() == "production":
+                logger.error("Rate limit: Redis недоступен, запрос отклонён (fail-closed): %s", exc)
+                return Response(
+                    content='{"detail":"Service temporarily unavailable"}',
+                    status_code=503,
+                    media_type="application/json",
+                )
+            logger.error("Rate limit: Redis недоступен, лимит пропущен (не production): %s", exc)
             return await call_next(request)
 
         elapsed_in_window = time.time() % window

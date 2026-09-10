@@ -1,17 +1,24 @@
 """
-IP whitelist middleware for admin API endpoints.
+Белый список IP для административных путей.
 
-Reads API_IP_WHITELIST env var (comma-separated IPs or CIDR blocks).
-If the env var is empty — all IPs are allowed (fail-open, backward compatible).
+API_IP_WHITELIST — IP или CIDR через запятую. Пустое значение — проверка
+выключена. Это второй рубеж, а не первый: доступ к данным закрывает проверка
+пользователя в api/deps.py, которая работает всегда. Белый список добавляет
+требование «и приходить с известного адреса» для самых чувствительных путей.
 
-Protected path prefixes:
-  /api/system/   — system health, balance details
-  /api/settings/ — user settings management
-  /metrics       — Prometheus metrics (should only be scraped internally)
+Два исправления от 10.09.2026:
 
-All other paths are not affected.
+1. Защищаемые пути сравнивались префиксом с хвостовым слэшем: "/api/settings/".
+   Роутер же регистрирует GET и PUT на "/api/settings" без слэша — эти запросы
+   под защиту не попадали. Теперь путь защищён, если совпадает с префиксом
+   целиком или продолжается после него через "/".
 
-Supports X-Forwarded-For (nginx passes real client IP).
+2. IP клиента брался из первого элемента X-Forwarded-For — того, что присылает
+   сам клиент. Теперь используется utils.client_ip (подробности там).
+
+Убран из защищаемых /api/system/health: им пользуется экран Mini App у всех
+допущенных пользователей, и с включённым списком они видели бы Forbidden.
+Баланс (/api/system/balance) под защитой остался.
 """
 import ipaddress
 import logging
@@ -20,108 +27,62 @@ import os
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from utils.client_ip import client_ip
+
 logger = logging.getLogger(__name__)
 
-# Path prefixes that require whitelisted IP
-_PROTECTED_PREFIXES = (
-    "/api/system/",
-    "/api/settings/",
+PROTECTED_PATHS = (
+    "/api/settings",
+    "/api/system/balance",
     "/metrics",
 )
 
 
-def _parse_whitelist(raw: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    """Parse comma-separated IP / CIDR list into network objects."""
+def is_protected(path: str) -> bool:
+    """Путь под защитой, если равен префиксу или продолжается после него через '/'."""
+    return any(path == p or path.startswith(p + "/") for p in PROTECTED_PATHS)
+
+
+def parse_whitelist(raw: str) -> list:
+    """Разбирает список IP/CIDR через запятую; некорректные записи пропускает с ошибкой в лог."""
     networks = []
     for entry in raw.split(","):
         entry = entry.strip()
         if not entry:
             continue
         try:
-            # Treat bare IPs as /32 or /128 host networks
             networks.append(ipaddress.ip_network(entry, strict=False))
         except ValueError:
-            logger.warning("IP whitelist: invalid entry ignored: %r", entry)
+            logger.error("API_IP_WHITELIST: некорректная запись пропущена: %r", entry)
     return networks
 
 
-_TRUSTED_PROXIES = {"127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8"}
-
-
-def _client_ip(request: Request) -> str:
-    """Return the real client IP, honouring X-Forwarded-For only from trusted proxies."""
-    direct_ip = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded and direct_ip != "unknown":
-        try:
-            addr = ipaddress.ip_address(direct_ip)
-            trusted = any(
-                addr in ipaddress.ip_network(n, strict=False)
-                for n in _TRUSTED_PROXIES
-            )
-            if trusted:
-                return forwarded.split(",")[0].strip()
-        except ValueError:
-            pass
-    return direct_ip
-
-
-def _is_allowed(ip_str: str, networks: list) -> bool:
-    """Return True if ip_str is in any of the allowed networks."""
+def is_ip_allowed(ip_str: str, networks: list) -> bool:
     try:
         addr = ipaddress.ip_address(ip_str)
     except ValueError:
-        logger.warning("IP whitelist: cannot parse client IP %r — denying", ip_str)
+        logger.warning("IP whitelist: не удалось разобрать адрес %r — отказ", ip_str)
         return False
     return any(addr in net for net in networks)
 
 
 class IPWhitelistMiddleware(BaseHTTPMiddleware):
-    """
-    Blocks requests to protected endpoints from non-whitelisted IPs.
-
-    Empty API_IP_WHITELIST → allow all (fail-open).
-    Non-empty API_IP_WHITELIST → enforce for protected prefixes.
-    """
-
     def __init__(self, app) -> None:
         super().__init__(app)
         raw = os.environ.get("API_IP_WHITELIST", "").strip()
-        self._networks = _parse_whitelist(raw) if raw else []
-
+        self._networks = parse_whitelist(raw) if raw else []
         if self._networks:
-            logger.info(
-                "IP whitelist active (%d network(s)) for prefixes: %s",
-                len(self._networks),
-                ", ".join(_PROTECTED_PREFIXES),
-            )
+            logger.info("IP whitelist: %d сетей для путей %s", len(self._networks), ", ".join(PROTECTED_PATHS))
         else:
-            logger.info("IP whitelist disabled (API_IP_WHITELIST is empty — all IPs allowed)")
-
-    def _is_protected(self, path: str) -> bool:
-        return any(path.startswith(prefix) for prefix in _PROTECTED_PREFIXES)
+            logger.info("IP whitelist выключен (API_IP_WHITELIST пуст)")
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Skip enforcement if whitelist is not configured
-        if not self._networks:
+        if not self._networks or not is_protected(request.url.path):
             return await call_next(request)
 
-        # Only enforce on protected paths
-        if not self._is_protected(request.url.path):
+        ip = client_ip(request)
+        if is_ip_allowed(ip, self._networks):
             return await call_next(request)
 
-        ip = _client_ip(request)
-        if _is_allowed(ip, self._networks):
-            return await call_next(request)
-
-        logger.warning(
-            "IP whitelist: blocked %s %s from ip=%s",
-            request.method,
-            request.url.path,
-            ip,
-        )
-        return Response(
-            content='{"detail":"Forbidden"}',
-            status_code=403,
-            media_type="application/json",
-        )
+        logger.warning("IP whitelist: отказ %s %s с ip=%s", request.method, request.url.path, ip)
+        return Response(content='{"detail":"Forbidden"}', status_code=403, media_type="application/json")

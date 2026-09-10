@@ -9,6 +9,7 @@ SystemGuardian - Глобальный слой принуждения инвар
 - Мониторинг здоровья всех модулей
 - Финальная проверка перед торговлей
 """
+import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, field
@@ -234,7 +235,7 @@ class ModuleHealthMonitor:
             if module_instance and hasattr(module_instance, 'get_last_heartbeat'):
                 return module_instance.get_last_heartbeat()
         except Exception:
-            pass
+            logger.debug("system_guardian: модуль не отдал время последнего heartbeat", exc_info=True)
         return None
     
     async def check_all_modules(self) -> Dict[str, ModuleHealth]:

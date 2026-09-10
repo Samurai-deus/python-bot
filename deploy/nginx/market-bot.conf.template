@@ -1,0 +1,90 @@
+# market-bot: Telegram Mini App (статика) и API. Отдельный сайт со своим
+# поддоменом и сертификатом — соседние сайты хоста не затрагиваются.
+# __DOMAIN__ подставляет deploy.sh из /opt/market-bot/deploy.conf: имени прод-хоста
+# в git нет. Сертификат выпускает тот же deploy.sh (webroot), продлевает certbot.timer.
+
+server {
+    listen 80;
+    server_name __DOMAIN__;
+
+    # ACME webroot нужен и после выпуска: certbot продлевает сертификат тем же способом
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name __DOMAIN__;
+
+    ssl_certificate     /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    server_tokens off;
+    client_max_body_size 1m;
+    root /opt/market-bot/web;
+
+    include snippets/market-bot-headers.conf;
+
+    # Хэшированные бандлы vite: имя меняется вместе с содержимым — кэшировать вечно
+    location /assets/ {
+        include snippets/market-bot-headers.conf;
+        add_header Cache-Control "public, immutable" always;
+        expires 1y;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # Единственная точка входа без хэша в имени — не кэшировать никогда. Урок
+    # соседнего сайта на этом же хосте: WebView Telegram держит кэш жадно, и без
+    # no-store человек открывал старый index.html со ссылками на удалённые бандлы.
+    # Без `expires -1`: он добавляет СВОЙ заголовок Cache-Control: no-cache, и ответ
+    # уходил с двумя заголовками Cache-Control (проверено curl-ом после выкладки).
+    location = /index.html {
+        include snippets/market-bot-headers.conf;
+        add_header Cache-Control "no-store, must-revalidate" always;
+    }
+
+    # WebSocket — отдельно: апгрейд соединения и долгий таймаут нужны только ему
+    location = /api/ws {
+        proxy_pass http://127.0.0.1:8100;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # Заменяем, а не дописываем ($proxy_add_x_forwarded_for): присланное
+        # клиентом значение отбрасывается целиком (аудит, находка C-7)
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_read_timeout 1h;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8100;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+
+    # Метрики и схема API наружу не отдаются
+    location = /metrics {
+        return 404;
+    }
+    location ~ ^/(docs|redoc|openapi\.json) {
+        return 404;
+    }
+
+    # SPA: любой путь — экран приложения; index.html уходит с no-store (location выше)
+    location / {
+        try_files $uri /index.html;
+    }
+}

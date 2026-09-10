@@ -89,8 +89,15 @@ class SystemStateMachine:
         SystemState.FATAL: set(),  # FATAL - terminal state
     }
     
-    def __init__(self, safe_mode_ttl: float = 600.0):
+    def __init__(self, safe_mode_ttl: float = 600.0, exit_fn=None, force_exit_delay: float = 10.0):
         self._state = SystemState.RUNNING
+        # Аварийный выход при EVENT_DELIVERY_FAILURE подменяется в тестах, как у
+        # FatalReaper/ThreadWatchdog: настоящий os._exit из фонового потока через
+        # 10 с после теста переполнения гасил весь прогон pytest, если набор не
+        # успевал закончиться раньше (10.09.2026, медленные тесты сторожа хоста).
+        self._exit_fn = exit_fn or os._exit
+        self._force_exit_delay = force_exit_delay
+        self._force_exit_armed = False
         self._state_lock = asyncio.Lock()
         self._transitions: list[StateTransition] = []
         self._state_entered_at: Dict[SystemState, datetime] = {
@@ -492,13 +499,18 @@ class SystemStateMachine:
 
                 # Fallback: если asyncio loop завис, принудительно завершаем процесс
                 # через 10 секунд, чтобы FATAL гарантированно достигался даже при stall.
-                def _force_exit_after_delay():
-                    time.sleep(10)
-                    logger.critical("STATE_MACHINE: Force exit after EVENT_DELIVERY_FAILURE (loop stall)")
-                    os._exit(1)
+                # Взводится один раз: каждое следующее переполнение сверх порога
+                # раньше запускало ещё один такой поток.
+                if not self._force_exit_armed:
+                    self._force_exit_armed = True
 
-                _t = threading.Thread(target=_force_exit_after_delay, daemon=True, name="force-exit-guard")
-                _t.start()
+                    def _force_exit_after_delay():
+                        time.sleep(self._force_exit_delay)
+                        logger.critical("STATE_MACHINE: Force exit after EVENT_DELIVERY_FAILURE (loop stall)")
+                        self._exit_fn(1)
+
+                    _t = threading.Thread(target=_force_exit_after_delay, daemon=True, name="force-exit-guard")
+                    _t.start()
             return False
     
     def _process_event_queue(self) -> None:

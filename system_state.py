@@ -8,6 +8,9 @@ import threading
 from datetime import datetime, UTC
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # Импортируем типы из decision_core для type hints
@@ -38,6 +41,27 @@ class SystemHealth:
     trading_paused: bool = False  # Торговля приостановлена (CRITICAL alert)
     last_heartbeat: Optional[datetime] = None
     consecutive_errors: int = 0
+
+
+def _revive_state(value):
+    """Состояние рынка из снимка: 'A'..'D' → MarketState (так его сравнивает is_new_signal)."""
+    try:
+        from core.market_state import MarketState
+        if isinstance(value, str) and MarketState.is_valid(value):
+            return MarketState(value)
+    except Exception:
+        logger.debug("system_state: состояние из снимка не распознано — оставлено как есть", exc_info=True)
+    return value
+
+
+def _revive_signal(item):
+    """Сигнал из снимка: ISO-время → datetime (журнал действий Risk Core считает по нему)."""
+    if isinstance(item, dict) and isinstance(item.get("timestamp"), str):
+        try:
+            return {**item, "timestamp": datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))}
+        except ValueError:
+            return item
+    return item
 
 
 class SystemState:
@@ -226,10 +250,17 @@ class SystemState:
         with self._lock:
             self.system_health.consecutive_errors = 0
 
-    def update_heartbeat(self):
-        """Обновляет время последнего heartbeat"""
+    def update_heartbeat(self, when=None):
+        """
+        Обновляет время последнего heartbeat.
+
+        when — явная отметка времени вместо текущей. Нужна, чтобы воспроизвести
+        зависший event loop в тестах: сторожевой поток судит о зависании именно
+        по возрасту этой отметки, и подделать её иначе можно только залезая
+        в приватное поле мимо блокировки.
+        """
         with self._lock:
-            self.system_health.last_heartbeat = datetime.now(UTC)
+            self.system_health.last_heartbeat = when or datetime.now(UTC)
     
     def reset(self):
         """Сбрасывает состояние (для тестов)"""
@@ -307,11 +338,11 @@ class SystemState:
             
             # Восстанавливаем последние сигналы
             if "recent_signals" in snapshot:
-                self.recent_signals = snapshot["recent_signals"]
+                self.recent_signals = [_revive_signal(item) for item in snapshot["recent_signals"] or []]
             
             # Восстанавливаем кэш сигналов
             if "signal_cache" in snapshot:
-                self.signal_cache = snapshot["signal_cache"]
+                self.signal_cache = {sym: _revive_state(state) for sym, state in (snapshot["signal_cache"] or {}).items()}
         except Exception as e:
             # Если восстановление не удалось, продолжаем с пустым состоянием
             import logging

@@ -386,8 +386,14 @@ ERROR_PAUSE=600
 LOG_FILE=monitor.log
 
 # FastAPI backend
-DISABLE_AUTH=true
-CORS_ORIGINS=https://telegram.org,https://web.telegram.org,http://localhost:5173
+# ВНИМАНИЕ: здесь раньше стоял образец DISABLE_AUTH=true. Скопированный в боевой
+# .env, он открывал все роуты API и давал права администратора любому. Теперь
+# флаг действует только при ENVIRONMENT=development|test, а в production API
+# с ним не стартует. Полный актуальный шаблон — .env.example.
+ENVIRONMENT=production
+ADMIN_CHAT_ID=<ваш Telegram user id>
+DISABLE_AUTH=false
+CORS_ORIGINS=https://telegram.org,https://web.telegram.org
 ```
 
 ### Bybit API endpoints (текущие)

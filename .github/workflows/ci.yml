@@ -1,54 +1,170 @@
 name: CI
 
+# Гейт перед влитием в main. До 10.09.2026 workflow existed, но не гейтил ничего:
+# 16 из 16 последних запусков были красными (все — падение сбора тестов из-за
+# отсутствия TELEGRAM_BOT_TOKEN в окружении раннера), а branch protection не было.
+# Следствие: 16 PR Dependabot, среди них закрывающие 82 известные уязвимости,
+# висели невлитыми с апреля — влить их было не во что, проверка всё равно красная.
+#
+# Что здесь проверяется теперь и почему именно это:
+#   lint      — только фатальный класс (E9/F63/F7/F82): синтаксис и неопределённые
+#               имена. F821 в core/system_guardian.py прожил в main месяцы.
+#   tests     — весь tests/, без переменных окружения: модули обязаны импортироваться
+#               в пустом окружении, это отдельный инвариант (см. job import-hygiene).
+#   docker    — образ обязан собираться. Раньше сборки в CI не было вовсе, поэтому
+#               PR Dependabot на python:3.14-slim выглядел бы зелёным, хотя для
+#               psycopg2-binary==2.9.10 колёс под cp314 не существует.
+#   frontend  — tsc и eslint для miniapp. Шесть npm-веток Dependabot не проверял никто.
+#   secrets   — gitleaks по всей истории. Токен бота пролежал в репозитории
+#               с января по сентябрь в закоммиченном .pyc.
+
 on:
   push:
-    branches: [develop, main]
+    branches: [main, develop]
   pull_request:
-    branches: [develop, main]
+    branches: [main, develop]
+
+# Отменяем предыдущий прогон на той же ветке — экономия раннеров при частых пушах
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  lint:
+    name: Линт (фатальный класс)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install dependencies
+          python-version: "3.12"
+          cache: pip
+      - run: pip install flake8==7.0.0
+      - name: Синтаксис и неопределённые имена
+        # F824 («global объявлен, но не присваивается») включён после задачи 6.3:
+        # 26 таких мест убраны, и одно из них прятало настоящую ошибку — чтение
+        # несуществующего имени, NameError при каждом успешном восстановлении.
         run: |
-          pip install --upgrade pip
+          flake8 --count --select=E9,F63,F7,F821,F822,F823,F824 \
+                 --exclude=venv,archive,.git,miniapp \
+                 --show-source --statistics .
+
+  import-hygiene:
+    name: Импорт без окружения
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-
-      - name: Run tests with coverage
+      - name: Модули импортируются в пустом окружении и ничего не создают
+        # Именно этот инвариант был нарушен и делал CI красным: telegram_bot.py
+        # бросал ValueError на уровне модуля, а runner.py создавал файл лога.
+        # `env -i` даёт по-настоящему пустое окружение, PATH возвращаем вручную.
         run: |
-          python -m pytest tests/ \
+          env -i PATH="$PATH" HOME="$HOME" python -c "
+          import runner, telegram_bot, config, database
+          print('импорт без переменных окружения: ok')
+          "
+          test ! -f runner.log || (echo "ОШИБКА: импорт создал runner.log" && exit 1)
+
+  tests:
+    name: Тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install pytest-timeout
+      - name: pytest
+        # Переменных окружения нет намеренно: тесты обязаны проходить без них.
+        # Таймаут на тест — страховка от зависшего сторожевого потока: раньше
+        # прогон обрывался через os._exit без единой строки о причине.
+        run: |
+          python -m pytest tests/ -q --timeout=120 \
             --cov=core.decision_core \
             --cov=core.risk_core \
             --cov=core.position_sizer \
             --cov=brains.meta_decision_brain \
+            --cov=trading_mode \
+            --cov=utils.env \
             --cov-report=term-missing \
-            --cov-fail-under=80 \
-            -q
-
-      - name: Upload coverage report
+            --cov-fail-under=80
+      - name: Покрытие всего проекта (храповик, пока без гейта)
+        # Общее покрытие на 10.09.2026 — 23 %: api/ 0 %, execution/ 7-22 %,
+        # exchange/ 29 %, то есть путь до денег почти не покрыт. Гейт здесь
+        # поставим после задачи 3.18 (mock-биржа), сейчас только измеряем,
+        # чтобы цифра была на виду в каждом прогоне.
+        run: |
+          python -m pytest tests/ -q --timeout=120 \
+            --cov=core --cov=execution --cov=exchange --cov=api \
+            --cov=utils --cov=trading_mode \
+            --cov-report=term | tail -5
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: .coverage
+          if-no-files-found: ignore
+
+  docker:
+    name: Сборка образа
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker build
+        # Без этого шага PR Dependabot на python:3.14-slim прошёл бы зелёным:
+        # тесты ставят зависимости из requirements.txt на 3.12, а образ на 3.14
+        # упал бы на psycopg2-binary, для которого нет колёс под cp314.
+        run: docker build -t market-bot:ci .
+      - name: Контейнер стартует и не падает на импорте
+        run: |
+          docker run --rm --entrypoint python market-bot:ci -c "
+          import runner, telegram_bot
+          print('импорт внутри образа: ok')
+          "
+
+  frontend:
+    name: Mini App (tsc + eslint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: miniapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  secrets:
+    name: Поиск секретов
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Полная история: секрет может лежать в старом коммите, а не в диффе.
+          # Токен бота именно так и жил — из .py его убрали в марте, а в .pyc
+          # он оставался до сентября.
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

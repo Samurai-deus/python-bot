@@ -1,0 +1,11 @@
+[Unit]
+Description=market-bot: ежедневный бэкап базы
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+# Persistent: если сервер был выключен в момент запуска — бэкап сделается при старте
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

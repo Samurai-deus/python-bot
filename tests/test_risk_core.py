@@ -166,11 +166,18 @@ class TestRiskCoreBehavioralInvariants:
         )
         assert permission != TradingPermission.ALLOW
 
-    def test_consecutive_losses_with_recent_cooldown_blocks(
+    def test_single_recent_loss_does_not_block(
         self, risk_core, healthy_intent, healthy_capital,
         healthy_exposure, healthy_system
     ):
-        # Loss happened 5 minutes ago — within the 60-min cooldown
+        """
+        Один убыток паузу не включает.
+
+        Тест раньше требовал DENY при одном убытке и падал: порог подняли
+        намеренно коммитом 4403b2b — с `consecutive_losses > 0` до `>= 3`
+        с пропорциональной паузой 30/45/60 минут. Прежнее правило
+        останавливало торговлю после любого убытка, то есть примерно всегда.
+        """
         recent = datetime.now(UTC) - timedelta(minutes=5)
         behavioral = BehavioralCounters(
             actions_last_hour=0,
@@ -182,7 +189,47 @@ class TestRiskCoreBehavioralInvariants:
             healthy_intent, healthy_capital, healthy_exposure,
             behavioral, healthy_system
         )
+        assert permission != TradingPermission.DENY
+
+    def test_three_consecutive_losses_within_cooldown_blocks(
+        self, risk_core, healthy_intent, healthy_capital,
+        healthy_exposure, healthy_system
+    ):
+        """Три убытка подряд и 5 минут с последнего — пауза 30 минут ещё идёт."""
+        recent = datetime.now(UTC) - timedelta(minutes=5)
+        behavioral = BehavioralCounters(
+            actions_last_hour=0,
+            actions_last_24h=0,
+            consecutive_losses=3,
+            last_loss_timestamp=recent,
+        )
+        permission, state, report = risk_core.evaluate(
+            healthy_intent, healthy_capital, healthy_exposure,
+            behavioral, healthy_system
+        )
         assert permission == TradingPermission.DENY
+
+    def test_three_consecutive_losses_after_cooldown_allows(
+        self, risk_core, healthy_intent, healthy_capital,
+        healthy_exposure, healthy_system
+    ):
+        """
+        Та же серия, но пауза истекла — запрет обязан сняться сам.
+        Без этой проверки предыдущий тест проходил бы и на коде, который
+        блокирует по счётчику убытков навсегда, игнорируя время.
+        """
+        long_ago = datetime.now(UTC) - timedelta(minutes=45)
+        behavioral = BehavioralCounters(
+            actions_last_hour=0,
+            actions_last_24h=0,
+            consecutive_losses=3,
+            last_loss_timestamp=long_ago,
+        )
+        permission, state, report = risk_core.evaluate(
+            healthy_intent, healthy_capital, healthy_exposure,
+            behavioral, healthy_system
+        )
+        assert permission != TradingPermission.DENY
 
 
 class TestRiskCoreSystemHealth:
@@ -446,3 +493,106 @@ class TestRiskCoreFailClosed:
             healthy_behavioral, healthy_system
         )
         assert permission == TradingPermission.DENY
+
+
+from core.risk_core import RiskState as _RiskState  # noqa: E402
+
+
+class TestRiskCoreHaltLatch:
+    """
+    HALTED обязан держаться до ручного сброса (аудит 10.09.2026, C5).
+
+    Раньше evaluate() перезаписывал состояние на каждом вызове, и HALTED
+    снимался следующим же нормальным сигналом — при том что ADR называет его
+    терминальным, а reset() отказывался его сбрасывать.
+    """
+
+    @staticmethod
+    def _invalid_intent():
+        return TradingIntent(
+            symbol="BTCUSDT", side="BUY", position_size_usd=100.0,
+            entry_price=50000.0, stop_price=49000.0,
+        )
+
+    def test_healthy_inputs_are_not_denied_without_prior_halt(
+        self, risk_core, healthy_intent, healthy_capital, healthy_exposure,
+        healthy_behavioral, healthy_system
+    ):
+        """Точка отсчёта: без предшествующего HALTED здоровый сигнал проходит."""
+        permission, state, _ = risk_core.evaluate(
+            healthy_intent, healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        assert permission != TradingPermission.DENY
+        assert state != _RiskState.HALTED
+
+    def test_halt_survives_next_valid_signal(
+        self, risk_core, healthy_intent, healthy_capital, healthy_exposure,
+        healthy_behavioral, healthy_system
+    ):
+        _, first_state, _ = risk_core.evaluate(
+            self._invalid_intent(), healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        assert first_state == _RiskState.HALTED
+
+        permission, state, report = risk_core.evaluate(
+            healthy_intent, healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        assert permission == TradingPermission.DENY
+        assert state == _RiskState.HALTED
+        assert "HALT_LATCHED" in report.violated_invariants
+        assert risk_core.risk_state == _RiskState.HALTED
+
+    def test_plain_reset_does_not_release_halt(
+        self, risk_core, healthy_intent, healthy_capital, healthy_exposure,
+        healthy_behavioral, healthy_system
+    ):
+        """reset() — для счётчиков и тестов; HALTED он снимать не должен."""
+        risk_core.evaluate(
+            self._invalid_intent(), healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        risk_core.reset()
+        _, state, _ = risk_core.evaluate(
+            healthy_intent, healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        assert state == _RiskState.HALTED
+
+    def test_manual_release_restores_trading(
+        self, risk_core, healthy_intent, healthy_capital, healthy_exposure,
+        healthy_behavioral, healthy_system
+    ):
+        risk_core.evaluate(
+            self._invalid_intent(), healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        assert risk_core.halt_latched is True
+        assert risk_core.reset_halt(by="test") is True
+        assert risk_core.halt_latched is False
+
+        permission, state, _ = risk_core.evaluate(
+            healthy_intent, healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        assert permission != TradingPermission.DENY
+        assert state != _RiskState.HALTED
+
+    def test_release_without_halt_is_noop(self, risk_core):
+        assert risk_core.reset_halt(by="test") is False
+
+    def test_exception_inside_evaluation_latches(
+        self, monkeypatch, risk_core, healthy_intent, healthy_capital,
+        healthy_exposure, healthy_behavioral, healthy_system
+    ):
+        """Исключение внутри Risk Core — это ошибка кода, и она тоже защёлкивает."""
+        def boom(*args, **kwargs):
+            raise RuntimeError("bug inside an invariant check")
+
+        monkeypatch.setattr(risk_core, "_check_systemic_invariants", boom)
+        _, state, _ = risk_core.evaluate(
+            healthy_intent, healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        assert state == _RiskState.HALTED
+
+        monkeypatch.undo()  # проверка больше не падает — но защёлка должна держать
+        permission, state, _ = risk_core.evaluate(
+            healthy_intent, healthy_capital, healthy_exposure, healthy_behavioral, healthy_system
+        )
+        assert permission == TradingPermission.DENY
+        assert state == _RiskState.HALTED

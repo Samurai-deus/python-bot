@@ -1,0 +1,8 @@
+[Unit]
+Description=market-bot: бэкап базы
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/market-bot/backup.sh
