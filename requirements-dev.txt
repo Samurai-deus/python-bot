@@ -2,7 +2,7 @@
 # Install: pip install -r requirements-dev.txt
 
 black>=24.3.0
-isort>=5.13.2
+isort>=9.0.1
 flake8>=7.0.0
 pre-commit>=4.6.2
 
