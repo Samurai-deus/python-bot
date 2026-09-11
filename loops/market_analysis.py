@@ -675,6 +675,10 @@ async def market_analysis_loop():
                             )
                             RUNNING_TASKS.add(_t)
                             _t.add_done_callback(RUNNING_TASKS.discard)
+                    # Закрытия, записанные оценкой, — уточнить по бирже: её отчёт о
+                    # закрытии появляется с задержкой (шаг 1 плана обучения, 11.09.2026)
+                    from execution.exchange_ledger import correct_estimated_closes
+                    await asyncio.to_thread(correct_estimated_closes)
             except Exception as _e:
                 logger.warning("Position tracker poll error: %s: %s", type(_e).__name__, _e)
 

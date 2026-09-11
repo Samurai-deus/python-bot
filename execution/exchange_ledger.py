@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 CLOSED_PNL_ATTEMPTS = 3
 CLOSED_PNL_DELAY_SECONDS = 2.0
+# Bybit отбирает closed-pnl по createdTime ЗАКРЫВАЮЩЕГО ордера. Тейк и стоп создаются
+# вместе с позицией — на доли секунды раньше отметки открытия у бота, и поиск «с
+# момента открытия» их не видел: каждое закрытие стопом или тейком записывалось
+# оценкой (демо-счёт 11.09.2026, UNIUSDT: +0,038 $ вместо +0,082 $).
+CLOSED_PNL_LOOKBACK_MS = 10 * 60 * 1000
+CLOSED_PNL_MAX_WINDOW_MS = 7 * 24 * 3600 * 1000 - 60 * 1000  # окно запроса биржи — до 7 дней
+# Закрытия, записанные без PnL биржи; correct_estimated_closes уточняет их позже
+ESTIMATED_CLOSE_REASONS = ("EXCHANGE_CLOSE_PNL_ESTIMATED", "CLOSED_WHILE_OFFLINE_PNL_UNKNOWN")
 
 
 def _client():
@@ -51,9 +59,27 @@ def _side(exchange_side: str) -> str:
     return "LONG" if exchange_side == "Buy" else "SHORT"
 
 
-def closed_pnl_since(client, symbol: str, opened_at) -> Tuple[Optional[float], Optional[float]]:
-    """(PnL, цена выхода) закрытий по символу после открытия сделки — или (None, None)."""
-    records = client.get_closed_pnl(symbol, int(_parse_time(opened_at).timestamp() * 1000))
+def _ms(when) -> int:
+    return int(_parse_time(when).timestamp() * 1000)
+
+
+def closed_pnl_since(client, symbol: str, opened_at, until=None) -> Tuple[Optional[float], Optional[float]]:
+    """
+    (PnL, цена выхода) закрытий по символу после открытия сделки — или (None, None).
+
+    Запрос — с запасом до открытия (CLOSED_PNL_LOOKBACK_MS): биржа отбирает записи по
+    времени создания закрывающего ордера, а тейк и стоп создаются вместе с позицией.
+    Отбор — по времени самого закрытия (updatedTime): не раньше открытия (закрытие
+    прошлой сделки по символу — не наше) и не позже until (открытие следующей).
+    """
+    opened_ms = _ms(opened_at)
+    start_ms = max(opened_ms - CLOSED_PNL_LOOKBACK_MS, int(time.time() * 1000) - CLOSED_PNL_MAX_WINDOW_MS)
+    until_ms = _ms(until) if until else None
+    records = [
+        r for r in client.get_closed_pnl(symbol, start_ms)
+        if int(r.get("updatedTime") or 0) >= opened_ms
+        and (until_ms is None or int(r.get("updatedTime") or 0) <= until_ms)
+    ]
     if not records:
         return None, None
     pnl = sum(float(r.get("closedPnl") or 0) for r in records)
@@ -108,6 +134,33 @@ def record_close(tracked: TrackedPosition, client=None, sleep=time.sleep) -> flo
     if tracked.order_id:
         database.close_position_by_order_id(tracked.order_id, close_price, reason, pnl)
     return pnl
+
+
+def correct_estimated_closes(client=None, days: int = 7) -> int:
+    """
+    Уточнить по бирже закрытия, записанные оценкой (отчёт биржи о закрытии появляется
+    с задержкой). Закрытие ищется между открытием сделки и открытием следующей по тому
+    же символу. Возвращает число уточнённых сделок. Вызывается каждый оборот анализа.
+    """
+    estimated = database.get_estimated_closes(ESTIMATED_CLOSE_REASONS, days)
+    if not estimated:
+        return 0
+    client = client or _client()
+    fixed = 0
+    for trade in estimated:
+        try:
+            pnl, price = closed_pnl_since(client, trade["symbol"], trade["timestamp"], until=trade.get("next_open"))
+        except Exception as e:
+            logger.warning("Уточнение PnL #%s %s: closed-pnl недоступен: %s", trade["id"], trade["symbol"], e)
+            continue
+        if pnl is None:
+            continue
+        if database.correct_trade_close(trade["id"], price or trade.get("close_price") or 0.0, pnl,
+                                        "EXCHANGE_CLOSE", ESTIMATED_CLOSE_REASONS):
+            fixed += 1
+            logger.info("PnL сделки #%s %s уточнён по бирже: оценка %.4f → %.4f",
+                        trade["id"], trade["symbol"], float(trade.get("pnl") or 0.0), pnl)
+    return fixed
 
 
 def open_position_reason(symbol: str, client, tracker) -> Optional[str]:
