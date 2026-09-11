@@ -130,6 +130,26 @@ def signals_section(fates: Iterable[Dict]) -> List[str]:
     return lines
 
 
+_AI_LABELS = {"approve": "одобрил бы", "reduce": "уменьшил бы", "reject": "отклонил бы"}
+
+
+def ai_section(verdicts: Iterable[Dict]) -> List[str]:
+    """Исходы сигналов по решению ИИ: у одобренных ожидание должно быть выше, чем у отклонённых."""
+    verdicts = list(verdicts)
+    if not verdicts:
+        return ["ИИ (тень): мнений за неделю нет."]
+    decided = [v for v in verdicts if v.get("decision")]
+    lines = [f"ИИ (тень): мнений {len(decided)}, без мнения {len(verdicts) - len(decided)}. "
+             "Исходы сигналов по его решению:"]
+    by_decision: Dict[str, List[Dict]] = defaultdict(list)
+    for verdict in decided:
+        by_decision[verdict["decision"]].append(verdict)
+    for decision, label in _AI_LABELS.items():
+        if by_decision.get(decision):
+            lines.append(_fate_line(label, by_decision[decision], flag=False))
+    return lines
+
+
 def build_weekly_report(now: Optional[datetime] = None) -> str:
     """Текст отчёта за 7 дней до now по сделкам текущего режима и журналу сигналов."""
     import database
@@ -141,13 +161,15 @@ def build_weekly_report(now: Optional[datetime] = None) -> str:
     on_exchange = sends_real_orders()
     trades = database.get_closed_trades_since(since.isoformat(), on_exchange=on_exchange)
     fates = database.get_signal_fates(since.isoformat())
+    verdicts = database.get_ai_verdicts(since.isoformat())
     try:
         capital = get_current_balance()
     except Exception:
         capital = None
     header = (f"📈 Неделя {since:%d.%m}–{now:%d.%m} (UTC), "
               f"{'сделки на бирже' if on_exchange else 'бумажные сделки'}")
-    return "\n".join([header, ""] + trades_section(trades, capital) + [""] + signals_section(fates))
+    return "\n".join([header, ""] + trades_section(trades, capital) + [""] + signals_section(fates)
+                     + [""] + ai_section(verdicts))
 
 
 def send_weekly_report() -> None:
