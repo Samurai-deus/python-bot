@@ -26,7 +26,7 @@ from database import get_current_balance_from_db, get_open_margin, get_total_ope
 logger = logging.getLogger(__name__)
 
 # Кошелёк спрашиваем не чаще раза в 30 секунд: размер считается на каждый сигнал,
-# а сигналов по 28 символам за цикл бывает несколько.
+# а сигналов по 27 символам за цикл бывает несколько.
 _WALLET_CACHE_TTL = 30.0
 _wallet_cache = {"at": 0.0, "value": None}
 _wallet_lock = threading.Lock()
