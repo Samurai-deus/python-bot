@@ -2808,6 +2808,35 @@ async def heartbeat_loop():
     logger.info("💓 Telegram heartbeat stopped")
 
 
+async def correlation_groups_loop():
+    """
+    Группы коррелирующих символов для Risk Core (market_data.correlation_groups).
+    Раз в час проверяет, не пора ли пересчитать (групп нет или они старше суток),
+    и считает в потоке. Сбой не критичен: остаются прежние группы.
+    """
+    from market_data import correlation_groups as cg
+    logger.info("Correlation groups loop started")
+    shutdown_evt = get_shutdown_event()
+    while system_state.system_health.is_running and not shutdown_evt.is_set():
+        try:
+            if await asyncio.to_thread(cg.needs_refresh):
+                await asyncio.wait_for(asyncio.to_thread(cg.refresh), timeout=300.0)
+        except asyncio.CancelledError:
+            logger.info("Correlation groups loop cancelled")
+            break
+        except Exception as e:
+            logger.warning("Correlation groups refresh failed (non-critical): %s: %s", type(e).__name__, e)
+        remaining = 3600.0
+        while remaining > 0 and system_state.system_health.is_running and not shutdown_evt.is_set():
+            try:
+                await asyncio.sleep(min(60.0, remaining))
+                remaining -= 60.0
+            except asyncio.CancelledError:
+                logger.info("Correlation groups loop cancelled")
+                return
+    logger.info("Correlation groups loop stopped")
+
+
 async def daily_report_loop():
     """
     Отправляет ежедневные отчеты в определенное время.
@@ -4543,6 +4572,10 @@ async def main():
         register_task(
             asyncio.create_task(daily_report_loop(), name="DailyReport"),
             "DailyReport"
+        ),
+        register_task(
+            asyncio.create_task(correlation_groups_loop(), name="CorrelationGroups"),
+            "CorrelationGroups"
         ),
         # ========== PRODUCTION HARDENING MONITORS ==========
         register_task(

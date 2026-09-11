@@ -1179,6 +1179,55 @@ def save_capital_baseline(mode: str, initial: float, peak: float) -> None:
         conn.close()
 
 
+
+# ========== ГРУППЫ КОРРЕЛИРУЮЩИХ СИМВОЛОВ ==========
+# Одна строка 'current': группы для Risk Core (market_data.correlation_groups).
+
+def _ensure_correlation_groups_table(cursor) -> None:
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS correlation_groups ("
+        " id TEXT PRIMARY KEY,"
+        " groups_json TEXT NOT NULL,"
+        " computed_at TEXT NOT NULL)"
+    )
+
+
+def get_correlation_groups() -> Optional[Dict]:
+    """{'groups': {имя: [символы]}, 'computed_at': ISO} — или None, если групп ещё нет."""
+    import json
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_correlation_groups_table(cursor)
+        cursor.execute(_q("SELECT groups_json, computed_at FROM correlation_groups WHERE id = ?"), ("current",))
+        row = cursor.fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {"groups": json.loads(row["groups_json"]), "computed_at": row["computed_at"]}
+
+
+def save_correlation_groups(groups: Dict) -> None:
+    """Записать текущие группы с меткой времени расчёта."""
+    import json
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_correlation_groups_table(cursor)
+        payload = json.dumps(groups, ensure_ascii=False, sort_keys=True)
+        now = datetime.now(UTC).isoformat()
+        cursor.execute(_q("UPDATE correlation_groups SET groups_json = ?, computed_at = ? WHERE id = ?"),
+                       (payload, now, "current"))
+        if cursor.rowcount == 0:
+            cursor.execute(_q("INSERT INTO correlation_groups (id, groups_json, computed_at) VALUES (?, ?, ?)"),
+                           ("current", payload, now))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_total_open_positions_size() -> float:
     """Номинал открытых сделок (занятый капитал) — после частичного закрытия остаток."""
     conn = get_db_connection()
