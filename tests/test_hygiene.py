@@ -92,3 +92,57 @@ def test_signals_is_the_module_not_a_shadowing_package():
     import signals
     assert pathlib.Path(signals.__file__).name == "signals.py"
     assert callable(signals.build_signal)
+
+
+# Корневые модули на 11.09.2026 — наследие. Новый код — в пакетах; модуль в корне
+# добавляется (или вычёркивается после удаления) только правкой этого списка.
+ROOT_MODULES = frozenset({
+    "adaptive_rr",
+    "bot_statistics",
+    "candle_analysis",
+    "capital",
+    "chaos_engine",
+    "config",
+    "context_engine",
+    "correlation_analysis",
+    "daily_report",
+    "data_loader",
+    "database",
+    "demo_trades",
+    "error_alert",
+    "health_monitor",
+    "indicators",
+    "journal",
+    "leverage",
+    "monitor_log",
+    "paper_fills",
+    "price_cache",
+    "risk",
+    "run_api",
+    "runner",
+    "scoring",
+    "signal_generator",
+    "signals",
+    "spike_alert",
+    "states",
+    "system_state",
+    "system_state_machine",
+    "systemd_integration",
+    "task_dump",
+    "telegram_bot",
+    "telegram_commands",
+    "time_filter",
+    "trade_manager",
+    "trade_reporter",
+    "trading_mode",
+    "volatility_filter",
+})
+
+
+def test_no_new_modules_in_the_project_root():
+    """Пункт 5 плана отложенного (docs/DEFERRED_PLAN.md): корень не растёт незаметно."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    actual = {path.stem for path in root.glob("*.py")}
+    assert actual - ROOT_MODULES == set(), "новый модуль в корне — место ему в пакете"
+    assert ROOT_MODULES - actual == set(), "модуль удалён — вычеркните его из ROOT_MODULES"

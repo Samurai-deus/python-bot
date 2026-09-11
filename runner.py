@@ -49,7 +49,7 @@ from error_alert import error_alert
 from telegram_bot import send_message, send_message_async
 from health_monitor import send_heartbeat, send_heartbeat_async, HEARTBEAT_INTERVAL
 from utils import liveness
-from daily_report import generate_daily_report
+from loops import periodic
 
 # Новые модули для контролируемой архитектуры
 from chaos_engine import get_chaos_engine, ChaosType
@@ -2808,142 +2808,9 @@ async def heartbeat_loop():
     logger.info("💓 Telegram heartbeat stopped")
 
 
-async def correlation_groups_loop():
-    """
-    Группы коррелирующих символов для Risk Core (market_data.correlation_groups).
-    Раз в час проверяет, не пора ли пересчитать (групп нет или они старше суток),
-    и считает в потоке. Сбой не критичен: остаются прежние группы.
-    """
-    from market_data import correlation_groups as cg
-    logger.info("Correlation groups loop started")
-    shutdown_evt = get_shutdown_event()
-    while system_state.system_health.is_running and not shutdown_evt.is_set():
-        try:
-            if await asyncio.to_thread(cg.needs_refresh):
-                await asyncio.wait_for(asyncio.to_thread(cg.refresh), timeout=300.0)
-        except asyncio.CancelledError:
-            logger.info("Correlation groups loop cancelled")
-            break
-        except Exception as e:
-            logger.warning("Correlation groups refresh failed (non-critical): %s: %s", type(e).__name__, e)
-        remaining = 3600.0
-        while remaining > 0 and system_state.system_health.is_running and not shutdown_evt.is_set():
-            try:
-                await asyncio.sleep(min(60.0, remaining))
-                remaining -= 60.0
-            except asyncio.CancelledError:
-                logger.info("Correlation groups loop cancelled")
-                return
-    logger.info("Correlation groups loop stopped")
-
-
-async def daily_report_loop():
-    """
-    Отправляет ежедневные отчеты в определенное время.
-    
-    AsyncIO safety:
-    - Длинные sleep с проверкой shutdown
-    - Graceful cancellation support
-    """
-    logger.info("Daily report loop started")
-    
-    # Use shutdown_event for proper cancellation semantics
-    shutdown_evt = get_shutdown_event()
-    
-    while system_state.system_health.is_running and not shutdown_evt.is_set():
-        try:
-            # Вычисляем время до следующего отчета (00:00 UTC)
-            now = datetime.now(UTC)
-            next_report = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-            sleep_seconds = (next_report - now).total_seconds()
-            
-            logger.info("Next daily report in %.1f hours", sleep_seconds / 3600)
-            
-            # Sleep с проверкой shutdown (разбиваем на чанки для responsiveness)
-            sleep_chunk = min(3600.0, sleep_seconds)  # Максимум 1 час за раз
-            remaining = sleep_seconds
-            
-            shutdown_evt = get_shutdown_event()
-            while remaining > 0 and system_state.system_health.is_running and not shutdown_evt.is_set():
-                try:
-                    chunk = min(sleep_chunk, remaining)
-                    await asyncio.sleep(chunk)
-                    remaining -= chunk
-                except asyncio.CancelledError:
-                    break
-            
-            shutdown_evt = get_shutdown_event()
-            if shutdown_evt.is_set() or not system_state.system_health.is_running:
-                break
-            
-            # Отправляем отчет
-            try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(generate_daily_report),
-                    timeout=60.0
-                )
-                logger.info("Daily report sent")
-            except Exception as e:
-                logger.warning("Failed to send daily report (non-critical): %s: %s", type(e).__name__, e)
-            
-        except asyncio.CancelledError:
-            logger.info("Daily report loop cancelled")
-            break
-        except Exception as e:
-            logger.error("Error in daily report loop: %s: %s", type(e).__name__, e)
-            # Пауза 1 час перед повтором (с проверкой shutdown)
-            try:
-                # Используем await asyncio.sleep() с проверкой shutdown каждую секунду
-                shutdown_evt = get_shutdown_event()
-                remaining = 3600
-                while remaining > 0:
-                    if shutdown_evt.is_set() or not system_state.system_health.is_running:
-                        break
-                    # Спим по 1 секунде, чтобы можно было прервать при shutdown
-                    await asyncio.sleep(min(1.0, remaining))
-                    remaining -= 1.0
-            except asyncio.CancelledError:
-                break
-    
-    logger.info("Daily report loop stopped")
-
-
-async def outcome_tracker_loop():
-    """
-    Периодически маркирует сигналы результатами (WIN/LOSS/NEUTRAL).
-
-    Запускается через 5 минут после старта (дать боту время),
-    затем повторяется каждые 30 минут.
-    """
-    logger.info("[OutcomeTracker] Loop started")
-    shutdown_evt = get_shutdown_event()
-
-    # Initial delay: 5 minutes
-    try:
-        await asyncio.wait_for(shutdown_evt.wait(), timeout=300.0)
-        logger.info("[OutcomeTracker] Loop stopped (shutdown during initial delay)")
-        return
-    except asyncio.TimeoutError:
-        pass  # Expected: initial delay elapsed, proceed to outcome check loop
-
-    while system_state.system_health.is_running and not shutdown_evt.is_set():
-        try:
-            from brains.outcome_tracker import run_outcome_check
-            count = await asyncio.to_thread(run_outcome_check)
-            if count > 0:
-                logger.info("[OutcomeTracker] Newly marked outcomes: %d", count)
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error("[OutcomeTracker] Error: %s", e, exc_info=True)
-
-        try:
-            await asyncio.wait_for(shutdown_evt.wait(), timeout=1800.0)  # 30 min
-            break
-        except asyncio.TimeoutError:
-            pass  # Expected: sleep interval elapsed, proceed to next outcome check
-
-    logger.info("[OutcomeTracker] Loop stopped")
+def _is_running() -> bool:
+    """Для задач из loops/: читает текущий system_state, даже если его заменили."""
+    return system_state.system_health.is_running
 
 
 async def paper_trading_monitor_loop():
@@ -4570,11 +4437,11 @@ async def main():
             "TelegramHeartbeat"
         ),
         register_task(
-            asyncio.create_task(daily_report_loop(), name="DailyReport"),
+            asyncio.create_task(periodic.daily_report_loop(_is_running, get_shutdown_event()), name="DailyReport"),
             "DailyReport"
         ),
         register_task(
-            asyncio.create_task(correlation_groups_loop(), name="CorrelationGroups"),
+            asyncio.create_task(periodic.correlation_groups_loop(_is_running, get_shutdown_event()), name="CorrelationGroups"),
             "CorrelationGroups"
         ),
         # ========== PRODUCTION HARDENING MONITORS ==========
@@ -4591,7 +4458,7 @@ async def main():
             "PaperTradingMonitor"
         ),
         register_task(
-            asyncio.create_task(outcome_tracker_loop(), name="OutcomeTracker"),
+            asyncio.create_task(periodic.outcome_tracker_loop(_is_running, get_shutdown_event()), name="OutcomeTracker"),
             "OutcomeTracker"
         ),
     ]
