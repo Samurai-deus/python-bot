@@ -20,6 +20,8 @@
 #   nginx            сайт из шаблона релиза; нет сертификата — выпуск через webroot;
 #                    nginx -t ДО reload, при ошибке — возврат прежнего конфига
 #   token            замена токена бота из $STAGE/secrets.env после перевыпуска
+#   ai-key           ключ OpenRouter для ИИ-трейдера из $STAGE/secrets.env: проверка у
+#                    OpenRouter через прокси хоста → .env (+ AI_PROXY_URL) → пересоздание
 #   menu             кнопка меню бота → текущий домен (адрес мини-аппа живёт у Telegram)
 #   backup           бэкап базы сейчас (с зашифрованной копией владельцу в Telegram)
 #   watchdog         проверка сторожем сейчас (обычно — таймер раз в 5 минут)
@@ -524,6 +526,53 @@ step_menu() {
   exit 1
 }
 
+# Ключ OpenRouter для ИИ-трейдера (docs/AI_TRADER_PLAN.md) из $STAGE/secrets.env.
+# Шаг env существующий .env не трогает, поэтому у ключа свой шаг, как у токена.
+# Ключ проверяется у OpenRouter ДО правки .env и через прокси хоста: с этого IP
+# напрямую OpenRouter отвечает 403, поэтому рядом с ключом ставится AI_PROXY_URL.
+# Ключ не попадает ни в вывод, ни в аргументы процессов (они видны в ps):
+# curl получает его конфигом через stdin, awk — через окружение.
+step_ai_key() {
+  secrets="$STAGE/secrets.env"
+  [ -f "$secrets" ] || { echo "  нет $secrets"; exit 1; }
+  # shellcheck disable=SC1090
+  . "$secrets"
+  shred -u "$secrets" 2>/dev/null || rm -f "$secrets"
+  key="${OPENROUTER_API_KEY:-}"
+  [ -n "$key" ] || { echo "  в secrets.env нет OPENROUTER_API_KEY"; exit 1; }
+  case "$key" in
+    *[!A-Za-z0-9_-]*) echo "  ключ содержит недопустимые символы"; exit 1 ;;
+  esac
+
+  answer=$(printf 'header = "Authorization: Bearer %s"\n' "$key" \
+    | curl -s -K - --max-time 20 -x http://127.0.0.1:12334 -w '\n%{http_code}' https://openrouter.ai/api/v1/key) || true
+  code=$(printf '%s\n' "$answer" | tail -n 1)
+  if [ "$code" != 200 ]; then
+    echo "  OpenRouter ключ не принял (HTTP $code) — .env не трогаю"
+    exit 1
+  fi
+  echo "  ключ принят OpenRouter: $(printf '%s\n' "$answer" | sed '$d' | grep -oE '"(limit|limit_remaining|usage)":[^,}]*' | tr '\n' ' ')"
+
+  cp -p "$APP/.env" "$APP/.env.bak-$(date +%s)"
+  umask 077
+  AI_KEY="$key" awk -v proxy="http://host.docker.internal:12334" '
+    /^OPENROUTER_API_KEY=/ { print "OPENROUTER_API_KEY=" ENVIRON["AI_KEY"]; seen_key = 1; next }
+    /^AI_PROXY_URL=/       { print "AI_PROXY_URL=" proxy; seen_proxy = 1; next }
+    { print }
+    END {
+      if (!seen_key)   print "OPENROUTER_API_KEY=" ENVIRON["AI_KEY"]
+      if (!seen_proxy) print "AI_PROXY_URL=" proxy
+    }' "$APP/.env" > "$APP/.env.new"
+  chmod 600 "$APP/.env.new"
+  mv -f "$APP/.env.new" "$APP/.env"
+  # shellcheck disable=SC2012
+  ls -1t "$APP"/.env.bak-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do rm -f "$f"; done
+
+  echo "  пересоздаю бот и API с ключом OpenRouter"
+  compose "$(current_tag)" up -d --force-recreate bot api
+  if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
+}
+
 step_status() {
   echo "  релиз: $(current_tag)"
   docker ps --filter name=market-bot --format '  {{.Names}}  {{.Status}}'
@@ -545,11 +594,12 @@ case "$step" in
   web-rollback) step_web_rollback ;;
   nginx)   step_nginx ;;
   token)   step_token ;;
+  ai-key)  step_ai_key ;;
   menu)    step_menu ;;
   backup)  "$APP/backup.sh" ;;
   watchdog) "$APP/watchdog.sh" ;;
   support) step_support ;;
   smoke)   step_smoke ;;
   status)  step_status ;;
-  *) echo "шаги: install <домен> | env | release <sha> | web | web-rollback | nginx | token | menu | backup | watchdog | support | smoke | status"; exit 2 ;;
+  *) echo "шаги: install <домен> | env | release <sha> | web | web-rollback | nginx | token | ai-key | menu | backup | watchdog | support | smoke | status"; exit 2 ;;
 esac

@@ -238,3 +238,18 @@ def test_bot_registers_ai_commands_and_the_old_assistant_is_gone():
     assert 'CommandHandler("ai", cmd_ai)' in text
     assert 'CommandHandler("ai_stats", cmd_ai_stats)' in text
     assert not (ROOT / "claude_assistant.py").exists()
+
+
+def test_real_requests_go_through_the_proxy(db, key, monkeypatch):
+    """С IP сервера OpenRouter напрямую отвечает 403 — запросы идут через AI_PROXY_URL."""
+    monkeypatch.setenv("AI_PROXY_URL", "http://host.docker.internal:12334")
+    seen = {}
+
+    class OfflineClient:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+            raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(client.httpx, "Client", OfflineClient)
+    assert client.complete("review", "s", "u", "m") is None
+    assert seen["proxy"] == "http://host.docker.internal:12334"
