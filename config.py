@@ -59,6 +59,10 @@ from utils.env import env_float as _env_float
 # Стартовый баланс бумажного счёта (DRY_RUN и PAPER_TRADING). В TESTNET и LIVE баланс
 # берётся из кошелька биржи, это значение там не используется.
 INITIAL_BALANCE = _env_float("PAPER_INITIAL_BALANCE_USDT", 100.0)
+# Потолок капитала реальных режимов (0 — нет): кошелёк виден как счёт такого
+# размера с настоящими прибылью и убытком. Для демо-счёта Bybit, где на балансе
+# десятки тысяч виртуальных USDT, а прогон идёт по плану счёта в 100 $.
+REAL_CAPITAL_CAP_USDT = _env_float("REAL_CAPITAL_CAP_USDT", 0.0)
 # Риск на сделку, % от баланса: сколько теряем при срабатывании стопа.
 RISK_PERCENT = _env_float("RISK_PERCENT", 2.0)
 # Минимальный номинал позиции — минимальный ордер Bybit (5 $ у всех linear-пар

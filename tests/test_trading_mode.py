@@ -24,7 +24,7 @@ from trading_mode import TradingMode
 from utils.env import env_flag
 
 
-MODE_VARS = ("LIVE_TRADING", "PAPER_TRADING", "BYBIT_TESTNET", "DRY_RUN")
+MODE_VARS = ("LIVE_TRADING", "PAPER_TRADING", "BYBIT_TESTNET", "BYBIT_DEMO", "DRY_RUN")
 
 
 @pytest.fixture(autouse=True)

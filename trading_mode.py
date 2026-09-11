@@ -1,7 +1,7 @@
 """
 Режим торговли — единственный источник истины.
 
-Здесь и только здесь читаются LIVE_TRADING / PAPER_TRADING / BYBIT_TESTNET / DRY_RUN.
+Здесь и только здесь читаются LIVE_TRADING / PAPER_TRADING / BYBIT_TESTNET / BYBIT_DEMO / DRY_RUN.
 Остальные модули спрашивают режим функциями ниже и НЕ обращаются к os.environ за
 этими именами. За соблюдением следит гейт в CI.
 
@@ -28,7 +28,7 @@ from utils.env import env_flag
 class TradingMode(str, Enum):
     DRY_RUN = "DRY_RUN"              # Сигналы в Telegram, биржа не вызывается
     PAPER_TRADING = "PAPER_TRADING"  # Виртуальные сделки, биржа не вызывается
-    TESTNET = "TESTNET"              # Реальные ордера на Bybit Testnet
+    TESTNET = "TESTNET"              # Реальные ордера на Bybit Testnet или демо-счёт (BYBIT_DEMO)
     LIVE = "LIVE"                    # Реальные ордера на Bybit Mainnet
 
 
@@ -39,7 +39,8 @@ def get_trading_mode() -> TradingMode:
     Приоритет (первый сработавший побеждает):
       1. LIVE_TRADING=true                   → LIVE
       2. PAPER_TRADING=true                  → PAPER_TRADING
-      3. BYBIT_TESTNET=true и DRY_RUN≠true   → TESTNET
+      3. BYBIT_TESTNET=true или BYBIT_DEMO=true, и DRY_RUN≠true → TESTNET
+         (BYBIT_DEMO — демо-счёт основного аккаунта, api-demo.bybit.com)
       4. иначе                               → DRY_RUN
 
     DRY_RUN — безопасный дефолт: при пустом окружении ордера не уходят никуда.
@@ -48,7 +49,7 @@ def get_trading_mode() -> TradingMode:
         return TradingMode.LIVE
     if env_flag("PAPER_TRADING"):
         return TradingMode.PAPER_TRADING
-    if env_flag("BYBIT_TESTNET") and not env_flag("DRY_RUN"):
+    if (env_flag("BYBIT_TESTNET") or env_flag("BYBIT_DEMO")) and not env_flag("DRY_RUN"):
         return TradingMode.TESTNET
     return TradingMode.DRY_RUN
 
@@ -79,10 +80,20 @@ def sends_real_orders() -> bool:
 
 def uses_testnet_endpoint() -> bool:
     """
-    Смотреть ли на testnet-хост биржи. Только режим TESTNET: в DRY_RUN и
-    PAPER_TRADING нужны настоящие рыночные данные с mainnet.
+    Смотреть ли на testnet-хост биржи. Только режим TESTNET без BYBIT_DEMO: в
+    DRY_RUN и PAPER_TRADING нужны настоящие рыночные данные с mainnet.
     """
-    return get_trading_mode() == TradingMode.TESTNET
+    return get_trading_mode() == TradingMode.TESTNET and not env_flag("BYBIT_DEMO")
+
+
+def uses_demo_endpoint() -> bool:
+    """
+    Смотреть ли на демо-хост (api-demo.bybit.com): режим TESTNET с BYBIT_DEMO.
+    Демо-счёт живёт на основном аккаунте отдельно от реальных денег, цены и
+    стакан — основной биржи (11.09.2026: верификация на testnet не прошла).
+    Более сильные режимы (LIVE, PAPER_TRADING, DRY_RUN) демо не включают.
+    """
+    return get_trading_mode() == TradingMode.TESTNET and env_flag("BYBIT_DEMO")
 
 
 def risks_real_money() -> bool:

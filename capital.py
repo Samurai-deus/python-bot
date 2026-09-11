@@ -69,6 +69,35 @@ def _wallet_snapshot():
     return value
 
 
+def _capital_cap() -> float:
+    """Потолок капитала реальных режимов из config (0 — без потолка)."""
+    from config import REAL_CAPITAL_CAP_USDT
+    return REAL_CAPITAL_CAP_USDT if REAL_CAPITAL_CAP_USDT > 0 else 0.0
+
+
+def _cap_view(raw_equity: float, baseline) -> float:
+    """
+    Значение equity «как на счёте размера потолка»: потолок плюс изменение equity
+    кошелька с начала режима. В базе хранятся сырые значения кошелька, пересчёт —
+    при чтении, поэтому пик и просадка остаются согласованными.
+    """
+    cap = _capital_cap()
+    return cap + (raw_equity - baseline["initial"]) if cap else raw_equity
+
+
+def _capped(snap):
+    """(equity, available) кошелька, приведённые к потолку капитала (если он задан)."""
+    if not _capital_cap():
+        return snap
+    baseline = _real_baseline()
+    if not baseline:
+        return (0.0, 0.0)
+    equity, available = snap
+    view = _cap_view(equity, baseline)
+    used = max(equity - available, 0.0)  # маржа позиций и ордеров
+    return (view, max(min(available, view - used), 0.0))
+
+
 def get_current_balance():
     """
     Полный капитал в USDT: equity кошелька в реальных режимах, иначе бумажный
@@ -77,13 +106,14 @@ def get_current_balance():
     """
     if _real_orders_mode():
         snap = _wallet_snapshot()
-        return snap[0] if snap else 0.0
+        return _capped(snap)[0] if snap else 0.0
     return get_current_balance_from_db(INITIAL_BALANCE)
 
 
 def _real_mode_key() -> str:
-    from trading_mode import get_trading_mode
-    return get_trading_mode().value
+    """Ключ базы капитала: TESTNET, LIVE — или DEMO для демо-счёта (своя база)."""
+    from trading_mode import get_trading_mode, uses_demo_endpoint
+    return "DEMO" if uses_demo_endpoint() else get_trading_mode().value
 
 
 def _real_baseline():
@@ -118,7 +148,9 @@ def get_initial_balance() -> float:
     if not _real_orders_mode():
         return INITIAL_BALANCE
     baseline = _real_baseline()
-    return baseline["initial"] if baseline else 0.0
+    if not baseline:
+        return 0.0
+    return _capital_cap() or baseline["initial"]
 
 
 def get_available_capital() -> float:
@@ -133,7 +165,7 @@ def get_available_capital() -> float:
     """
     if _real_orders_mode():
         snap = _wallet_snapshot()
-        return max(snap[1], 0.0) if snap else 0.0
+        return max(_capped(snap)[1], 0.0) if snap else 0.0
     equity = get_current_balance_from_db(INITIAL_BALANCE)
     locked = get_open_margin()
     return max(equity - locked, 0.0)
@@ -264,12 +296,13 @@ def get_peak_balance() -> float:
         baseline = _real_baseline()
         if not baseline:
             return 0.0
-        current = get_current_balance()
+        snap = _wallet_snapshot()
+        current = snap[0] if snap else 0.0  # сырая equity: в базе — значения кошелька
         if current > baseline["peak"]:
             from database import save_capital_baseline
             save_capital_baseline(_real_mode_key(), baseline["initial"], current)
-            return current
-        return baseline["peak"]
+            return _cap_view(current, baseline)
+        return _cap_view(baseline["peak"], baseline)
 
     from database import get_db_connection, _q
     conn = get_db_connection()
