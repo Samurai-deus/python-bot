@@ -360,7 +360,7 @@ class MetaDecisionBrain:
         
         HARD BLOCK если:
         1. entropy > 0.7 AND confidence < 0.4
-        2. portfolio_exposure > 0.8
+        2. (экспозиция — предел Risk Core, здесь не проверяется)
         3. system_health == DEGRADED
         
         Args:
@@ -379,12 +379,10 @@ class MetaDecisionBrain:
                 f"({confidence_score:.2f}) indicates system uncertainty. Trading is too risky."
             )
         
-        # 2. portfolio_exposure > 0.8
-        if portfolio_exposure > 0.8:
-            return (
-                f"HARD BLOCK: Portfolio exposure ({portfolio_exposure * 100:.1f}%) exceeds safe limit (80%). "
-                f"Risk of overexposure."
-            )
+        # 2. Экспозиция жёстким блоком не является (11.09.2026): это тот же предел номинала,
+        #    что у Risk Core, только на 20 % строже — capital.position_size подбирал размер
+        #    под предел, а мета-мозг его отклонял. Предел держит Risk Core; экспозиция
+        #    (доля разрешённого номинала) участвует в мягких правилах вместе с уверенностью.
         
         # 3. system_health == DEGRADED
         if system_health == SystemHealthStatus.DEGRADED:

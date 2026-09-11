@@ -42,12 +42,11 @@ class TestMetaDecisionBrainHardBlock:
         assert result.allow_trading is False
         assert result.block_level == BlockLevel.HARD
 
-    def test_high_portfolio_exposure_hard_blocks(self):
+    def test_high_portfolio_exposure_alone_is_no_hard_block(self):
+        """Предел номинала держит Risk Core (11.09.2026); мета-мозг его не дублирует."""
         brain = MetaDecisionBrain()
-        # portfolio_exposure > 0.8 → HARD_BLOCK
         result = brain.evaluate(portfolio_exposure=0.9)
-        assert result.allow_trading is False
-        assert result.block_level == BlockLevel.HARD
+        assert result.block_level != BlockLevel.HARD
 
 
 class TestMetaDecisionBrainSoftBlock:

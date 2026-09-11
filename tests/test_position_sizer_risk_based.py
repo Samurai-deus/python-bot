@@ -5,22 +5,13 @@ final_risk описан в конфиге как «риск на сделку, %
 при срабатывании стопа. Раньше номиналом становился сам риск: balance ×
 final_risk / 100. При 100 $ это 0,1–3 $ — ниже минимального ордера биржи.
 
-Статистика сделок подменена, чтобы итоговый риск не зависел от содержимого базы.
+Риск на сделку фиксирован (RISK_PERCENT) и от содержимого базы не зависит.
 """
 import pytest
 
 from core.position_sizer import PositionSizer
 
 BALANCE = 100.0
-
-
-@pytest.fixture(autouse=True)
-def fixed_performance(monkeypatch):
-    import capital
-    monkeypatch.setattr(
-        capital, "get_rolling_performance",
-        lambda *a, **k: {"win_rate": 0.6, "avg_win": 10.0, "avg_loss": 5.0},
-    )
 
 
 def _calc(portfolio, stop):

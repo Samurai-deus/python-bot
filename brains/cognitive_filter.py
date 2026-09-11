@@ -15,6 +15,18 @@ from trade_manager import get_open_trades
 logger = logging.getLogger(__name__)
 
 
+def _current_mode_sql() -> str:
+    """
+    Сделки текущего режима (биржевые или бумажные) — как в database. Время — колонка
+    timestamp (ISO): created_at в SQLite пишется как «2026-09-11 16:28:35», и сравнение
+    строк с ISO-меткой («…T…») не засчитывало ни одной сделки того же дня — счётчики
+    фильтра были нулями (до 11.09.2026).
+    """
+    from database import _EXCHANGE_TRADE
+    from trading_mode import sends_real_orders
+    return _EXCHANGE_TRADE if sends_real_orders() else f"NOT {_EXCHANGE_TRADE}"
+
+
 class CognitiveFilter:
     """
     Фильтр человеческих ошибок.
@@ -23,7 +35,9 @@ class CognitiveFilter:
     """
     
     def __init__(self):
-        self.max_trades_per_hour = 8  # Максимум новых сделок в час (бот сканирует 27 символов)
+        # Как предел действий Risk Core в час (config.py)
+        import config
+        self.max_trades_per_hour = config.RISK_MAX_ACTIONS_PER_HOUR
         self.max_trades_per_day = 30  # Максимум сделок в день
         self.overtrading_threshold = 0.7  # Порог пере-торговли
         # Состояние теперь хранится в SystemState, не здесь
@@ -104,7 +118,7 @@ class CognitiveFilter:
             try:
                 cursor = conn.cursor()
                 cursor.execute(
-                    _q("SELECT count(*) as cnt FROM trades WHERE created_at > ?"),
+                    _q(f"SELECT count(*) as cnt FROM trades WHERE timestamp > ? AND {_current_mode_sql()}"),
                     (hour_ago_iso,)
                 )
                 row = cursor.fetchone()
@@ -130,7 +144,8 @@ class CognitiveFilter:
             try:
                 cursor = conn.cursor()
                 cursor.execute(
-                    _q("SELECT id, created_at, symbol, side, pnl FROM trades WHERE created_at > ? ORDER BY created_at"),
+                    _q("SELECT id, timestamp AS created_at, symbol, side, pnl FROM trades "
+                       f"WHERE timestamp > ? AND {_current_mode_sql()} ORDER BY timestamp"),
                     (since_iso,)
                 )
                 return [dict(row) for row in cursor.fetchall()]
