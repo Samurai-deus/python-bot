@@ -170,16 +170,16 @@ def test_healthcheck_process_exit_codes(tmp_path, liveness_dir):
 # runner ставит метки там, где их ждёт healthcheck
 # ---------------------------------------------------------------------------
 
-def function_source(name):
-    text = (ROOT / "runner.py").read_text(encoding="utf-8")
+def function_source(name, path="runner.py"):
+    text = (ROOT / path).read_text(encoding="utf-8")
     for node in ast.walk(ast.parse(text)):
         if isinstance(node, ast.AsyncFunctionDef) and node.name == name:
             return ast.get_source_segment(text, node)
-    raise AssertionError(f"в runner.py нет async def {name}")
+    raise AssertionError(f"в {path} нет async def {name}")
 
 
 def test_runtime_heartbeat_marks_liveness():
-    src = function_source("runtime_heartbeat_loop")
+    src = function_source("runtime_heartbeat_loop", "loops/runtime_heartbeat.py")
     assert 'liveness.mark("heartbeat")' in src
 
 

@@ -7,7 +7,7 @@ HTTP-панель управления бота (control_plane/http.py): обр�
 она переехала, проверки поведения остались прежними. Они фиксируют связи через
 общее состояние control_plane.state: ручную паузу (её читают цикл анализа и
 метрики), счётчики команд и флаг хаоса, который пишут обработчики хаоса, а
-читает runtime_heartbeat_loop в runner.
+читает runtime_heartbeat_loop (loops/runtime_heartbeat.py).
 
 Обработчики вызываются напрямую: аргумент — состояние процесса, результат —
 (код, тело); автомат состояний и движок хаоса подменены. Сервер проверяется
@@ -23,6 +23,7 @@ import pytest
 import runner
 from control_plane import http as cp_http
 from control_plane import state as cp_state
+from loops import runtime_heartbeat
 
 
 def call(handler, state):
@@ -193,7 +194,7 @@ def test_chaos_is_off_by_default(plane):
 
 
 def test_chaos_injection_sets_the_flag_runtime_heartbeat_reads(plane, monkeypatch):
-    """Флаг пишет обработчик, читает runtime_heartbeat_loop в runner — связь, которую перенос обязан сохранить."""
+    """Флаг пишет обработчик, читает runtime_heartbeat_loop (loops/runtime_heartbeat.py) — связь, которую перенос обязан сохранить."""
     monkeypatch.setenv("CHAOS_ENABLED", "true")
     chaos = FakeChaos()
     monkeypatch.setattr(cp_http, "get_chaos_engine", lambda: chaos)
@@ -202,7 +203,7 @@ def test_chaos_injection_sets_the_flag_runtime_heartbeat_reads(plane, monkeypatc
     status, body = call(cp_http.handle_chaos_inject, plane.state)
     assert status == 200 and json.loads(body)["incident_id"] == "inc-test"
     assert cp_state.chaos["was_active"] is True
-    assert 'cp_state.chaos["was_active"]' in inspect.getsource(runner.runtime_heartbeat_loop)
+    assert 'cp_state.chaos["was_active"]' in inspect.getsource(runtime_heartbeat.runtime_heartbeat_loop)
 
 
 def test_second_chaos_injection_is_a_conflict(plane, monkeypatch):
