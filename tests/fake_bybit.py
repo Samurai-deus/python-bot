@@ -164,9 +164,13 @@ class FakeBybit:
         if path == "/v5/account/wallet-balance":
             return ok({"list": [self.wallet] if self.wallet else []})
         if path == "/v5/position/closed-pnl":
+            # Как настоящий Bybit: отбор по createdTime закрывающего ордера (у тейка и
+            # стопа — время создания позиции), а не по времени закрытия. Подмена по
+            # updatedTime прятала ошибку поиска закрытий до демо-счёта 11.09.2026.
             since = int(params.get("startTime") or 0)
             items = [r for r in self.closed_pnl
-                     if r["symbol"] == params.get("symbol") and int(r["updatedTime"]) >= since]
+                     if r["symbol"] == params.get("symbol")
+                     and int(r.get("createdTime") or r["updatedTime"]) >= since]
             return ok({"list": items})
         if path == "/v5/order/create":
             link = body["orderLinkId"]

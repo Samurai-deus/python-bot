@@ -874,6 +874,50 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
         return False
 
 
+def get_estimated_closes(reasons, days: int = 7) -> List[Dict]:
+    """
+    Закрытые сделки с причиной из reasons за days дней — с отметкой открытия
+    следующей сделки по тому же символу (next_open): до неё ищется закрытие биржи.
+    """
+    from datetime import timedelta
+    since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    marks = ", ".join("?" for _ in reasons)
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q(f"SELECT t.id, t.symbol, t.timestamp, t.close_price, t.close_reason, t.pnl, "
+               f"(SELECT MIN(n.timestamp) FROM trades n WHERE n.symbol = t.symbol AND n.id > t.id) AS next_open "
+               f"FROM trades t WHERE t.status = 'CLOSED' AND t.close_reason IN ({marks}) "
+               f"AND t.timestamp >= ? ORDER BY t.id"),
+            (*reasons, since),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def correct_trade_close(trade_id: int, close_price: float, pnl: float, reason: str, only_if_reasons) -> bool:
+    """
+    Уточнить цену выхода и PnL уже закрытой сделки — только если она закрыта с одной
+    из причин only_if_reasons (оценкой): точную запись это не перепишет.
+    """
+    marks = ", ".join("?" for _ in only_if_reasons)
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q(f"UPDATE trades SET close_price = ?, pnl = ?, close_reason = ?, updated_at = ? "
+               f"WHERE id = ? AND status = 'CLOSED' AND close_reason IN ({marks})"),
+            (close_price, pnl, reason, datetime.now(UTC).isoformat(), trade_id, *only_if_reasons),
+        )
+        affected = cursor.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    return affected > 0
+
+
 @with_retry
 def update_trade_stop(trade_id: int, new_stop: float, breakeven: bool = False):
     """Обновляет стоп-лосс сделки (trailing stop / breakeven)."""

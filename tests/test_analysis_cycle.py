@@ -471,9 +471,12 @@ def test_positions_closed_on_the_exchange_are_journaled_and_reported(loop, monke
     monkeypatch.setattr(trading_mode, "get_trading_mode", lambda: trading_mode.TradingMode.TESTNET)
     monkeypatch.setattr(position_tracker, "get_position_tracker", lambda: tracker)
     monkeypatch.setattr(exchange_ledger, "record_close", lambda position: recorded.append(position) or 1.5)
+    corrections = []
+    monkeypatch.setattr(exchange_ledger, "correct_estimated_closes", lambda: corrections.append(1) or 0)
     loop.run(True)
     assert recorded == [closed]
     assert any("Позиция закрыта: SOLUSDT LONG" in text and "+1.50" in text for text in loop.sent)
+    assert corrections == [1], "закрытия с оценкой уточняются каждый оборот"
 
 
 def test_paper_trading_never_polls_the_exchange(loop, monkeypatch, caplog):

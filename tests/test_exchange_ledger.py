@@ -51,8 +51,11 @@ def position(symbol, side="Buy", size="1", price="100", sl="98"):
             "leverage": "5", "stopLoss": sl, "takeProfit": ""}
 
 
-def closed_pnl(symbol, pnl, exit_price, when_ms):
-    return {"symbol": symbol, "closedPnl": str(pnl), "avgExitPrice": str(exit_price), "updatedTime": str(when_ms)}
+def closed_pnl(symbol, pnl, exit_price, when_ms, created_ms=None):
+    record = {"symbol": symbol, "closedPnl": str(pnl), "avgExitPrice": str(exit_price), "updatedTime": str(when_ms)}
+    if created_ms is not None:
+        record["createdTime"] = str(created_ms)  # время создания закрывающего ордера
+    return record
 
 
 def now_ms(offset_s=0):
@@ -198,3 +201,61 @@ def test_startup_reconciles_and_pauses_on_failure():
 def test_gatekeeper_checks_before_and_records_after_the_order():
     src = _function("execution/gatekeeper.py", "_execute_order")
     assert src.index("open_position_reason(") < src.index("executor.execute(") < src.index("record_open(")
+
+
+# ---------------------------------------------------------------------------
+# Точный PnL: тейк и стоп создаются вместе с позицией (демо-счёт 11.09.2026)
+# ---------------------------------------------------------------------------
+
+def test_a_take_profit_created_with_the_position_is_found(db, fake, client):
+    """
+    UNIUSDT 11.09.2026: тейк создан на 0,1 с раньше отметки открытия у бота; поиск
+    «с момента открытия» его не видел, и в журнал ушла оценка +0,038 $ вместо +0,082 $.
+    """
+    opened = datetime.now(UTC) - timedelta(minutes=10)
+    opened_ms = int(opened.timestamp() * 1000)
+    tid = db.add_trade("UNIUSDT", "SHORT", 6.181, 6.216, 6.112, position_size=9.89, exchange_order_id="oid-1")
+    fake.closed_pnl = [closed_pnl("UNIUSDT", 0.0820, 6.12, now_ms(-60), created_ms=opened_ms - 100)]
+    pnl = ledger.record_close(tracked_sol(symbol="UNIUSDT", side="SHORT", opened_at=opened), client,
+                              sleep=lambda s: None)
+    row = trade_row(tid)
+    assert pnl == pytest.approx(0.082)
+    assert row["close_reason"] == "EXCHANGE_CLOSE" and row["close_price"] == pytest.approx(6.12)
+
+
+def test_the_previous_trade_close_is_not_ours(db, fake, client):
+    opened = datetime.now(UTC) - timedelta(minutes=5)
+    opened_ms = int(opened.timestamp() * 1000)
+    tid = db.add_trade("SOLUSDT", "LONG", 100.0, 98.0, 104.0, position_size=10.0)
+    fake.closed_pnl = [closed_pnl("SOLUSDT", 9.9, 110.0, opened_ms - 60_000, created_ms=opened_ms - 120_000)]
+    ledger.record_close(tracked_sol(opened_at=opened), client, sleep=lambda s: None)
+    assert trade_row(tid)["close_reason"] == "EXCHANGE_CLOSE_PNL_ESTIMATED", "закрытие до открытия сделки — чужое"
+
+
+def test_an_estimated_close_is_corrected_later(db, fake, client):
+    tid = db.add_trade("SOLUSDT", "LONG", 100.0, 98.0, 104.0, position_size=10.0)
+    db.close_trade(tid, 100.0, "EXCHANGE_CLOSE_PNL_ESTIMATED", 0.5)
+    assert ledger.correct_estimated_closes(client) == 0, "отчёта биржи ещё нет"
+    fake.closed_pnl = [closed_pnl("SOLUSDT", -0.42, 97.9, now_ms(+1), created_ms=now_ms(-1))]
+    assert ledger.correct_estimated_closes(client) == 1
+    row = trade_row(tid)
+    assert row["pnl"] == pytest.approx(-0.42) and row["close_price"] == pytest.approx(97.9)
+    assert row["close_reason"] == "EXCHANGE_CLOSE"
+    assert ledger.correct_estimated_closes(client) == 0, "точная запись больше не трогается"
+
+
+def test_the_correction_does_not_take_the_next_trade_close(db, fake, client):
+    first = db.add_trade("SOLUSDT", "LONG", 100.0, 98.0, 104.0, position_size=10.0)
+    db.close_trade(first, 100.0, "EXCHANGE_CLOSE_PNL_ESTIMATED", 0.5)
+    time.sleep(0.01)
+    db.add_trade("SOLUSDT", "LONG", 101.0, 99.0, 105.0, position_size=10.0)
+    fake.closed_pnl = [closed_pnl("SOLUSDT", 3.0, 105.0, now_ms(+5), created_ms=now_ms(-1))]
+    assert ledger.correct_estimated_closes(client) == 0
+    assert trade_row(first)["pnl"] == pytest.approx(0.5), "закрытие после открытия следующей сделки — не её"
+
+
+def test_exact_closes_are_never_rewritten(db):
+    tid = db.add_trade("SOLUSDT", "LONG", 100.0, 98.0, 104.0, position_size=10.0)
+    db.close_trade(tid, 104.0, "EXCHANGE_CLOSE", 0.4)
+    assert db.correct_trade_close(tid, 1.0, 99.0, "EXCHANGE_CLOSE", ledger.ESTIMATED_CLOSE_REASONS) is False
+    assert trade_row(tid)["pnl"] == pytest.approx(0.4)
