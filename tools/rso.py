@@ -91,7 +91,6 @@ class RSOReader:
                 "current_state": state_info.get("state"),
                 "duration_in_state": state_info.get("duration_in_state"),
                 "consecutive_errors": state_info.get("consecutive_errors"),
-                "recovery_cycles": state_info.get("recovery_cycles"),
                 "safe_mode_entered_at": state_info.get("safe_mode_entered_at"),
                 "last_heartbeat": state_info.get("last_heartbeat"),
                 "transitions_count": state_info.get("transitions_count"),
@@ -329,7 +328,6 @@ class RSOOutput:
             if duration is not None:
                 md.append(f"- **Duration in State:** `{duration:.1f}s`")
             md.append(f"- **Consecutive Errors:** `{fsm_state.get('consecutive_errors', 0)}`")
-            md.append(f"- **Recovery Cycles:** `{fsm_state.get('recovery_cycles', 0)}`")
             safe_mode_at = fsm_state.get('safe_mode_entered_at')
             if safe_mode_at:
                 md.append(f"- **Safe Mode Entered At:** `{safe_mode_at}`")

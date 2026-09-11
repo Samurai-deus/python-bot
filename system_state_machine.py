@@ -103,7 +103,6 @@ class SystemStateMachine:
         self._state_entered_at: Dict[SystemState, datetime] = {
             SystemState.RUNNING: datetime.now(UTC)
         }
-        self._recovery_cycles = 0
         self._consecutive_errors = 0
         
         # TTL для SAFE_MODE (максимальное время в safe_mode перед FATAL)
@@ -214,11 +213,6 @@ class SystemStateMachine:
                 "INVARIANT VIOLATION: SAFE_MODE must imply trading_paused == True"
     
     @property
-    def recovery_cycles(self) -> int:
-        """Количество циклов восстановления"""
-        return self._recovery_cycles
-    
-    @property
     def consecutive_errors(self) -> int:
         """Количество последовательных ошибок"""
         return self._consecutive_errors
@@ -287,13 +281,8 @@ class SystemStateMachine:
         # Специальная обработка для SAFE_MODE
         if new_state == SystemState.SAFE_MODE:
             self._safe_mode_entered_at = datetime.now(UTC)
-            self._recovery_cycles = 0  # Сбрасываем recovery cycles
         elif old_state == SystemState.SAFE_MODE:
             self._safe_mode_entered_at = None
-
-        # Специальная обработка для RECOVERING
-        if new_state == SystemState.RECOVERING:
-            self._recovery_cycles = 0  # Начинаем подсчёт заново
 
         # Создаём transition record (keep last 200 to avoid memory leak)
         transition = StateTransition(
@@ -366,55 +355,6 @@ class SystemStateMachine:
                         f"errors reset (was {old_errors})",
                         owner="recovery_mechanism"
                     )
-    
-    async def record_recovery_cycle(self, success: bool) -> bool:
-        """
-        Запись цикла восстановления
-        
-        Args:
-            success: Успешен ли цикл
-        
-        Returns:
-            True если recovery завершён (достаточно успешных циклов)
-        """
-        async with self._state_lock:
-            if self._state != SystemState.SAFE_MODE and self._state != SystemState.RECOVERING:
-                return False
-
-            if success:
-                self._recovery_cycles += 1
-
-                # Проверяем, достаточно ли циклов для перехода в RECOVERING (unlocked)
-                if self._state == SystemState.SAFE_MODE and self._recovery_cycles >= 3:
-                    self._transition_unlocked(
-                        SystemState.RECOVERING,
-                        f"recovery_cycles >= 3 (current: {self._recovery_cycles})",
-                        owner="recovery_mechanism",
-                        metadata={"recovery_cycles": self._recovery_cycles}
-                    )
-                    return True
-
-                # Проверяем, достаточно ли циклов для перехода в RUNNING (unlocked)
-                if self._state == SystemState.RECOVERING and self._recovery_cycles >= 3:
-                    self._transition_unlocked(
-                        SystemState.RUNNING,
-                        f"recovery completed (cycles: {self._recovery_cycles})",
-                        owner="recovery_mechanism",
-                        metadata={"recovery_cycles": self._recovery_cycles}
-                    )
-                    return True
-            else:
-                # Ошибка во время recovery - сбрасываем счётчик
-                if self._recovery_cycles > 0:
-                    logger.warning(
-                        f"RECOVERY_CYCLE_FAILED "
-                        f"state={self._state.value} "
-                        f"recovery_cycles={self._recovery_cycles} "
-                        f"resetting counter"
-                    )
-                    self._recovery_cycles = 0
-            
-            return False
     
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """
@@ -655,7 +595,6 @@ class SystemStateMachine:
             "state": self._state.value,
             "duration_in_state": duration,
             "consecutive_errors": self._consecutive_errors,
-            "recovery_cycles": self._recovery_cycles,
             "safe_mode_entered_at": self._safe_mode_entered_at.isoformat() if self._safe_mode_entered_at else None,
             "last_heartbeat": self._last_heartbeat.isoformat() if self._last_heartbeat else None,
             "transitions_count": len(self._transitions),
