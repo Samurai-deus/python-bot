@@ -1578,6 +1578,22 @@ def get_signal_fates(since_iso: str) -> List[Dict]:
         conn.close()
 
 
+def get_recent_closes(on_exchange: bool, limit: int = 20) -> List[Dict]:
+    """Последние закрытые сделки режима — новые по времени закрытия первыми (pnl, updated_at)."""
+    condition = _EXCHANGE_TRADE if on_exchange else f"NOT {_EXCHANGE_TRADE}"
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q(f"SELECT pnl, updated_at FROM trades WHERE status = 'CLOSED' AND {condition} "
+               "ORDER BY updated_at DESC LIMIT ?"),
+            (limit,),
+        )
+        return [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 def count_open_trades(on_exchange: bool) -> int:
     """
     Открытые сделки журнала: биржевые (есть exchange_order_id или позиция взята

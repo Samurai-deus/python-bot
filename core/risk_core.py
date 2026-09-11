@@ -828,3 +828,37 @@ def get_risk_core(config: Optional[RiskCoreConfig] = None) -> RiskCore:
         _risk_core = RiskCore(config or config_from_settings())
     return _risk_core
 
+
+def loss_streak(closes, window_minutes: Optional[float] = None) -> Tuple[int, Optional[datetime]]:
+    """
+    Серия убытков подряд в СОБЫТИЯХ по закрытым сделкам (новые по закрытию первыми,
+    поля pnl и updated_at). Убыток, закрытый не дальше window_minutes от самого нового
+    убытка своего события, входит в это событие: коррелированные позиции выбивает одно
+    движение рынка. Окно отсчитывается от начала события, а не от соседнего убытка —
+    убытки каждые 10 минут не сливаются в одно бесконечное событие. Прибыльная или
+    нулевая сделка обрывает серию.
+
+    Returns:
+        (число событий, время последнего убытка)
+    """
+    if window_minutes is None:
+        import config as settings
+        window_minutes = settings.RISK_LOSS_EVENT_WINDOW_MINUTES
+    events = 0
+    last_loss = None
+    anchor = None
+    for close in closes:
+        if float(close.get("pnl") or 0.0) >= 0:
+            break
+        try:
+            moment = datetime.fromisoformat(str(close.get("updated_at")).replace("Z", "+00:00"))
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=UTC)
+        except (ValueError, TypeError):
+            moment = datetime.now(UTC)
+        if last_loss is None:
+            last_loss = moment
+        if anchor is None or (anchor - moment).total_seconds() > window_minutes * 60:
+            events += 1
+            anchor = moment
+    return events, last_loss

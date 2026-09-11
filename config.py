@@ -88,4 +88,8 @@ RISK_MAX_ACTIONS_PER_HOUR = int(_env_float("RISK_MAX_ACTIONS_PER_HOUR", 12))
 RISK_MAX_ACTIONS_PER_24H = int(_env_float("RISK_MAX_ACTIONS_PER_24H", 100))
 RISK_ACTION_COOLDOWN_SECONDS = int(_env_float("RISK_ACTION_COOLDOWN_SECONDS", 0))
 MAX_NEW_POSITIONS_PER_TURN = int(_env_float("MAX_NEW_POSITIONS_PER_TURN", 3))
+# Серия убытков для паузы Risk Core — в событиях: убытки, закрытые в пределах этого окна
+# от самого нового убытка события, — одна ставка (11.09.2026: пять SHORT по альтам
+# выбило одним отскоком за 14 минут, и это засчитали как пять убытков подряд).
+RISK_LOSS_EVENT_WINDOW_MINUTES = _env_float("RISK_LOSS_EVENT_WINDOW_MINUTES", 15)
 POSITION_ALLOCATION_PERCENT = 3.0  # Base % of available capital to allocate per trade (professional: 1-3%)
