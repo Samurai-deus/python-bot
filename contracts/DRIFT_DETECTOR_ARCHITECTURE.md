@@ -1,5 +1,7 @@
 # DRIFT DETECTOR - АРХИТЕКТУРА
 
+> **11.09.2026:** реализация (`core/drift_detector.py`, `core/drift_models.py`, `core/drift_metrics.py`) удалена. Модуль ни разу не импортировался — он брал из `core.signal_snapshot_store` класс `SignalSnapshotRecord`, которого там никогда не было; его никто не импортировал и тестов не было. Документ оставлен как описание замысла. Нашёл это `tests/test_imports_resolve.py`.
+
 **Дата:** 2024-12-19  
 **Задача:** Реализовать Drift Detector для выявления деградации поведения системы
 
