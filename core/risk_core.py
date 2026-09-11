@@ -812,6 +812,9 @@ def config_from_settings() -> RiskCoreConfig:
         max_open_positions=config.RISK_MAX_OPEN_POSITIONS,
         max_open_risk_pct=config.RISK_MAX_OPEN_RISK_PCT,
         max_group_risk_pct=config.RISK_MAX_GROUP_RISK_PCT,
+        max_actions_per_hour=config.RISK_MAX_ACTIONS_PER_HOUR,
+        max_actions_per_24h=config.RISK_MAX_ACTIONS_PER_24H,
+        action_cooldown_seconds=config.RISK_ACTION_COOLDOWN_SECONDS,
     )
 
 

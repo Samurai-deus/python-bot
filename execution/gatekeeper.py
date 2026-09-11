@@ -363,8 +363,11 @@ class Gatekeeper:
                     # Ограничиваем размер позиции до 50% от запрошенного
                     original_size = signal_data.get("position_size", 0.0)
                     if original_size > 0:
-                        signal_data["position_size"] = original_size * 0.5
-                        logger.info("Risk Core: Limited position size for %s to 50%%", symbol)
+                        from execution.sizing_guard import entry_price_from_signal, reduce_keeping_minimum
+                        signal_data["position_size"] = reduce_keeping_minimum(
+                            symbol, original_size, 0.5, entry_price_from_signal(signal_data))
+                        logger.info("Risk Core: Limited position size for %s: %.2f $ → %.2f $ (50%%, не ниже минимума биржи)",
+                                    symbol, original_size, signal_data["position_size"])
             
             except Exception as e:
                 # FAIL-CLOSED: Any exception during Risk Core evaluation → DENY + HALTED
@@ -467,7 +470,10 @@ class Gatekeeper:
                 if portfolio_analysis and portfolio_analysis.recommended_size_multiplier < 1.0:
                     original_size = signal_data.get("position_size", 0.0)
                     if original_size > 0:
-                        signal_data["position_size"] = original_size * portfolio_analysis.recommended_size_multiplier
+                        from execution.sizing_guard import entry_price_from_signal, reduce_keeping_minimum
+                        signal_data["position_size"] = reduce_keeping_minimum(
+                            symbol, original_size, portfolio_analysis.recommended_size_multiplier,
+                            entry_price_from_signal(signal_data))
                         logger.info("PortfolioBrain reduced position size for %s: %s", symbol, portfolio_analysis.reason)
             
             # ========== POSITION SIZER - ОБЯЗАТЕЛЬНЫЙ ШАГ ПЕРЕД ОТПРАВКОЙ (ADR-004) ==========

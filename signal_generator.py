@@ -558,6 +558,14 @@ def generate_signals_for_symbols(
                     "atr": atr_15m,
                 }
                 
+                from config import MAX_NEW_POSITIONS_PER_TURN
+                if stats["signals_sent"] >= MAX_NEW_POSITIONS_PER_TURN:
+                    # Не больше N новых позиций за оборот (шаг 2б плана, 11.09.2026) — вместо
+                    # паузы 60 с между действиями Risk Core. В этот оборот сигнал не отправляется.
+                    stats["skipped_turn_limit"] = stats.get("skipped_turn_limit", 0) + 1
+                    logger.info("%s: сигнал пропущен — за оборот уже %d новых позиций (предел %d)",
+                                symbol, stats["signals_sent"], MAX_NEW_POSITIONS_PER_TURN)
+                    continue
                 logger.info("%s: sending signal via Gatekeeper", symbol)
                 try:
                     # Используем Gatekeeper для отправки сигнала

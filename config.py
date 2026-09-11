@@ -81,4 +81,11 @@ RISK_MAX_CORRELATED_GROUP_PCT = _env_float("RISK_MAX_CORRELATED_GROUP_PCT", 150.
 RISK_MAX_OPEN_POSITIONS = int(_env_float("RISK_MAX_OPEN_POSITIONS", 6))
 RISK_MAX_OPEN_RISK_PCT = _env_float("RISK_MAX_OPEN_RISK_PCT", 6.0)
 RISK_MAX_GROUP_RISK_PCT = _env_float("RISK_MAX_GROUP_RISK_PCT", 3.0)
+# Поведенческие пределы Risk Core (шаг 2б, 11.09.2026). Пауза 60 с между действиями
+# вместе с урезанием вдвое оставляла на счёте в 100 $ одну сделку за оборот анализа;
+# вместо паузы — не больше MAX_NEW_POSITIONS_PER_TURN новых позиций за оборот (≈ 5 мин).
+RISK_MAX_ACTIONS_PER_HOUR = int(_env_float("RISK_MAX_ACTIONS_PER_HOUR", 12))
+RISK_MAX_ACTIONS_PER_24H = int(_env_float("RISK_MAX_ACTIONS_PER_24H", 100))
+RISK_ACTION_COOLDOWN_SECONDS = int(_env_float("RISK_ACTION_COOLDOWN_SECONDS", 0))
+MAX_NEW_POSITIONS_PER_TURN = int(_env_float("MAX_NEW_POSITIONS_PER_TURN", 3))
 POSITION_ALLOCATION_PERCENT = 3.0  # Base % of available capital to allocate per trade (professional: 1-3%)
