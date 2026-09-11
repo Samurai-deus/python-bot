@@ -85,7 +85,7 @@ def test_drawdown_multiplier_is_applied_between_decision_and_final_size():
 
 
 def test_analysis_cycle_keeps_database_calls_off_the_event_loop():
-    src = _function("runner.py", "run_market_analysis")
+    src = _function("loops/market_analysis.py", "run_market_analysis")
     assert "await asyncio.to_thread(decision_core.should_i_trade" in src
     assert "await asyncio.to_thread(SystemStateSnapshotStore.save, snapshot)" in src
     assert "await asyncio.to_thread(cleanup_old_snapshots" in src
