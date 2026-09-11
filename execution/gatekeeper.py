@@ -87,6 +87,18 @@ def _recent_signal_count(system_state, now=None) -> int:
                if (now - t).total_seconds() < META_OVERTRADING_WINDOW_SECONDS)
 
 
+def _notional_budget_usd(balance: float) -> float:
+    """
+    Разрешённый суммарный номинал открытых позиций — тот же предел, что у Risk Core
+    (RISK_MAX_AGGREGATE_EXPOSURE_PCT от капитала). PortfolioBrain, PositionSizer и
+    мета-мозг меряют экспозицию долей этого предела. До 11.09.2026 они делили номинал
+    на баланс: при риске 1 % и стопе 2 % одна позиция — ~50 % баланса, и после 1–2
+    позиций портфель считался перегруженным, хотя Risk Core допускал шесть.
+    """
+    import config
+    return balance * config.RISK_MAX_AGGREGATE_EXPOSURE_PCT / 100.0
+
+
 class Gatekeeper:
     """
     Gatekeeper проверяет все сигналы через Decision Core.
@@ -927,7 +939,7 @@ class Gatekeeper:
             
             # Вычисляем PortfolioState
             current_balance = get_current_balance()
-            risk_budget = current_balance  # total equity as risk budget
+            risk_budget = _notional_budget_usd(current_balance)
 
             portfolio_state = calculate_portfolio_state(
                 open_positions=open_positions,
@@ -1024,9 +1036,9 @@ class Gatekeeper:
                 if open_trades:
                     current_balance = get_current_balance()
                     if current_balance > 0:
-                        # Упрощённый расчёт: сумма всех позиций / баланс
+                        # Доля разрешённого номинала (предел Risk Core), а не баланса
                         total_exposure = sum(open_notional(trade) for trade in open_trades)
-                        portfolio_exposure = min(1.0, total_exposure / current_balance)
+                        portfolio_exposure = min(1.0, total_exposure / _notional_budget_usd(current_balance))
             except Exception:
                 logger.error("Failed to calculate portfolio_exposure, defaulting to 0.0", exc_info=True)
                 portfolio_exposure = 0.0
@@ -1124,7 +1136,7 @@ class Gatekeeper:
             if open_trades:
                 open_positions = convert_trades_to_positions(open_trades)
                 current_balance = get_current_balance()
-                risk_budget = current_balance  # total equity as risk budget
+                risk_budget = _notional_budget_usd(current_balance)
                 portfolio_state = calculate_portfolio_state(
                     open_positions=open_positions,
                     risk_budget=risk_budget,
@@ -1138,18 +1150,16 @@ class Gatekeeper:
                     long_exposure=0.0,
                     short_exposure=0.0,
                     net_exposure=0.0,
-                    risk_budget=get_current_balance(),
+                    risk_budget=_notional_budget_usd(get_current_balance()),
                     used_risk=0.0
                 )
 
             # Используем PortfolioStateAdapter для совместимости с PositionSizer
             portfolio_adapter = PortfolioStateAdapter(portfolio_state)
 
-            # Получаем доступный капитал
-            balance = get_available_capital()
-
-            # Блокируем если доступного капитала недостаточно
-            if balance < MIN_POSITION_SIZE:
+            # Свободный капитал — только проверка, что позицию есть чем обеспечить
+            available = get_available_capital()
+            if available < MIN_POSITION_SIZE:
                 from core.position_sizer import PositionSizingResult
                 return PositionSizingResult(
                     position_allowed=False,
@@ -1158,8 +1168,12 @@ class Gatekeeper:
                     confidence_factor=0.0,
                     entropy_factor=0.0,
                     portfolio_factor=0.0,
-                    reason=f"Insufficient available capital: ${balance:.2f} < ${MIN_POSITION_SIZE}"
+                    reason=f"Insufficient available capital: ${available:.2f} < ${MIN_POSITION_SIZE}"
                 )
+
+            # Риск — доля всего капитала (equity), как в capital.position_size. От свободного
+            # остатка (так было до 11.09.2026) каждая следующая позиция рисковала меньше.
+            balance = get_current_balance()
 
             # Расстояние до стопа — чтобы PositionSizer пересчитал риск в номинал
             from execution.sizing_guard import stop_distance_from_signal

@@ -244,69 +244,6 @@ def position_size(entry_price, stop_price, side="LONG"):
     return round(position_usd, 2)
 
 
-def get_rolling_performance(strategy_name: str = None, lookback: int = 50) -> dict:
-    """
-    Получает win rate и avg win/loss из последних закрытых сделок.
-    Если strategy_name указан — только для этой стратегии.
-
-    Returns:
-        {"win_rate": float, "avg_win": float, "avg_loss": float}
-    """
-    from database import get_db_connection, _q
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        if strategy_name and strategy_name != "legacy":
-            cursor.execute(
-                _q("SELECT pnl FROM trades WHERE status = 'CLOSED' AND strategy_name = ? ORDER BY id DESC LIMIT ?"),
-                (strategy_name, lookback),
-            )
-        else:
-            cursor.execute(
-                _q("SELECT pnl FROM trades WHERE status = 'CLOSED' ORDER BY id DESC LIMIT ?"),
-                (lookback,),
-            )
-        rows = cursor.fetchall()
-    finally:
-        conn.close()
-
-    if len(rows) < 10:
-        return {"win_rate": 0.4, "avg_win": 5.0, "avg_loss": 5.0}
-
-    pnls = [float(r["pnl"]) for r in rows if r["pnl"] is not None]
-    wins = [p for p in pnls if p > 0]
-    losses = [p for p in pnls if p <= 0]
-
-    win_rate = len(wins) / len(pnls) if pnls else 0.5
-    avg_win = sum(wins) / len(wins) if wins else 10.0
-    avg_loss = abs(sum(losses) / len(losses)) if losses else 5.0
-
-    return {"win_rate": win_rate, "avg_win": avg_win, "avg_loss": avg_loss}
-
-
-def kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
-                   safety_factor: float = 0.25) -> float:
-    """
-    Quarter-Kelly sizing на основе скользящей статистики.
-    Возвращает долю капитала для риска (0.0 .. 0.05).
-    Returns 0.0 on negative expectancy (don't trade).
-    """
-    if avg_loss == 0 or win_rate <= 0:
-        return 0.0
-
-    b = avg_win / avg_loss  # win/loss ratio
-    p = win_rate
-    q = 1.0 - p
-
-    kelly = (b * p - q) / b
-
-    if kelly <= 0:
-        return 0.0  # negative expectancy = don't trade
-
-    adjusted = kelly * safety_factor
-    return max(0.005, min(0.05, adjusted))
-
-
 def get_peak_balance() -> float:
     """Возвращает максимальный баланс (peak equity) для drawdown расчёта.
 

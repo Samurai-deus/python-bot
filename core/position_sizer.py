@@ -14,7 +14,7 @@ PositionSizer НЕ принимает решения о входе — толь�
 """
 from dataclasses import dataclass
 from typing import Optional, Protocol
-from config import RISK_PERCENT, INITIAL_BALANCE, POSITION_ALLOCATION_PERCENT
+from config import RISK_PERCENT, INITIAL_BALANCE
 
 
 # ========== КОНФИГУРАЦИЯ ==========
@@ -23,10 +23,11 @@ class PositionSizingConfig:
     """Конфигурация для PositionSizer"""
     
     # Базовый риск на сделку (% от баланса)
-    max_risk_per_trade: float = POSITION_ALLOCATION_PERCENT  # 3.0% base allocation
+    # Риск на сделку — та же доля капитала, что у capital.position_size (RISK_PERCENT)
+    max_risk_per_trade: float = RISK_PERCENT
     
     # Минимальный порог риска (если итоговый риск меньше — позиция не разрешена)
-    min_risk_threshold: float = 0.1  # 0.1% от баланса (Kelly уже консервативен)
+    min_risk_threshold: float = 0.1  # 0.1% от баланса — нижний порог риска на сделку
     
     # Ограничения для факторов
     confidence_min: float = 0.2  # Минимальная confidence для использования
@@ -103,22 +104,19 @@ class PositionSizingResult:
 
 class PositionSizer:
     """
-    Калькулятор размера позиции на основе confidence, entropy и состояния портфеля.
-    
+    Калькулятор размера позиции: фиксированный риск на сделку (11.09.2026).
+
     PositionSizer НЕ принимает решения о входе — только размер.
-    Если итоговый риск < min_threshold → position_allowed = False.
-    
+
     Логика:
-    1. base_risk = config.max_risk_per_trade
-    2. confidence_factor = clamp(confidence, 0.2, 1.0)
-    3. entropy_factor = clamp(1 - entropy, 0.1, 1.0)
-    4. portfolio_factor = portfolio_state.available_risk_ratio()
-    5. final_risk = base_risk * confidence_factor * entropy_factor * portfolio_factor
-    
-    Если final_risk < config.min_risk_threshold:
-        position_allowed = False
-    Иначе:
-        position_allowed = True
+    1. final_risk = config.max_risk_per_trade (RISK_PERCENT от капитала);
+    2. номинал = капитал × final_risk / 100 / расстояние до стопа — при срабатывании
+       стопа теряется ровно final_risk капитала;
+    3. портфель без свободного номинала (available_risk_ratio = 0) → позиция не разрешена.
+
+    Уверенность и энтропия сигнала на размер не влияют: они не откалиброваны, и
+    масштабировать ими риск — искажать и результат, и статистику стратегий. Лимиты
+    портфеля (позиции, суммарный риск, группы, номинал) держит Risk Core.
     """
     
     def __init__(self, config: Optional[PositionSizingConfig] = None):
@@ -162,56 +160,18 @@ class PositionSizer:
         if balance is None:
             balance = INITIAL_BALANCE
         
-        # ========== БАЗОВЫЙ РИСК (Kelly-based) ==========
-        # Используем Kelly criterion вместо фиксированного % если есть история
-        try:
-            from capital import get_rolling_performance, kelly_fraction
-            perf = get_rolling_performance()
-            kelly = kelly_fraction(perf["win_rate"], perf["avg_win"], perf["avg_loss"])
-            if kelly <= 0:
-                # Negative expectancy — use minimum conservative allocation.
-                # PositionSizer must NOT block trading entirely: that's DecisionCore's job.
-                # The bot needs to keep trading (at minimum size) so the rolling window
-                # can incorporate new wins and recover from a losing streak.
-                import logging as _log
-                _log.getLogger(__name__).info(
-                    "Kelly <= 0 (wr=%.2f, avgW=%.1f, avgL=%.1f) — using min allocation %.1f%%",
-                    perf["win_rate"], perf["avg_win"], perf["avg_loss"],
-                    self.config.min_risk_threshold,
-                )
-                base_risk = 0.5  # 0.5% conservative fallback — survives factor scaling
-            else:
-                base_risk = kelly * 100  # fraction → %
-            # Clamp между min_risk и config max (quarter-Kelly floor)
-            base_risk = max(self.config.min_risk_threshold, min(base_risk, self.config.max_risk_per_trade))
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("PositionSizer error, using conservative fallback: %s", e)
-            base_risk = 1.0  # conservative fallback, not maximum
-        
-        # ========== CONFIDENCE FACTOR ==========
-        confidence_factor = self._clamp(
-            confidence,
-            self.config.confidence_min,
-            self.config.confidence_max
-        )
-        
-        # ========== ENTROPY FACTOR ==========
-        # Высокая entropy = низкая структурированность = меньший размер
-        # entropy_factor = 1 - entropy (но с ограничениями)
-        entropy_factor = self._clamp(
-            1.0 - entropy,
-            self.config.entropy_min,
-            self.config.entropy_max
-        )
-        
-        # ========== PORTFOLIO FACTOR ==========
-        portfolio_factor = portfolio_state.available_risk_ratio()
-        portfolio_factor = max(0.0, min(1.0, portfolio_factor))
-        
-        # ========== ИТОГОВЫЙ РИСК ==========
-        final_risk = base_risk * confidence_factor * entropy_factor * portfolio_factor
-        
+        # ========== РИСК НА СДЕЛКУ: фиксированная доля капитала ==========
+        # До 11.09.2026 база бралась из Kelly по 50 последним сделкам всех режимов
+        # (бумага вперемешку с биржей) и умножалась на уверенность, (1 − энтропия) и долю
+        # свободного номинала: на счёте 100 $ вместо 1 % выходило 0,10–0,29 %, а ниже
+        # 0,1 % сделка отклонялась. Kelly по десяткам сделок — шум, уверенность сигнала не
+        # откалибрована. Факторы остаются в результате как 1,0 — для журнала и трассы.
+        base_risk = float(self.config.max_risk_per_trade)
+        confidence_factor = 1.0
+        entropy_factor = 1.0
+        portfolio_factor = 1.0 if portfolio_state.available_risk_ratio() > 0 else 0.0
+        final_risk = base_risk * portfolio_factor
+
         # ========== ПРОВЕРКА МИНИМАЛЬНОГО ПОРОГА ==========
         if final_risk < self.config.min_risk_threshold:
             return PositionSizingResult(

@@ -37,36 +37,24 @@ class TestPositionSizerBasic:
         assert result.position_size_usd > 0
 
 
-class TestPositionSizerConfidenceFactor:
-    def test_low_confidence_reduces_size(self, empty_portfolio):
+class TestPositionSizerFixedRisk:
+    """Риск на сделку фиксирован (11.09.2026): уверенность и энтропия его не меняют."""
+
+    def test_confidence_does_not_change_the_risk(self, empty_portfolio):
         sizer = PositionSizer()
         low = sizer.calculate(confidence=0.2, entropy=0.1, portfolio_state=empty_portfolio, symbol="X")
         high = sizer.calculate(confidence=0.9, entropy=0.1, portfolio_state=empty_portfolio, symbol="X")
-        assert low.final_risk < high.final_risk
+        assert low.final_risk == high.final_risk == PositionSizingConfig().max_risk_per_trade
 
-    def test_confidence_below_min_clamps(self, empty_portfolio):
-        config = PositionSizingConfig()
-        sizer = PositionSizer(config=config)
-        result = sizer.calculate(
-            confidence=0.0, entropy=0.1,
-            portfolio_state=empty_portfolio, symbol="X"
-        )
-        assert result.confidence_factor >= config.confidence_min
-
-
-class TestPositionSizerEntropyFactor:
-    def test_high_entropy_reduces_size(self, empty_portfolio):
+    def test_entropy_does_not_change_the_risk(self, empty_portfolio):
         sizer = PositionSizer()
         low_e = sizer.calculate(confidence=0.8, entropy=0.1, portfolio_state=empty_portfolio, symbol="X")
         high_e = sizer.calculate(confidence=0.8, entropy=0.9, portfolio_state=empty_portfolio, symbol="X")
-        assert high_e.final_risk < low_e.final_risk
+        assert high_e.final_risk == low_e.final_risk
 
-    def test_high_entropy_with_low_portfolio_may_disallow(self):
-        # With full portfolio (ratio=0), position should not be allowed
-        portfolio = MockPortfolioState(available_ratio=0.0)
-        sizer = PositionSizer()
-        result = sizer.calculate(confidence=0.5, entropy=0.9, portfolio_state=portfolio, symbol="X")
-        assert result.position_allowed is False
+    def test_the_risk_is_the_configured_risk_percent(self, empty_portfolio):
+        from config import RISK_PERCENT
+        assert PositionSizingConfig().max_risk_per_trade == RISK_PERCENT
 
 
 class TestPositionSizerPortfolioFactor:
@@ -77,6 +65,12 @@ class TestPositionSizerPortfolioFactor:
             portfolio_state=full_portfolio, symbol="X"
         )
         assert result.position_allowed is False
+
+    def test_partly_used_portfolio_keeps_the_full_risk(self):
+        sizer = PositionSizer()
+        result = sizer.calculate(confidence=0.9, entropy=0.1,
+                                 portfolio_state=MockPortfolioState(available_ratio=0.3), symbol="X")
+        assert result.position_allowed and result.portfolio_factor == 1.0
 
     def test_empty_portfolio_gives_full_factor(self, empty_portfolio):
         sizer = PositionSizer()

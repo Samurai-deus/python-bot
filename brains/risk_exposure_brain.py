@@ -27,8 +27,14 @@ class RiskExposureBrain:
     """
     
     def __init__(self):
-        self.max_total_risk_pct = 10.0  # Максимальный суммарный риск
-        self.max_exposure_pct = 50.0  # Максимальная экспозиция
+        # Пороги перегрузки — те же, что у Risk Core (config.py): суммарный риск открытых
+        # позиций, суммарный номинал и число позиций. До 11.09.2026 здесь были свои числа —
+        # 10 % риска и 50 % номинала от баланса: при риске 1 % и стопе 2 % одна позиция —
+        # уже ~50 % номинала, и Decision Core запрещал торговлю после первой сделки.
+        import config
+        self.max_total_risk_pct = config.RISK_MAX_OPEN_RISK_PCT
+        self.max_exposure_pct = config.RISK_MAX_AGGREGATE_EXPOSURE_PCT
+        self.max_open_positions = config.RISK_MAX_OPEN_POSITIONS
         self.max_correlation = 0.8  # Максимальная корреляция
         # Состояние теперь хранится в SystemState, не здесь
     
@@ -268,18 +274,15 @@ class RiskExposureBrain:
         if exposure_pct > self.max_exposure_pct:
             return True
 
-        # Перегрузка по количеству позиций (более 10)
-        if active_positions > 10:
+        # Перегрузка по количеству позиций — сверх предела Risk Core (позиции, взятые
+        # с биржи при сверке, могут его превысить)
+        if active_positions > self.max_open_positions:
             return True
 
-        # Перегрузка по корреляции: allow max 4 highly correlated positions
-        if max_correlation > self.max_correlation and active_positions > 4:
-            logger.warning(
-                "Risk Exposure: overload — %d positions with max correlation %.3f > %.3f",
-                active_positions, max_correlation, self.max_correlation
-            )
-            return True
-
+        # Корреляция перегрузкой не считается (11.09.2026): у криптоальтов почти все пары
+        # коррелируют выше 0,8, и правило «больше 4 позиций при корреляции > 0,8»
+        # останавливало торговлю на четырёх позициях из шести. Ставку в одну сторону по
+        # связанным символам ограничивает Risk Core — риск группы (PORTFOLIO_GROUP_RISK).
         return False
 
     def correlation_size_adjustment(self, max_correlation: float,
