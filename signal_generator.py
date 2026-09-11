@@ -29,6 +29,7 @@ from core.signal_snapshot import (
 from core.market_state import normalize_states_dict
 from core.cognitive_engine import calculate_confidence, calculate_entropy
 from strategies.strategy_manager import StrategyManager
+from execution.sizing_guard import unaffordable_reason
 from datetime import datetime, UTC
 import logging
 
@@ -36,6 +37,21 @@ logger = logging.getLogger(__name__)
 
 # Singleton: создаём один раз, используем для всех символов
 _strategy_manager = StrategyManager()
+
+# Символы, которые сейчас не кандидаты из-за минимального ордера: в лог — только смена.
+_unaffordable = set()
+
+
+def _position_cap_usd() -> float:
+    """Предел одной позиции в долларах — тот же, которым её проверит Risk Core."""
+    try:
+        from capital import get_current_balance
+        from core.risk_core import get_risk_core
+        return get_current_balance() * get_risk_core().config.max_single_position_pct / 100.0
+    except Exception:
+        logger.warning("signal_generator: предел позиции не посчитан — отсев по минимальному ордеру "
+                       "в этом цикле выключен", exc_info=True)
+        return 0.0
 
 
 def generate_signals_for_symbols(
@@ -76,8 +92,11 @@ def generate_signals_for_symbols(
         "processed": 0,
         "signals_sent": 0,
         "signals_blocked": 0,
-        "errors": 0
+        "errors": 0,
+        "skipped_min_order": 0,
     }
+
+    position_cap_usd = _position_cap_usd()
 
     for symbol in SYMBOLS:
         logger.debug("Checking symbol: %s", symbol)
@@ -92,6 +111,21 @@ def generate_signals_for_symbols(
             if not candles_map:
                 logger.debug("No candle data for %s", symbol)
                 continue
+
+            # Минимальный ордер биржи больше предела одной позиции — сделку по символу
+            # не открыть ни при каком сигнале. Свечи символа остаются в данных рынка,
+            # пропускается только он сам как кандидат.
+            last = (candles_map.get("5m") or candles_map.get("15m") or [None])[-1]
+            skip_reason = unaffordable_reason(symbol, float(last[4]) if last else None, position_cap_usd)
+            if skip_reason:
+                stats["skipped_min_order"] += 1
+                if symbol not in _unaffordable:
+                    _unaffordable.add(symbol)
+                    logger.info("%s: не кандидат для сделки — %s", symbol, skip_reason)
+                continue
+            if symbol in _unaffordable:
+                _unaffordable.discard(symbol)
+                logger.info("%s: снова кандидат — минимальный ордер укладывается в предел позиции", symbol)
 
             # Определяем состояния для каждого таймфрейма
             for tf, interval in TIMEFRAMES.items():
