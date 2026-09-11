@@ -131,6 +131,38 @@ def get_candles_parallel(symbols: List[str], timeframes: Dict[str, str],
     return result
 
 
+# Длина бара по названию таймфрейма — чтобы отличить закрытую свечу от текущей
+TIMEFRAME_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
+                "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
+
+
+def closed_candles(candles_by_symbol: Dict[str, Dict[str, List]], now_ms: int,
+                   keep: Optional[int] = None) -> Dict[str, Dict[str, List]]:
+    """
+    Только закрытые свечи {symbol: {tf: [...]}} — без текущей, чей бар ещё не закончился
+    (Ф1 плана трейдера, шаг 2б). Bybit отдаёт последней незакрытую свечу: решения по ней
+    «перерисовываются» внутри бара и не воспроизводятся на истории. keep — сколько
+    последних закрытых оставить. Строки без разбираемого времени и незнакомые таймфреймы
+    не трогаются.
+    """
+    result: Dict[str, Dict[str, List]] = {}
+    for symbol, by_tf in candles_by_symbol.items():
+        result[symbol] = {}
+        for tf, rows in by_tf.items():
+            step = TIMEFRAME_MS.get(tf)
+            kept = []
+            for row in rows or []:
+                try:
+                    opened = int(row[0])
+                except (TypeError, ValueError, IndexError):
+                    kept.append(row)
+                    continue
+                if step is None or opened + step <= now_ms:
+                    kept.append(row)
+            result[symbol][tf] = kept[-keep:] if keep else kept
+    return result
+
+
 def validate_symbols(symbols: List[str], interval: str = "60") -> List[str]:
     """
     Проверяет каждый символ против Bybit API (одна свеча).

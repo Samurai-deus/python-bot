@@ -24,7 +24,7 @@ from brains.risk_exposure_brain import get_risk_exposure_brain
 from config import SYMBOLS, TIMEFRAMES
 from core.decision_core import get_decision_core
 from correlation_analysis import analyze_market_correlations
-from data_loader import get_candles_parallel
+from data_loader import closed_candles, get_candles_parallel
 from error_alert import error_alert
 from execution.gatekeeper import get_gatekeeper
 from signal_generator import generate_signals_for_symbols
@@ -36,6 +36,24 @@ from utils import liveness
 
 from control_plane import state as cp_state
 from control_plane.state import get_adaptive_system_state, increment_analysis_cycles, record_analysis_duration, update_analysis_metrics, update_volatility_state
+
+# Решения — по 120 закрытым свечам каждого таймфрейма (столько же, сколько в проверке на
+# истории); качаем на одну больше — последняя у Bybit незакрытая.
+DECISION_BARS = 120
+
+
+def _update_price_cache(raw_candles) -> None:
+    """Кэш последней цены (WS-снапшот берёт current_price) — по незакрытой 5m-свече."""
+    import price_cache
+    for symbol, by_tf in (raw_candles or {}).items():
+        rows = by_tf.get("5m") or []
+        if not rows:
+            continue
+        try:
+            price_cache.update(symbol, float(rows[-1][4]))
+        except Exception:
+            logger.debug("price_cache: %s не обновлён", symbol, exc_info=True)
+
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +242,7 @@ async def run_market_analysis():
         # Используем asyncio.to_thread для синхронных операций с timeout
         try:
             all_candles = await asyncio.wait_for(
-                asyncio.to_thread(get_candles_parallel, symbols, TIMEFRAMES, 120, 20),
+                asyncio.to_thread(get_candles_parallel, symbols, TIMEFRAMES, DECISION_BARS + 1, 20),
                 timeout=60.0
             )
         except asyncio.TimeoutError:
@@ -240,6 +258,15 @@ async def run_market_analysis():
             return False  # Возвращаем False, но не активируем safe_mode
         load_time = time.time() - load_start
         logger.info("✅ Данные загружены за %.2f секунд", load_time)
+
+        # Решения — только по закрытым свечам (Ф1 плана трейдера, шаг 2б, 11.09.2026). Bybit
+        # отдаёт последней незакрытую свечу, и генератор решал по бару, который ещё меняется:
+        # объём за часть бара, «перерисовка» сигнала внутри бара, вход по цене незакрытой
+        # свечи. На истории такого состояния нет — проверка на истории проверяла бы не то,
+        # что торгует. Сырые свечи — детектору резких движений и кэшу цены.
+        raw_candles = all_candles
+        all_candles = closed_candles(raw_candles, int(time.time() * 1000), keep=DECISION_BARS)
+        _update_price_cache(raw_candles)
         
         # Check budget and yield after data loading (shutdown-aware)
         try:
@@ -369,7 +396,7 @@ async def run_market_analysis():
         logger.info("🔍 Проверка резких движений...")
         try:
             await asyncio.wait_for(
-                asyncio.to_thread(check_all_symbols_for_spikes, symbols, all_candles),
+                asyncio.to_thread(check_all_symbols_for_spikes, symbols, raw_candles),
                 timeout=30.0
             )
         except asyncio.TimeoutError:
