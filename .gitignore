@@ -50,6 +50,7 @@ rso_report_*.md
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
 *.sqlite
 *.sqlite3
 backups/
