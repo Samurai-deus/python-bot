@@ -1316,9 +1316,11 @@ class Gatekeeper:
             total_exposure_usd = sum(pos.position_size_usd for pos in open_positions)
             max_single_position_usd = max([pos.position_size_usd for pos in open_positions], default=0.0)
             
-            # Correlation groups (strategy-blind) - упрощенная реализация
-            # В реальной системе это должно быть вычислено из корреляций
-            correlation_groups = {}  # Пусто по умолчанию
+            # Группы коррелирующих символов — из данных, пересчёт раз в сутки
+            # (market_data.correlation_groups). До 11.09.2026 здесь был пустой
+            # словарь, и лимит Risk Core на группу не работал.
+            from market_data.correlation_groups import get_groups
+            correlation_groups = get_groups()
             
             exposure = ExposureSnapshot(
                 open_positions=open_positions,

@@ -497,10 +497,12 @@ class RiskCore:
         for group_name, symbols in exposure.correlation_groups.items():
             if intent.symbol in symbols:
                 # Calculate total exposure of this group (including new position)
+                # Только позиции того же направления: LONG и SHORT в одной группе
+                # друг друга гасят, а не складываются в одну ставку.
                 group_exposure = sum(
                     pos.position_size_usd
                     for pos in exposure.open_positions
-                    if pos.symbol in symbols
+                    if pos.symbol in symbols and pos.side == intent.side
                 )
                 group_exposure += intent.position_size_usd
                 group_pct = (group_exposure / balance * 100) if balance > 0 else 0

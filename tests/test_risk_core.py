@@ -328,6 +328,32 @@ class TestRiskCoreExposureAggregate:
         assert permission == TradingPermission.DENY
 
 
+    def test_correlated_group_counts_only_the_same_direction(
+        self, risk_core, healthy_capital, healthy_behavioral, healthy_system
+    ):
+        """LONG и SHORT в одной группе друг друга гасят: 25 % в SHORT и новый LONG на 10 % — не 35 %."""
+        from core.risk_core import PositionSnapshot
+        exposure = ExposureSnapshot(
+            open_positions=[PositionSnapshot(symbol="ETHUSDT", side="SHORT", position_size_usd=2500.0,
+                                             entry_price=2500.0, stop_price=2550.0, leverage=1.0)],
+            total_exposure_usd=2500.0,
+            max_single_position_usd=2500.0,
+            correlation_groups={"corr-1": ["BTCUSDT", "ETHUSDT"]},
+        )
+
+        def intent(side):
+            return TradingIntent(symbol="BTCUSDT", side=side, position_size_usd=1000.0, entry_price=50000.0,
+                                 stop_price=49000.0 if side == "LONG" else 51000.0)
+
+        _, _, long_report = risk_core.evaluate(
+            intent("LONG"), healthy_capital, exposure, healthy_behavioral, healthy_system)
+        short_permission, _, short_report = risk_core.evaluate(
+            intent("SHORT"), healthy_capital, exposure, healthy_behavioral, healthy_system)
+        assert "EXPOSURE_CORRELATED_GROUP" not in long_report.violated_invariants
+        assert short_permission == TradingPermission.DENY
+        assert "EXPOSURE_CORRELATED_GROUP" in short_report.violated_invariants
+
+
 class TestRiskCoreBehavioralActions24h:
     def test_too_many_actions_24h_blocks(
         self, risk_core, healthy_intent, healthy_capital, healthy_exposure, healthy_system
