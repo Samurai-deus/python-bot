@@ -100,6 +100,10 @@ def paper_100(paper, monkeypatch):
     monkeypatch.setattr(capital, "get_current_balance_from_db", lambda initial: 100.0)
     monkeypatch.setattr(capital, "get_total_open_positions_size", lambda: 0.0)
     monkeypatch.setattr(capital, "get_open_margin", lambda: 0.0)
+    monkeypatch.setattr(capital, "get_open_risk_usd", lambda: 0.0)
+    monkeypatch.setattr(capital, "get_open_trades", lambda: [])
+    import core.risk_core as risk_core_module
+    monkeypatch.setattr(risk_core_module, "_risk_core", None)  # пределы процесса — из config.py
     monkeypatch.setattr(capital, "RISK_PERCENT", 2.0)
     monkeypatch.setattr(capital, "MIN_POSITION_SIZE", 5.0)
     monkeypatch.setattr(capital, "MAX_POSITION_SIZE", 1000.0)
@@ -128,20 +132,21 @@ def test_position_is_capped_by_risk_core_single_position_limit(paper_100):
     доступный капитал» (100 $), и Risk Core отклонял такую позицию: 100 % баланса
     против лимита 10 %. На проде 10.09.2026 так было отклонено 10 сигналов из 10.
     Теперь предел — тот же процент, которым позицию проверит Risk Core, с запасом
-    1 % (RISK_LIMIT_HEADROOM): 10 % от 100 $ × 0,99.
+    1 % (RISK_LIMIT_HEADROOM). С 11.09.2026 предел одной позиции — 100 % капитала по
+    номиналу (позиции с плечом, шаг 2 плана обучения): 100 $ × 0,99.
     """
-    assert capital.position_size(100.0, 99.0) == pytest.approx(9.9)
+    assert capital.position_size(100.0, 99.0) == pytest.approx(99.0)
 
 
 def test_position_fits_remaining_aggregate_exposure(paper_100, monkeypatch):
-    # открыто на 44 $ из допустимых 50 % от 100 $ с запасом 1 % (49,5 $) → остаётся 5,5 $
-    monkeypatch.setattr(capital, "get_total_open_positions_size", lambda: 44.0)
-    assert capital.position_size(100.0, 99.0) == pytest.approx(5.5)
+    # открыто на 250 $ из допустимых 300 % от 100 $ с запасом 1 % (297 $) → остаётся 47 $
+    monkeypatch.setattr(capital, "get_total_open_positions_size", lambda: 250.0)
+    assert capital.position_size(100.0, 99.0) == pytest.approx(47.0)
 
 
 def test_no_position_when_aggregate_room_is_below_minimum(paper_100, monkeypatch):
-    # открыто на 46 $ → остаётся 4 $, меньше минимального ордера 5 $
-    monkeypatch.setattr(capital, "get_total_open_positions_size", lambda: 46.0)
+    # открыто на 294 $ → остаётся 3 $, меньше минимального ордера 5 $
+    monkeypatch.setattr(capital, "get_total_open_positions_size", lambda: 294.0)
     assert capital.position_size(100.0, 99.0) == 0.0
 
 
@@ -153,13 +158,13 @@ def test_sized_position_passes_risk_core_exposure_invariants(paper_100, stop):
     обнуляло бумажную торговлю на проде.
     """
     from types import SimpleNamespace
-    from core.risk_core import RiskCore, TradingIntent, ViolationReport
+    from core.risk_core import RiskCore, TradingIntent, ViolationReport, config_from_settings
 
     size = capital.position_size(100.0, stop)
     assert size > 0
     intent = TradingIntent(symbol="ADAUSDT", side="LONG", position_size_usd=size, entry_price=100.0, stop_price=stop)
     report = ViolationReport()
-    RiskCore()._check_exposure_invariants(
+    RiskCore(config_from_settings())._check_exposure_invariants(
         intent,
         SimpleNamespace(total_exposure_usd=0.0, correlation_groups={}, open_positions=[]),
         SimpleNamespace(current_balance_usd=100.0),
@@ -177,7 +182,7 @@ def test_a_small_balance_drift_does_not_trip_risk_core(paper_100, monkeypatch, o
     LIMITED → размер вдвое → ниже минимального ордера биржи; после первой сделки
     отсекались все сигналы. С запасом 1 % дрейф в полпроцента нарушений не даёт.
     """
-    from core.risk_core import RiskCore, TradingIntent, ViolationReport
+    from core.risk_core import RiskCore, TradingIntent, ViolationReport, config_from_settings
 
     monkeypatch.setattr(capital, "get_current_balance_from_db", lambda initial: 100.03)
     monkeypatch.setattr(capital, "get_total_open_positions_size", lambda: open_usd)
@@ -185,10 +190,31 @@ def test_a_small_balance_drift_does_not_trip_risk_core(paper_100, monkeypatch, o
     assert size > 0
     intent = TradingIntent(symbol="ADAUSDT", side="LONG", position_size_usd=size, entry_price=100.0, stop_price=99.0)
     report = ViolationReport()
-    RiskCore()._check_exposure_invariants(
+    RiskCore(config_from_settings())._check_exposure_invariants(
         intent,
         SimpleNamespace(total_exposure_usd=open_usd, correlation_groups={}, open_positions=[]),
         SimpleNamespace(current_balance_usd=100.03 * 0.995),
         report,
     )
     assert report.violations == [], report.violations
+
+
+# ---------------------------------------------------------------------------
+# Шаг 2 плана обучения (11.09.2026): риск от капитала, остаток суммарного риска
+# ---------------------------------------------------------------------------
+
+def test_risk_is_taken_from_equity_not_from_the_free_balance(paper_100, monkeypatch):
+    """При занятой марже риск сделки — 2 % всего капитала, а не свободного остатка."""
+    monkeypatch.setattr(capital, "get_open_margin", lambda: 50.0)
+    assert capital.position_size(100.0, 75.0) == pytest.approx(8.0)  # 2 $ риска / 25 %
+
+
+def test_size_fits_the_remaining_open_risk(paper_100, monkeypatch):
+    # открытые сделки уже рискуют 5,5 $; предел 6 % × 0,99 = 5,94 $ → на новую 0,44 $
+    monkeypatch.setattr(capital, "get_open_risk_usd", lambda: 5.5)
+    assert capital.position_size(100.0, 95.0) == pytest.approx(8.8)  # 0,44 $ / 5 %
+
+
+def test_no_position_when_the_portfolio_is_full(paper_100, monkeypatch):
+    monkeypatch.setattr(capital, "get_open_trades", lambda: [{}] * 6)
+    assert capital.position_size(100.0, 95.0) == 0.0

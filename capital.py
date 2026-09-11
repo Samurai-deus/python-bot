@@ -21,7 +21,8 @@ import threading
 import time
 
 from config import INITIAL_BALANCE, MAX_POSITION_SIZE, MIN_POSITION_SIZE, RISK_PERCENT  # noqa: F401  (реэкспорт)
-from database import get_current_balance_from_db, get_open_margin, get_total_open_positions_size
+from database import (get_current_balance_from_db, get_open_margin, get_open_risk_usd, get_open_trades,
+                      get_total_open_positions_size)
 
 logger = logging.getLogger(__name__)
 
@@ -187,9 +188,10 @@ def position_size(entry_price, stop_price, side="LONG"):
     """
     Размер позиции (номинал в USDT) из риска на сделку.
 
-    Риск = доступный капитал × RISK_PERCENT; номинал = риск / расстояние до стопа,
-    то есть при срабатывании стопа теряется ровно риск. Номинал ограничен
-    MAX_POSITION_SIZE и доступным капиталом.
+    Риск = капитал (equity) × RISK_PERCENT, но не больше остатка до предела суммарного
+    риска открытых сделок; номинал = риск / расстояние до стопа, то есть при
+    срабатывании стопа теряется ровно риск. Номинал ограничен MAX_POSITION_SIZE,
+    доступным капиталом и пределами Risk Core. Полный портфель (max_open_positions) — 0.
 
     Returns:
         float: номинал в USDT, 0.0 — если позицию открывать не нужно
@@ -198,7 +200,19 @@ def position_size(entry_price, stop_price, side="LONG"):
     if available < MIN_POSITION_SIZE:
         return 0.0
 
-    risk_amount = available * (RISK_PERCENT / 100.0)
+    from core.risk_core import get_risk_core
+    limits = get_risk_core().config
+    if len(get_open_trades()) >= limits.max_open_positions:
+        return 0.0  # портфель полон — Risk Core всё равно отклонит
+
+    # Риск на сделку — от всего капитала (equity), а не от свободного остатка, и не
+    # больше остатка до предела суммарного риска открытых сделок (шаг 2 плана, 11.09.2026)
+    equity = get_current_balance()
+    risk_amount = equity * (RISK_PERCENT / 100.0)
+    risk_room = equity * limits.max_open_risk_pct / 100.0 * RISK_LIMIT_HEADROOM - get_open_risk_usd()
+    risk_amount = min(risk_amount, risk_room)
+    if risk_amount <= 0:
+        return 0.0
 
     if side == "LONG":
         risk_per_unit = abs(entry_price - stop_price)
@@ -217,9 +231,6 @@ def position_size(entry_price, stop_price, side="LONG"):
     # перестало ограничивать, размер упирался во весь капитал, и Risk Core отклонял
     # каждый сигнал: одна позиция 100 % > 10 % и экспозиция 100 % > 50 % → LOCKED.
     # Первые циклы на проде 10.09.2026: 28 сигналов, одобрено 0.
-    from core.risk_core import get_risk_core
-    limits = get_risk_core().config
-    equity = get_current_balance()
     single_cap = equity * limits.max_single_position_pct / 100.0 * RISK_LIMIT_HEADROOM
     aggregate_room = (equity * limits.max_aggregate_exposure_pct / 100.0 * RISK_LIMIT_HEADROOM
                       - get_total_open_positions_size())

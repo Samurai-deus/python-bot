@@ -401,6 +401,13 @@ def generate_signals_for_symbols(
 
             zone = {"entry": entry, "stop": stop, "target": target}
             pos_size = position_size(entry, stop, side)
+            if not pos_size:
+                # Нет места в лимитах портфеля (число позиций, суммарный риск, экспозиция)
+                # или размер меньше минимального ордера — сигнал не отправляется. До
+                # 11.09.2026 он уходил с нулевым размером, и гейткипер записывал это как
+                # сбой Risk Core («returned None → DENY + HALTED»).
+                logger.info("%s: сигнал пропущен — размер позиции 0 (портфель заполнен или ниже минимума)", symbol)
+                continue
             lev = calculate_leverage(states, atr_15m, entry, stop, side)
 
             # ── Microstructure filter (OI + Funding) ──
