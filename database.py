@@ -1428,6 +1428,25 @@ def get_open_margin() -> float:
         conn.close()
 
 
+def count_open_trades(on_exchange: bool) -> int:
+    """
+    Открытые сделки журнала: биржевые (есть exchange_order_id или позиция взята
+    с биржи при сверке) или бумажные (остальные). Колонки режима в журнале нет;
+    шаг deploy.sh mode переключает режим только без открытых сделок другого
+    режима — иначе сверка при старте закрыла бы бумажные по цене входа с PnL 0.
+    """
+    exchange = ("(COALESCE(exchange_order_id, '') <> '' "
+                "OR COALESCE(strategy_name, '') = 'adopted_from_exchange')")
+    condition = exchange if on_exchange else f"NOT {exchange}"
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(_q(f"SELECT COUNT(*) AS n FROM trades WHERE status = 'OPEN' AND {condition}"))
+        return int(cursor.fetchone()["n"] or 0)
+    finally:
+        conn.close()
+
+
 def migrate_from_csv(csv_file: str = "demo_trades.csv"):
     """Мигрирует данные из CSV в базу данных."""
     if not os.path.exists(csv_file):

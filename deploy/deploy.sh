@@ -647,12 +647,17 @@ step_mode() {
       grep -qE '^BYBIT_API_KEY=[A-Za-z0-9]+$' "$APP/.env" \
         || { echo "  в .env нет ключа Bybit — сначала deploy.sh bybit-key"; exit 1; }
       pairs="PAPER_TRADING=false DRY_RUN=false LIVE_TRADING=false BYBIT_TESTNET=false BYBIT_DEMO=true REAL_CAPITAL_CAP_USDT=100"
-      expected=TESTNET ;;
+      expected=TESTNET; others=False ;;
     paper)
       pairs="PAPER_TRADING=true DRY_RUN=true LIVE_TRADING=false BYBIT_TESTNET=false BYBIT_DEMO=false REAL_CAPITAL_CAP_USDT=0"
-      expected=PAPER_TRADING ;;
+      expected=PAPER_TRADING; others=True ;;
     *) echo "  использование: deploy.sh mode demo|paper"; exit 2 ;;
   esac
+
+  # Открытые сделки другого режима: сверка при старте закрыла бы бумажные по цене
+  # входа с PnL 0, а бумажный монитор биржевые не ведёт — переключаемся на чистом журнале
+  open=$(docker exec market-bot python -c "import database; print(database.count_open_trades(on_exchange=$others))" 2>/dev/null || echo "?")
+  [ "$open" = 0 ] || { echo "  в журнале открытых сделок другого режима: $open — дождитесь их закрытия и повторите"; exit 1; }
 
   cp -p "$APP/.env" "$APP/.env.bak-$(date +%s)"
   umask 077
