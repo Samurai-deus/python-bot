@@ -19,6 +19,14 @@ from utils.env import env_str
 logger = logging.getLogger(__name__)
 
 QUEUE_SIZE = 20
+# Ответ оценки — JSON с пятью причинами по-русски; кириллица дорогая в токенах, и при
+# 700 ответ обрывался на полуслове: все мнения 11.09.2026 записались как bad_format.
+REVIEW_MAX_TOKENS = 1500
+# Сигналы, которые система не взяла (шаг 5 плана обучения), оцениваются, только пока от
+# суточного бюджета осталось больше этой доли, и занимают не больше половины очереди:
+# мнение по взятому сигналу нужнее.
+UNSENT_BUDGET_RESERVE = 0.5
+SENT = "SENT"
 
 _queue: "queue.Queue[dict]" = queue.Queue(maxsize=QUEUE_SIZE)
 _thread: Optional[threading.Thread] = None
@@ -45,15 +53,35 @@ def stage() -> str:
     return "0"
 
 
-def submit(symbol: str, signal_data: dict, snapshot) -> bool:
-    """Поставить сигнал на оценку. False — ИИ выключен, нет снимка или очередь полна."""
-    if snapshot is None or stage() == "off":
+def _room_for_unsent() -> bool:
+    """Есть ли место для сигнала, который система не взяла: очередь и резерв бюджета."""
+    from ai_trader.client import budget_left_usd, daily_budget_usd
+    if _queue.qsize() >= QUEUE_SIZE // 2:
+        return False
+    try:
+        return budget_left_usd() > daily_budget_usd() * UNSENT_BUDGET_RESERVE
+    except Exception:
+        return False
+
+
+def submit(symbol: str, signal_data: dict, snapshot, fate: str = SENT, signal_ts: Optional[str] = None) -> bool:
+    """
+    Поставить сигнал на оценку. False — ИИ выключен, нет ни снимка, ни метки времени,
+    очередь полна или (для невзятого сигнала) нет резерва бюджета.
+
+    fate — судьба сигнала из журнала (SENT/BLOCKED/SKIPPED); модели она не сообщается,
+    мнение сверяется с исходом по свечам. signal_ts — метка журнала, если снимка нет.
+    """
+    if stage() == "off" or (snapshot is None and signal_ts is None):
+        return False
+    if fate != SENT and not _room_for_unsent():
         return False
     job = {
         "symbol": symbol,
-        "signal_ts": snapshot.timestamp.isoformat(),
+        "signal_ts": signal_ts or snapshot.timestamp.isoformat(),
         "signal_data": dict(signal_data),
         "snapshot": snapshot,
+        "fate": fate,
     }
     _ensure_thread()
     try:
@@ -107,12 +135,13 @@ def process(job: dict, transport=None, notify: Optional[Callable[[str], None]] =
 
     context = review.build_context(job["symbol"], job["signal_data"], job["snapshot"])
     completion = client.complete("review", prompts.REVIEW_SYSTEM, review.render(context),
-                                 client.review_model(), transport=transport)
+                                 client.review_model(), max_tokens=REVIEW_MAX_TOKENS, transport=transport)
     opinion = review.parse_opinion(completion.text) if completion else None
     if completion is None:
         error = "no_response"
     elif opinion is None:
-        error = "bad_format"
+        # Обрыв по max_tokens — отдельно: это не «модель ответила не по схеме».
+        error = "truncated" if completion.finish_reason == "length" else "bad_format"
     else:
         error = None
     database.save_ai_opinion(
@@ -125,7 +154,8 @@ def process(job: dict, transport=None, notify: Optional[Callable[[str], None]] =
         cost_usd=completion.cost_usd if completion else 0.0,
         latency_ms=completion.latency_ms if completion else None, error=error,
     )
-    if opinion is not None and opinion.decision != "approve":
+    # Несогласие — только по взятому сигналу: по невзятому сделки нет, мнение идёт в статистику.
+    if opinion is not None and opinion.decision != "approve" and job.get("fate", SENT) == SENT:
         try:
             (notify or _notify)(format_disagreement(job, opinion))
         except Exception:

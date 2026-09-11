@@ -45,6 +45,7 @@ class Completion:
     completion_tokens: int
     cost_usd: float
     latency_ms: int
+    finish_reason: Optional[str] = None  # 'length' — ответ оборван по max_tokens
 
 
 def api_key() -> str:
@@ -115,6 +116,7 @@ def complete(purpose: str, system: str, user: str, model: str, max_tokens: int =
         response.raise_for_status()
         data = response.json()
         text = data["choices"][0]["message"]["content"] or ""
+        finish_reason = data["choices"][0].get("finish_reason")
         usage = data.get("usage") or {}
     except Exception as exc:
         # Только тип ошибки: в тексте исключения httpx бывает URL с телом ответа, ключ — в заголовке.
@@ -133,4 +135,5 @@ def complete(purpose: str, system: str, user: str, model: str, max_tokens: int =
     except Exception:
         logger.warning("ai_trader: расход %.4f $ не записан", cost_usd, exc_info=True)
     return Completion(text=str(text), model=used_model, prompt_tokens=prompt_tokens,
-                      completion_tokens=completion_tokens, cost_usd=cost_usd, latency_ms=latency_ms)
+                      completion_tokens=completion_tokens, cost_usd=cost_usd, latency_ms=latency_ms,
+                      finish_reason=finish_reason)

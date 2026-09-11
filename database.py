@@ -1541,6 +1541,26 @@ def get_closed_trades_since(since_iso: str, on_exchange: bool) -> List[Dict]:
         conn.close()
 
 
+def get_ai_verdicts(since_iso: str) -> List[Dict]:
+    """Мнения ИИ по сигналам начиная с since_iso: решение, судьба сигнала, R:R и исход по свечам."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_ai_tables(cursor)
+        cursor.execute(
+            _q("SELECT o.decision, o.error, j.status, j.rr_ratio, so.outcome FROM ai_opinions o "
+               "LEFT JOIN signal_journal j ON j.timestamp = o.signal_ts AND j.symbol = o.symbol "
+               "LEFT JOIN signal_outcomes so ON so.signal_ts = o.signal_ts AND so.symbol = o.symbol "
+               "WHERE o.signal_ts >= ?"),
+            (since_iso,),
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.commit()
+    finally:
+        conn.close()
+    return rows
+
+
 def get_signal_fates(since_iso: str) -> List[Dict]:
     """Сигналы журнала с судьбой начиная с since_iso и их исходы по свечам (None — ещё нет)."""
     conn = get_db_connection()

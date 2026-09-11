@@ -144,7 +144,8 @@ def test_the_runner_registers_the_weekly_report():
 
 def test_the_signal_carries_its_strategy_to_the_trade_journal():
     generator = (ROOT / "signal_generator.py").read_text(encoding="utf-8")
-    block = generator[generator.index("signal_data = {"):generator.index("}", generator.index("signal_data = {"))]
+    start = generator.index("signal_data = {", generator.index("def generate_signals_for_symbols"))
+    block = generator[start:generator.index("}", start)]
     assert '"strategy_name": strategy_name,' in block
     assert 'strategy_name=signal_data.get("strategy_name")' in (ROOT / "execution" / "gatekeeper.py").read_text(
         encoding="utf-8")

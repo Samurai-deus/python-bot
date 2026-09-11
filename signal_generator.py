@@ -64,10 +64,26 @@ def _journal(status, code, reason, *, mode=None, seen_by=None, **fields):
         if seen_by is not None and not seen_by.would_be_new_signal(
                 fields["symbol"], (fields.get("states") or {}).get("15m", "")):
             return
-        journal.record_signal(status=status, reason_code=code, reason=reason,
-                              decision=mode_to_decision(mode) if mode else None, **fields)
+        moment = datetime.now(UTC)
+        if journal.record_signal(status=status, reason_code=code, reason=reason, timestamp=moment,
+                                 decision=mode_to_decision(mode) if mode else None, **fields):
+            _ai_review(status, moment, mode, fields)
     except Exception:
         logger.warning("Журнал сигналов: запись не удалась", exc_info=True)
+
+
+def _ai_review(status, moment, mode, fields):
+    """
+    Невзятый сигнал — ИИ на оценку в тени (шаг 5 плана обучения): так видно, различает ли
+    ИИ лучше фильтров системы. Метка — та же, что в журнале: по ней сверяется исход.
+    """
+    from ai_trader.worker import submit
+    entry, stop, target = fields.get("entry"), fields.get("stop"), fields.get("target")
+    rr = abs(target - entry) / abs(entry - stop) if entry and stop and target and entry != stop else None
+    signal_data = {"side": fields.get("side"), "entry": entry, "stop": stop, "target": target, "rr_ratio": rr,
+                   "score": fields.get("score"), "mode": mode, "risk": fields.get("risk"),
+                   "strategy_name": fields.get("strategy")}
+    submit(fields["symbol"], signal_data, None, fate=status, signal_ts=moment.isoformat())
 
 
 def generate_signals_for_symbols(
@@ -674,8 +690,10 @@ def generate_signals_for_symbols(
                         logger.info("%s: signal blocked by Gatekeeper", symbol)
                         code, why = getattr(gatekeeper, "last_block_reason", None) or ("gatekeeper", "причина не передана")
                         try:
-                            journal.log_signal_snapshot(snapshot, status=journal.BLOCKED, reason_code=code,
-                                                        reason=why, strategy=strategy_name)
+                            if journal.log_signal_snapshot(snapshot, status=journal.BLOCKED, reason_code=code,
+                                                           reason=why, strategy=strategy_name):
+                                from ai_trader.worker import submit as ai_submit
+                                ai_submit(symbol, signal_data, snapshot, fate=journal.BLOCKED)
                         except Exception:
                             logger.warning("Журнал сигналов: запись не удалась", exc_info=True)
                 except Exception as e:
