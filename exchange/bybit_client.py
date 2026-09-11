@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 _MAINNET_BASE = "https://api.bybit.com"
 _TESTNET_BASE = "https://api-testnet.bybit.com"
+_DEMO_BASE = "https://api-demo.bybit.com"  # демо-счёт основного аккаунта (BYBIT_DEMO)
 
 Number = Union[Decimal, float, int, str]
 
@@ -149,6 +150,7 @@ class BybitClient:
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
         testnet: Optional[bool] = None,
+        demo: Optional[bool] = None,
     ):
         self._api_key = api_key or os.environ.get("BYBIT_API_KEY", "")
         self._api_secret = api_secret or os.environ.get("BYBIT_API_SECRET", "")
@@ -159,22 +161,34 @@ class BybitClient:
                 self._api_key, self._api_secret
             )
 
-        if testnet is None:
+        if testnet is None and demo is None:
             # Хост берётся из того же резолвера, что и режим: uses_testnet_endpoint()
             # истинна ровно в режиме TESTNET. Раньше здесь был собственный разбор
             # BYBIT_TESTNET, и при BYBIT_TESTNET=1 ордер уходил на mainnet.
-            from trading_mode import uses_testnet_endpoint
-            testnet = uses_testnet_endpoint()
-        self._testnet = testnet
+            from trading_mode import uses_demo_endpoint, uses_testnet_endpoint
+            testnet, demo = uses_testnet_endpoint(), uses_demo_endpoint()
+        # demo=True явно — для проверки ключа демо-счёта шагом deploy.sh bybit-key
+        self._demo = bool(demo)
+        self._testnet = bool(testnet) and not self._demo
 
-        self._base_url = _TESTNET_BASE if testnet else _MAINNET_BASE
+        if self._demo:
+            self._base_url = _DEMO_BASE
+        else:
+            self._base_url = _TESTNET_BASE if self._testnet else _MAINNET_BASE
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
 
         self._filters_cache: Dict[str, tuple] = {}
 
-        mode = "TESTNET" if testnet else "MAINNET"
+        mode = self.environment
         logger.info("BybitClient initialized [%s]: %s", mode, self._base_url)
+
+    @property
+    def environment(self) -> str:
+        """Куда смотрит клиент: DEMO, TESTNET или MAINNET."""
+        if self._demo:
+            return "DEMO"
+        return "TESTNET" if self._testnet else "MAINNET"
 
     @staticmethod
     def _load_keys_from_db(current_key: str, current_secret: str):

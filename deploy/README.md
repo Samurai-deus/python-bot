@@ -47,7 +47,7 @@ DEPLOY_HOST=<host> deploy/ship.sh release web smoke
 - сайт отвечает 200, `index.html` отдаётся с `no-store`;
 - API снаружи без initData — 401; `/metrics`, `/docs`, `/openapi.json` снаружи — 404;
 - изнутри контейнера API: без подписи 401, чужой пользователь 403, владелец 200;
-- все контейнеры healthy; режим торговли — `PAPER_TRADING`;
+- все контейнеры healthy; режим торговли — `PAPER_TRADING` (после `deploy.sh mode demo` — `TESTNET`, ожидаемый режим хранится в `/opt/market-bot/trading_mode.expected`);
 - Telegram из контейнера бота доступен через прокси.
 
 ## Откат вручную
@@ -111,3 +111,16 @@ docker start market-bot market-bot-api
 
 - внешнего контроля доступности хоста: если хост недоступен целиком, алерт не придёт;
 - PostgreSQL — на этапе бумажной торговли база SQLite.
+
+## Демо-счёт Bybit (11.09.2026)
+
+Прогон с настоящими ордерами без реальных денег — на демо-счёте основного
+аккаунта (`api-demo.bybit.com`): цены и стакан основной биржи.
+
+1. Ключ создаётся в режиме Demo Trading (права: ордера и позиции, без вывода).
+2. `secrets.env` с `BYBIT_API_KEY` и `BYBIT_API_SECRET` кладётся в
+   `/tmp/market-bot-deploy/`, затем `deploy.sh bybit-key` — ключ проверяется на
+   демо-бирже до записи в `.env`, режим не меняется.
+3. `deploy.sh mode demo` — ордера уходят на демо-счёт, капитал виден как счёт в
+   100 $ (`REAL_CAPITAL_CAP_USDT`), своя база капитала `DEMO`; обратно —
+   `deploy.sh mode paper`.

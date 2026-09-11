@@ -114,6 +114,8 @@ PAPER_TRADING=true
 DRY_RUN=true
 LIVE_TRADING=false
 BYBIT_TESTNET=false
+BYBIT_DEMO=false
+REAL_CAPITAL_CAP_USDT=0
 PAPER_INITIAL_BALANCE_USDT=100
 PAPER_TAKER_FEE_PCT=0.055
 RISK_PERCENT=2.0
@@ -440,8 +442,10 @@ step_smoke() {
     fail=1
   fi
 
+  # Ожидаемый режим записывает шаг mode (demo → TESTNET); без файла — бумажная торговля
+  expected=$(cat "$APP/trading_mode.expected" 2>/dev/null || echo PAPER_TRADING)
   mode=$(docker exec market-bot python -c "from trading_mode import get_trading_mode; print(get_trading_mode().value)" 2>/dev/null || echo "?")
-  if [ "$mode" = PAPER_TRADING ]; then echo "  ok  режим торговли: $mode"; else echo "  ОШИБКА режим торговли: $mode"; fail=1; fi
+  if [ "$mode" = "$expected" ]; then echo "  ok  режим торговли: $mode"; else echo "  ОШИБКА режим торговли: $mode (ожидался $expected)"; fail=1; fi
 
   tg=$(docker exec market-bot python -c "import os, httpx; print(httpx.get('https://api.telegram.org', proxy=os.environ.get('TELEGRAM_PROXY_URL') or None, timeout=15).status_code)" 2>/dev/null || echo "нет ответа")
   case "$tg" in
@@ -588,6 +592,95 @@ step_ai_key() {
   if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
 }
 
+step_bybit_key() {
+  # Ключи демо-счёта Bybit (11.09.2026). Проверка на демо-бирже ДО правки .env;
+  # ключ и секрет — через stdin контейнера и окружение awk, не аргументами
+  # процессов; в вывод — только баланс демо-счёта или текст ошибки биржи.
+  # Режим торговли не меняется и контейнеры не пересоздаются — это шаг mode.
+  secrets="$STAGE/secrets.env"
+  [ -f "$secrets" ] || { echo "  нет $secrets"; exit 1; }
+  # shellcheck disable=SC1090
+  . "$secrets"
+  shred -u "$secrets" 2>/dev/null || rm -f "$secrets"
+  key="${BYBIT_API_KEY:-}"
+  secret="${BYBIT_API_SECRET:-}"
+  { [ -n "$key" ] && [ -n "$secret" ]; } || { echo "  в secrets.env нет BYBIT_API_KEY и BYBIT_API_SECRET"; exit 1; }
+  case "$key$secret" in
+    *[!A-Za-z0-9]*) echo "  ключ или секрет содержат недопустимые символы"; exit 1 ;;
+  esac
+
+  answer=$(printf '%s\n%s\n' "$key" "$secret" | docker exec -i market-bot python -c '
+import sys
+key, secret = sys.stdin.read().split()
+from exchange.bybit_client import BybitClient
+wallet = BybitClient(api_key=key, api_secret=secret, demo=True).get_wallet_balance()
+print("OK equity=%.2f available=%.2f" % (float(wallet.total_equity), float(wallet.available_balance)))
+' 2>&1 | tail -n 1) || true
+  case "$answer" in
+    OK*) echo "  ключ принят демо-биржей Bybit: ${answer#OK }" ;;
+    *) echo "  демо-биржа ключ не приняла — .env не трогаю: $answer"; exit 1 ;;
+  esac
+
+  cp -p "$APP/.env" "$APP/.env.bak-$(date +%s)"
+  umask 077
+  BYBIT_KEY="$key" BYBIT_SECRET="$secret" awk '
+    /^BYBIT_API_KEY=/    { print "BYBIT_API_KEY=" ENVIRON["BYBIT_KEY"]; seen_key = 1; next }
+    /^BYBIT_API_SECRET=/ { print "BYBIT_API_SECRET=" ENVIRON["BYBIT_SECRET"]; seen_secret = 1; next }
+    { print }
+    END {
+      if (!seen_key)    print "BYBIT_API_KEY=" ENVIRON["BYBIT_KEY"]
+      if (!seen_secret) print "BYBIT_API_SECRET=" ENVIRON["BYBIT_SECRET"]
+    }' "$APP/.env" > "$APP/.env.new"
+  chmod 600 "$APP/.env.new"
+  mv -f "$APP/.env.new" "$APP/.env"
+  # shellcheck disable=SC2012
+  ls -1t "$APP"/.env.bak-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do rm -f "$f"; done
+  echo "  ключи записаны в .env; режим торговли не менялся — переключение: deploy.sh mode demo"
+}
+
+step_mode() {
+  # Режим торговли прода: demo — ордера на демо-счёт Bybit с потолком капитала
+  # 100 $, paper — бумажная торговля. Меняет только флаги режима в .env.
+  target="${1:-}"
+  case "$target" in
+    demo)
+      grep -qE '^BYBIT_API_KEY=[A-Za-z0-9]+$' "$APP/.env" \
+        || { echo "  в .env нет ключа Bybit — сначала deploy.sh bybit-key"; exit 1; }
+      pairs="PAPER_TRADING=false DRY_RUN=false LIVE_TRADING=false BYBIT_TESTNET=false BYBIT_DEMO=true REAL_CAPITAL_CAP_USDT=100"
+      expected=TESTNET ;;
+    paper)
+      pairs="PAPER_TRADING=true DRY_RUN=true LIVE_TRADING=false BYBIT_TESTNET=false BYBIT_DEMO=false REAL_CAPITAL_CAP_USDT=0"
+      expected=PAPER_TRADING ;;
+    *) echo "  использование: deploy.sh mode demo|paper"; exit 2 ;;
+  esac
+
+  cp -p "$APP/.env" "$APP/.env.bak-$(date +%s)"
+  umask 077
+  PAIRS="$pairs" awk '
+    BEGIN {
+      n = split(ENVIRON["PAIRS"], kv, " ")
+      for (i = 1; i <= n; i++) { split(kv[i], p, "="); want[p[1]] = p[2]; order[i] = p[1] }
+    }
+    {
+      name = $0; sub(/=.*/, "", name)
+      if (name in want) { print name "=" want[name]; done[name] = 1; next }
+      print
+    }
+    END { for (i = 1; i <= n; i++) if (!(order[i] in done)) print order[i] "=" want[order[i]] }
+  ' "$APP/.env" > "$APP/.env.new"
+  chmod 600 "$APP/.env.new"
+  mv -f "$APP/.env.new" "$APP/.env"
+  # shellcheck disable=SC2012
+  ls -1t "$APP"/.env.bak-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do rm -f "$f"; done
+  echo "$expected" > "$APP/trading_mode.expected"
+
+  echo "  режим $target — пересоздаю бот и API"
+  compose "$(current_tag)" up -d --force-recreate bot api
+  if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
+  now=$(docker exec market-bot python -c "from trading_mode import get_trading_mode, uses_demo_endpoint; print(get_trading_mode().value, 'DEMO' if uses_demo_endpoint() else '')" 2>/dev/null || echo "?")
+  echo "  бот сообщает режим: $now"
+}
+
 step_status() {
   echo "  релиз: $(current_tag)"
   docker ps --filter name=market-bot --format '  {{.Names}}  {{.Status}}'
@@ -610,11 +703,13 @@ case "$step" in
   nginx)   step_nginx ;;
   token)   step_token ;;
   ai-key)  step_ai_key ;;
+  bybit-key) step_bybit_key ;;
+  mode)    step_mode "$@" ;;
   menu)    step_menu ;;
   backup)  "$APP/backup.sh" ;;
   watchdog) "$APP/watchdog.sh" ;;
   support) step_support ;;
   smoke)   step_smoke ;;
   status)  step_status ;;
-  *) echo "шаги: install <домен> | env | release <sha> | web | web-rollback | nginx | token | ai-key | menu | backup | watchdog | support | smoke | status"; exit 2 ;;
+  *) echo "шаги: install <домен> | env | release <sha> | web | web-rollback | nginx | token | ai-key | bybit-key | mode demo|paper | menu | backup | watchdog | support | smoke | status"; exit 2 ;;
 esac

@@ -126,7 +126,8 @@ class OrderExecutor:
         self._dry_run = _is_dry_run()
         self._sleep = sleep
         self._leverage_set: Dict[str, Decimal] = {}
-        mode = "DRY_RUN" if self._dry_run else ("TESTNET" if self._client._testnet else "LIVE")
+        env = getattr(self._client, "environment", "TESTNET" if self._client._testnet else "MAINNET")
+        mode = "DRY_RUN" if self._dry_run else ("LIVE" if env == "MAINNET" else env)
         logger.info("OrderExecutor initialized [%s]", mode)
 
     # ------------------------------------------------------------------ #
