@@ -1,55 +1,78 @@
-import { init, retrieveRawInitData, miniApp, viewport, themeParams } from '@telegram-apps/sdk-react'
+/**
+ * Связь с Telegram — через официальный скрипт telegram-web-app.js (подключён в
+ * index.html раньше приложения), без SDK. До 11.09.2026 здесь был
+ * @telegram-apps/sdk-react: из него брались пять вызовов (init, initData, развернуть
+ * окно, тема), а вместе с ним приходили 5 уязвимостей valibot, которые не
+ * закрывались обновлением — последняя версия SDK жёстко держит valibot 1.0.0.
+ *
+ * Зависимости передаются параметрами, чтобы тесты шли без браузера.
+ */
 import { setInitData } from '../api/client'
 
-export function initTelegram() {
-  try {
-    init()
+interface StyleTarget {
+  style: { setProperty(name: string, value: string): void }
+}
 
-    void miniApp.mount()
-    void viewport.mount()
-    viewport.expand()
+const THEME_VARS: ReadonlyArray<[keyof TelegramThemeParams, string]> = [
+  ['bg_color', '--tg-bg'],
+  ['secondary_bg_color', '--tg-secondary'],
+  ['text_color', '--tg-text'],
+  ['hint_color', '--tg-hint'],
+  ['link_color', '--tg-link'],
+  ['button_color', '--tg-button'],
+  ['button_text_color', '--tg-button-text'],
+]
 
-    try {
-      const rawInitData = retrieveRawInitData()
-      if (rawInitData) {
-        setInitData(rawInitData)
-      }
-    } catch {
-      /* not in TMA context, no initData */
-    }
+export const FALLBACK_THEME: Readonly<Record<string, string>> = {
+  '--tg-bg': '#1c1c1e',
+  '--tg-secondary': '#2c2c2e',
+  '--tg-text': '#ffffff',
+  '--tg-hint': '#8e8e93',
+  '--tg-link': '#0a84ff',
+  '--tg-button': '#0a84ff',
+  '--tg-button-text': '#ffffff',
+}
 
-    void themeParams.mount()
+function defaultWebApp(): TelegramWebApp | undefined {
+  return typeof window === 'undefined' ? undefined : window.Telegram?.WebApp
+}
 
-    applyThemeVars()
-  } catch {
-    applyFallbackTheme()
+function defaultRoot(): StyleTarget | undefined {
+  return typeof document === 'undefined' ? undefined : document.documentElement
+}
+
+function applyFallbackTheme(root: StyleTarget) {
+  for (const [name, value] of Object.entries(FALLBACK_THEME)) root.style.setProperty(name, value)
+}
+
+/** Тема Telegram в CSS-переменные; вне Telegram (тема пустая) — запасная тёмная. */
+export function applyTheme(webApp: TelegramWebApp, root: StyleTarget) {
+  const params = webApp.themeParams ?? {}
+  if (Object.keys(params).length === 0) {
+    applyFallbackTheme(root)
+    return
+  }
+  for (const [key, cssVar] of THEME_VARS) {
+    const value = params[key]
+    if (value) root.style.setProperty(cssVar, value)
   }
 }
 
-function applyThemeVars() {
-  try {
-    const tp = themeParams.state()
-    if (!tp) { applyFallbackTheme(); return }
-    const root = document.documentElement
-    if (tp.backgroundColor) root.style.setProperty('--tg-bg', tp.backgroundColor)
-    if (tp.secondaryBackgroundColor) root.style.setProperty('--tg-secondary', tp.secondaryBackgroundColor)
-    if (tp.textColor) root.style.setProperty('--tg-text', tp.textColor)
-    if (tp.hintColor) root.style.setProperty('--tg-hint', tp.hintColor)
-    if (tp.linkColor) root.style.setProperty('--tg-link', tp.linkColor)
-    if (tp.buttonColor) root.style.setProperty('--tg-button', tp.buttonColor)
-    if (tp.buttonTextColor) root.style.setProperty('--tg-button-text', tp.buttonTextColor)
-  } catch {
-    applyFallbackTheme()
+export function initTelegram(webApp: TelegramWebApp | undefined = defaultWebApp(),
+                             root: StyleTarget | undefined = defaultRoot()) {
+  if (!root) return
+  if (!webApp) {
+    applyFallbackTheme(root)
+    return
   }
-}
-
-function applyFallbackTheme() {
-  const root = document.documentElement
-  root.style.setProperty('--tg-bg', '#1c1c1e')
-  root.style.setProperty('--tg-secondary', '#2c2c2e')
-  root.style.setProperty('--tg-text', '#ffffff')
-  root.style.setProperty('--tg-hint', '#8e8e93')
-  root.style.setProperty('--tg-link', '#0a84ff')
-  root.style.setProperty('--tg-button', '#0a84ff')
-  root.style.setProperty('--tg-button-text', '#ffffff')
+  try {
+    webApp.ready()
+    webApp.expand()
+  } catch {
+    /* старый клиент Telegram без части методов — работаем в текущем размере окна */
+  }
+  // Вне Telegram скрипт тоже есть, но initData пуст — тогда заголовок не ставится.
+  if (webApp.initData) setInitData(webApp.initData)
+  applyTheme(webApp, root)
+  webApp.onEvent?.('themeChanged', () => applyTheme(webApp, root))
 }

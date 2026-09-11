@@ -45,7 +45,7 @@
 
 ---
 
-## 2. Уязвимости Mini App (valibot)
+## 2. Уязвимости Mini App (valibot) — ✅ 11.09, ждёт проверки в Telegram
 
 **Факты.**
 - `npm audit --omit=dev`: 5 high, все из одной цепочки `@telegram-apps/sdk-react 3.3.9 → @telegram-apps/sdk 3.11.8 → bridge / transformers → valibot`.
