@@ -52,7 +52,7 @@ class SignalSnapshotStore:
     """
     
     @staticmethod
-    def save(snapshot: SignalSnapshot) -> None:
+    def save(snapshot: SignalSnapshot, **journal_fields) -> None:
         """
         Сохраняет SignalSnapshot.
         
@@ -70,7 +70,7 @@ class SignalSnapshotStore:
         
         # Делегируем в journal.py
         from journal import log_signal_snapshot
-        log_signal_snapshot(snapshot)
+        log_signal_snapshot(snapshot, **journal_fields)
     
     @staticmethod
     def load_latest(symbol: Optional[str] = None) -> Optional[SignalSnapshot]:
