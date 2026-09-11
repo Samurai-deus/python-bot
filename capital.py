@@ -94,7 +94,10 @@ def _capped(snap):
         return (0.0, 0.0)
     equity, available = snap
     view = _cap_view(equity, baseline)
-    used = max(equity - available, 0.0)  # маржа позиций и ордеров
+    # Маржа позиций и ордеров. На демо-счёте в залоге ещё USDC, BTC и ETH:
+    # свободный остаток счёта (все монеты, USD) больше equity по USDT, и
+    # разность всегда 0 — поэтому и маржа открытых сделок по журналу.
+    used = max(equity - available, get_open_margin(), 0.0)
     return (view, max(min(available, view - used), 0.0))
 
 

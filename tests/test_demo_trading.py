@@ -177,6 +177,29 @@ def test_without_a_cap_the_wallet_is_used_as_is(monkeypatch, db):
     assert capital.get_peak_balance() == pytest.approx(330.0)
 
 
+def test_margin_counts_even_when_other_coins_inflate_the_free_balance(demo_wallet, monkeypatch):
+    """
+    Настоящий демо-кошелёк 11.09.2026: в залоге USDT, USDC, BTC и ETH, свободный
+    остаток счёта (все монеты, USD) — 1,97 млн при equity по USDT 150 000.
+    Разность equity − available всегда 0, маржа берётся из журнала сделок.
+    """
+    capital.get_initial_balance()
+    demo_wallet.available = 1_975_738.76
+    monkeypatch.setattr(capital, "get_open_margin", lambda: 30.0)
+    assert capital.get_current_balance() == pytest.approx(100.0)
+    assert capital.get_available_capital() == pytest.approx(70.0)
+
+
+def test_open_trades_are_told_apart_by_where_they_live(db):
+    database.add_trade("SOLUSDT", "LONG", 100.0, 97.0, 106.0, position_size=30.0, leverage=5.0)
+    database.add_trade("ETHUSDT", "SHORT", 3000.0, 3100.0, 2800.0, position_size=30.0, leverage=5.0,
+                       exchange_order_id="ord-1")
+    database.add_trade("BTCUSDT", "LONG", 60000.0, 0.0, 0.0, position_size=30.0, leverage=5.0,
+                       strategy_name="adopted_from_exchange")
+    assert database.count_open_trades(on_exchange=False) == 1, "бумажная — без ордера биржи"
+    assert database.count_open_trades(on_exchange=True) == 2, "с ордером биржи и взятая с биржи при сверке"
+
+
 @pytest.mark.parametrize("value, cap", [(100.0, 100.0), (0.0, 0.0), (-5.0, 0.0)])
 def test_the_cap_comes_from_config(monkeypatch, value, cap):
     monkeypatch.setattr(config, "REAL_CAPITAL_CAP_USDT", value)
@@ -210,5 +233,8 @@ def test_mode_step_refuses_demo_without_keys_and_records_the_expected_mode():
     assert "PAPER_TRADING=true" in step and "BYBIT_DEMO=false" in step, "обратный путь — mode paper"
     assert "trading_mode.expected" in step
     assert 'mode)    step_mode "$@"' in SCRIPT
+    guard = step.index("count_open_trades(on_exchange=$others)")
+    assert guard < step.index('cp -p "$APP/.env"'), "журнал проверяется до правки .env"
+    assert "expected=TESTNET; others=False" in step and "expected=PAPER_TRADING; others=True" in step
     smoke = step_body(SCRIPT, "step_smoke")
     assert "trading_mode.expected" in smoke and '"$mode" = "$expected"' in smoke
