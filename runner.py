@@ -2806,7 +2806,10 @@ async def handle_metrics():
     
     # Adaptive system metrics
     adaptive_system = get_adaptive_system_state()
-    adaptive_interval = adaptive_system.get("adaptive_interval", float(ANALYSIS_INTERVAL))
+    # До первого прохода цикла анализа ключ есть, но хранит None, и .get(..., default)
+    # возвращал None: /metrics падал с TypeError (500) с запуска HTTP-сервера до старта
+    # цикла. Найдено тестами панели 11.09.2026.
+    adaptive_interval = adaptive_system.get("adaptive_interval") or float(ANALYSIS_INTERVAL)
     lines.append(f'adaptive_analysis_interval_seconds {adaptive_interval:.1f}')
     recovery_cycles = adaptive_system.get("recovery_cycles", 0)
     recovery_remaining = max(0, AUTO_RESUME_SUCCESS_CYCLES - recovery_cycles) if AUTO_RESUME_TRADING_ENABLED else 0
