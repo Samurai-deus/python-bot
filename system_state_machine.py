@@ -128,6 +128,9 @@ class SystemStateMachine:
         self._shutdown_started = False  # Флаг начала shutdown (запрет transitions)
         # Tracked tasks for _process_event_queue — prevents GC and surfaces errors.
         self._pending_event_tasks: set = set()
+        # Слушатель выполненных переходов (Callable[[], None]): runner синхронизирует
+        # им флаги system_health. Раньше переход в SAFE_MODE флаги не трогал.
+        self._transition_listener = None
     
     @property
     def state(self) -> SystemState:
@@ -180,6 +183,14 @@ class SystemStateMachine:
         # Manual pause также блокирует торговлю
         return manual_pause_active
     
+    def set_transition_listener(self, listener) -> None:
+        """
+        Функция без аргументов, которую автомат вызывает после каждого выполненного
+        перехода (и явного, и автоматического — record_error, recovery). Её ошибка
+        переход не отменяет: состояние автомата — источник истины.
+        """
+        self._transition_listener = listener
+
     def sync_to_system_state(self, system_state_instance, manual_pause_active: bool = False) -> None:
         """
         HARDENING: Синхронизирует state machine состояние с system_state.system_health.
@@ -311,6 +322,12 @@ class SystemStateMachine:
             f"duration_in_old_state={duration} "
             f"metadata={metadata}"
         )
+
+        if self._transition_listener is not None:
+            try:
+                self._transition_listener()
+            except Exception:
+                logger.error("STATE_TRANSITION_LISTENER_FAILED incident_id=%s", incident_id, exc_info=True)
 
         return True
     

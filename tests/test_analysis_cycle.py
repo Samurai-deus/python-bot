@@ -23,6 +23,9 @@ import telegram_bot
 import trading_mode
 from control_plane import state as cp_state
 
+# Настоящая функция выхода из SAFE_MODE — до того как фикстура цикла её подменит
+REAL_EXIT_SAFE_MODE = runner.exit_safe_mode_via_recovery
+
 
 class FakeMachine:
     def __init__(self, safe=False):
@@ -183,7 +186,8 @@ def test_a_decision_core_veto_notifies_and_skips_the_signals(cycle):
     assert analyse() is True
     assert cycle.generated == []
     assert len(cycle.sent) == 1 and "drawdown limit" in cycle.sent[0] and "• wait" in cycle.sent[0]
-    assert cycle.state.cycles == [], "оборот с вето не считается ни успешным, ни неудачным"
+    assert cycle.state.cycles == [], "оборот с вето не считается в статистике оборотов"
+    assert cycle.state.resets == 1, "но анализ отработал: без сброса ошибок в SAFE_MODE не начать восстановление"
 
 
 def test_an_injected_decision_fault_enters_safe_mode_at_the_limit(cycle, monkeypatch):
@@ -246,7 +250,7 @@ def test_shutdown_during_the_cycle_cancels_it(cycle, monkeypatch):
 @pytest.fixture
 def loop(monkeypatch):
     env = SimpleNamespace(state=FakeState(), machine=FakeMachine(), sent=[], alerts=[], marks=[],
-                          durations=[], recoveries=[], calls=0, script=[])
+                          durations=[], recoveries=[], calls=0, script=[], recover_result=True)
     env.adaptive = {"volatility_state": "MEDIUM", "adaptive_interval": 0.02, "recovery_cycles": 0}
     env.control = {"manual_pause_active": False}
     env.analysis = {"analysis_count": 0, "analysis_total_time": 0.0, "analysis_max_time": 0.0,
@@ -274,7 +278,7 @@ def loop(monkeypatch):
 
     async def recover(reason, owner):
         env.recoveries.append(owner)
-        return True
+        return env.recover_result
 
     send = recording_send(env.sent)
     for name, value in {
@@ -285,7 +289,7 @@ def loop(monkeypatch):
         "ANALYSIS_INTERVAL": 0.02, "ADAPTIVE_INTERVAL_ENABLED": True, "ADAPTIVE_INTERVAL_MIN": 0.01,
         "ADAPTIVE_INTERVAL_MAX": 0.08, "ADAPTIVE_INTERVAL_MULTIPLIER": 2.0, "ADAPTIVE_STABLE_CYCLES": 2,
         "AUTO_RESUME_TRADING_ENABLED": True, "AUTO_RESUME_SUCCESS_CYCLES": 2, "AUTO_RESUME_SAFE_MODE_DELAY": 0,
-        "ERROR_PAUSE": 0, "MAX_CONSECUTIVE_ERRORS": 5,
+        "ERROR_PAUSE": 0, "MAX_CONSECUTIVE_ERRORS": 5, "SAFE_MODE_RECOVERY_INTERVAL": 0.01,
     }.items():
         monkeypatch.setattr(runner, name, value)
     monkeypatch.setattr(telegram_bot, "send_message_async", send)
@@ -338,15 +342,18 @@ def test_stable_cycles_narrow_the_adaptive_interval(loop):
     assert loop.adaptive["adaptive_interval"] == pytest.approx(0.02)
 
 
-def test_trading_resumes_after_enough_clean_cycles(loop, caplog):
+def test_safe_mode_is_left_after_enough_clean_turns(loop, caplog):
     """
-    Найдено этими тестами 11.09.2026: `from telegram_bot import send_message_async`
-    в ветке опроса позиций (только TESTNET/LIVE) делал имя локальным для всей
-    функции. В режиме бумажной торговли уведомление о возобновлении падало с
-    UnboundLocalError — торговля возобновлялась, но оборот уходил в «Critical
-    error» и паузу, а владелец не узнавал.
+    Восстановление из SAFE_MODE (решение владельца 11.09.2026). Раньше счётчик
+    восстановления обнулялся на каждом обороте, пока поднят флаг safe_mode, и из
+    защитного режима выводил только TTL → FATAL → перезапуск контейнера.
+
+    Заодно (8а): уведомление о возобновлении падало с UnboundLocalError — локальный
+    `from telegram_bot import send_message_async` в ветке TESTNET/LIVE делал имя
+    локальным для всей функции.
     """
     caplog.set_level(logging.INFO)
+    loop.state.system_health.safe_mode = True
     loop.state.system_health.trading_paused = True
     loop.machine.is_safe_mode = True
     loop.run(True, True)
@@ -355,6 +362,50 @@ def test_trading_resumes_after_enough_clean_cycles(loop, caplog):
     assert loop.adaptive["recovery_cycles"] == 0
     assert any("Trading resumed" in text for text in loop.sent)
     assert "Critical error in market analysis loop" not in caplog.text
+
+
+def test_clean_turns_in_safe_mode_are_counted(loop, monkeypatch):
+    monkeypatch.setattr(runner, "AUTO_RESUME_SUCCESS_CYCLES", 3)
+    loop.state.system_health.safe_mode = True
+    loop.state.system_health.trading_paused = True
+    loop.run(True, True)
+    assert loop.adaptive["recovery_cycles"] == 2 and loop.recoveries == []
+
+
+def test_safe_mode_recovers_but_a_manual_pause_stays(loop):
+    loop.control["manual_pause_active"] = True
+    loop.state.system_health.safe_mode = True
+    loop.state.system_health.trading_paused = True
+    loop.run(True, True)
+    assert loop.recoveries == ["market_analysis_loop"]
+    assert loop.machine.synced == [True], "ручная пауза переживает выход из SAFE_MODE"
+    assert any("Safe mode cleared" in text for text in loop.sent)
+    assert not any("Trading resumed" in text for text in loop.sent)
+
+
+def test_a_refused_recovery_is_not_reported(loop):
+    loop.recover_result = False
+    loop.state.system_health.safe_mode = True
+    loop.state.system_health.trading_paused = True
+    loop.run(True, True)
+    assert loop.recoveries == ["market_analysis_loop"] and loop.sent == []
+
+
+def test_safe_mode_shortens_the_wait_between_turns(loop, monkeypatch):
+    """Чистые обороты должны уложиться в SAFE_MODE_TTL, иначе автомат уйдёт в FATAL раньше."""
+    for name in ("ANALYSIS_INTERVAL", "ADAPTIVE_INTERVAL_MIN"):
+        monkeypatch.setattr(runner, name, 30.0)
+    monkeypatch.setattr(runner, "ADAPTIVE_INTERVAL_MAX", 60.0)
+    monkeypatch.setattr(runner, "AUTO_RESUME_SUCCESS_CYCLES", 5)
+    loop.adaptive["adaptive_interval"] = 30.0
+    loop.state.system_health.safe_mode = True
+    loop.state.system_health.trading_paused = True
+    loop.run(True, True, True)  # без укорочения ждали бы 2 × 30 с и упёрлись в таймаут теста
+    assert loop.calls == 3
+
+
+def test_the_recovery_cadence_fits_into_the_safe_mode_ttl():
+    assert runner.SAFE_MODE_RECOVERY_INTERVAL * (runner.AUTO_RESUME_SUCCESS_CYCLES + 1) < runner.SAFE_MODE_TTL
 
 
 def test_a_manual_pause_is_never_auto_resumed(loop):
@@ -371,14 +422,8 @@ def test_a_stale_manual_flag_is_cleared_while_trading_is_active(loop):
     assert loop.control["manual_pause_active"] is False
 
 
-def test_recovery_progress_is_reset_every_turn_while_in_safe_mode(loop):
-    loop.state.system_health.trading_paused = True
-    loop.state.system_health.safe_mode = True
-    loop.run(True)
-    assert loop.adaptive["recovery_cycles"] == 0
-
-
 def test_a_failed_turn_resets_recovery_progress(loop):
+    loop.state.system_health.safe_mode = True
     loop.state.system_health.trading_paused = True
     loop.adaptive["recovery_cycles"] = 1
     loop.run(failing(consecutive_errors=1))
@@ -439,3 +484,37 @@ def test_the_loop_does_nothing_when_the_bot_is_stopping(loop):
     loop.state.system_health.is_running = False
     loop.run(True)
     assert loop.calls == 0 and loop.marks == ["analysis"]
+
+
+def test_real_state_machine_leaves_safe_mode_and_unblocks_trading(loop, monkeypatch):
+    """
+    Сквозь настоящие автомат состояний, SystemState и предохранитель: вход в
+    SAFE_MODE поднимает флаги (слушатель переходов) и блокирует торговлю, чистые
+    обороты выводят автомат в RUNNING, и торговля снова разрешена.
+    """
+    from execution.kill_switch import trading_halt_reason
+    from system_state import SystemState
+    from system_state_machine import SystemStateMachine
+
+    machine = SystemStateMachine(exit_fn=lambda code: None)
+    state = SystemState()
+    state.system_health.is_running = True
+    loop.state = state
+    monkeypatch.setattr(runner, "system_state", state)
+    monkeypatch.setattr(runner, "get_state_machine", lambda: machine)
+    monkeypatch.setattr(runner, "exit_safe_mode_via_recovery", REAL_EXIT_SAFE_MODE)
+    monkeypatch.setattr(runner, "get_thread_watchdog", lambda: None)
+    machine.set_transition_listener(runner._sync_flags_from_machine)
+    loop.script = [True, True]
+
+    async def scenario():
+        await machine.transition_to(runner.SystemStateEnum.SAFE_MODE, "test: heartbeat miss", "test")
+        assert state.system_health.safe_mode and state.system_health.trading_paused
+        assert trading_halt_reason(system_state=state, state_machine=machine, include_risk_core=False)
+        await runner.market_analysis_loop()
+
+    asyncio.run(asyncio.wait_for(scenario(), 10.0))
+    assert machine.state == runner.SystemStateEnum.RUNNING
+    assert not state.system_health.safe_mode and not state.system_health.trading_paused
+    assert trading_halt_reason(system_state=state, state_machine=machine, include_risk_core=False) is None
+    assert any("Trading resumed" in text for text in loop.sent)

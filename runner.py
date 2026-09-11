@@ -131,6 +131,10 @@ HEARTBEAT_MISS_ENFORCEMENT_THRESHOLD = 2  # После 2 пропущенных 
 LOOP_GUARD_TIMEOUT = 300.0  # 300 секунд - максимальное время блокировки event loop
 ITERATION_BUDGET_SECONDS = 60.0  # 60 секунд - жесткий лимит времени на одну итерацию анализа (с большим запасом от LOOP_GUARD_TIMEOUT)
 SAFE_MODE_TTL = 600.0  # 600 секунд (10 минут) - TTL для SAFE_MODE
+# В SAFE_MODE цикл анализа ходит не реже этого интервала: AUTO_RESUME_SUCCESS_CYCLES
+# чистых оборотов должны уложиться в SAFE_MODE_TTL, иначе автомат уйдёт в FATAL раньше,
+# чем система докажет, что здорова (при 300 с три оборота — 900 с > 600 с TTL).
+SAFE_MODE_RECOVERY_INTERVAL = SAFE_MODE_TTL / (AUTO_RESUME_SUCCESS_CYCLES + 2)
 GRACEFUL_SHUTDOWN_TIMEOUT = 10.0  # 10 секунд - жёсткий таймаут на graceful shutdown
 FATAL_EXIT_CODE = 10  # Exit code для FATAL состояния (systemd restart)
 
@@ -338,6 +342,17 @@ async def exit_safe_mode_via_recovery(reason: str, owner: str) -> bool:
                 watchdog.triggered = False
             logger.info("ThreadWatchdog re-armed after recovery")
     return success
+
+def _sync_flags_from_machine() -> None:
+    """
+    Слушатель переходов автомата (регистрирует main()): флаги system_health.safe_mode
+    и trading_paused — из состояния автомата и ручной паузы. До 11.09.2026 переход в
+    SAFE_MODE флаги не трогал: торговлю держал предохранитель (он смотрит сам автомат),
+    но Decision Core, отчёты и восстановление в цикле анализа видели «всё в порядке».
+    """
+    get_state_machine().sync_to_system_state(
+        system_state, manual_pause_active=_control_plane_state.get("manual_pause_active", False))
+
 
 # ========== ОБЩЕЕ СОСТОЯНИЕ ПРОЦЕССА ==========
 # Живёт в control_plane/state.py (пункт 5 плана отложенного, шаг 6б). Здесь —
@@ -1675,6 +1690,10 @@ async def run_market_analysis():
             )
             RUNNING_TASKS.add(_notify_task)
             _notify_task.add_done_callback(RUNNING_TASKS.discard)
+            # Анализ отработал (данные, мозги, решение): вето — решение не торговать, а не
+            # сбой. Без сброса в SAFE_MODE, где Decision Core всегда накладывает вето,
+            # ошибки не обнулялись и восстановление не начиналось (11.09.2026).
+            system_state.reset_errors()
             return True
         
         # Check budget and yield after decision core check (shutdown-aware)
@@ -2095,66 +2114,55 @@ async def market_analysis_loop():
                         if current_interval > old_interval:
                             logger.info("📈 Adaptive interval increased: %.0fs → %.0fs (errors: %s)", old_interval, current_interval, consecutive_errors)
             
-            # 2. Auto-resume trading (на основе последовательных успешных циклов)
-            # ВАЖНО: Manual pause переопределяет auto-resume
+            # 2. Auto-resume: выход из SAFE_MODE после AUTO_RESUME_SUCCESS_CYCLES чистых
+            # оборотов подряд (решение владельца 11.09.2026). Раньше счётчик обнулялся на
+            # каждом обороте, пока поднят флаг safe_mode, и из защитного режима выводил
+            # только TTL → FATAL → перезапуск, терявший ручную паузу.
+            # Ручная пауза (/pause, провал сверки на старте, CRITICAL-алерт) автоматически
+            # НЕ снимается: при ней SAFE_MODE снимается, а торговля остаётся на паузе.
             manual_pause = _control_plane_state.get("manual_pause_active", False)
-            
+
             if AUTO_RESUME_TRADING_ENABLED:
-                if system_state.system_health.trading_paused:
-                    # Проверяем, не является ли это manual pause
-                    if manual_pause:
-                        # Manual pause активна - не пытаемся auto-resume
-                        # Сбрасываем recovery cycles, чтобы не накапливать их
-                        if _adaptive_system_state["recovery_cycles"] > 0:
-                            _adaptive_system_state["recovery_cycles"] = 0
-                    elif success and consecutive_errors == 0:
-                        # Успешный цикл - увеличиваем счетчик восстановления (только если не manual pause)
+                if system_state.system_health.safe_mode:
+                    if success and consecutive_errors == 0:
                         _adaptive_system_state["recovery_cycles"] += 1
                         remaining = AUTO_RESUME_SUCCESS_CYCLES - _adaptive_system_state["recovery_cycles"]
                         if remaining > 0:
-                            logger.debug("🔄 Recovery progress: %s/%s successful cycles (remaining: %s)", _adaptive_system_state['recovery_cycles'], AUTO_RESUME_SUCCESS_CYCLES, remaining)
+                            logger.info("🔄 Recovery progress: %s/%s clean cycles in SAFE_MODE", _adaptive_system_state['recovery_cycles'], AUTO_RESUME_SUCCESS_CYCLES)
                         else:
-                            # Достаточно успешных циклов - возобновляем торговлю
-                            # HARDENING: safe_mode MUST ONLY be cleared by successful recovery cycles через state machine
                             state_machine = get_state_machine()
-                            if state_machine.is_safe_mode:
-                                # Recovery cycles completed - exit SAFE_MODE через state machine (RECOVERY-ONLY EXIT)
-                                await exit_safe_mode_via_recovery(
-                                    reason=f"Auto-resume: {AUTO_RESUME_SUCCESS_CYCLES} successful recovery cycles",
-                                    owner="market_analysis_loop"
-                                )
-                                logger.info("✅ Safe mode cleared after %s successful recovery cycles", AUTO_RESUME_SUCCESS_CYCLES)
-                            
-                            # HARDENING: trading_paused управляется state machine (derived property)
-                            # После выхода из SAFE_MODE trading_paused автоматически False
-                            state_machine.sync_to_system_state(system_state, manual_pause_active=_control_plane_state.get("manual_pause_active", False))
-                            _adaptive_system_state["recovery_cycles"] = 0
-                            logger.info("🔄 Trading auto-resumed after %s successful cycles", AUTO_RESUME_SUCCESS_CYCLES)
-                            # Отправляем уведомление
-                            _t = asyncio.create_task(
-                                send_message_async(f"✅ **Trading resumed**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} successful analysis cycles. Trading is now active."),
-                                name="TelegramNotify",
+                            recovered = await exit_safe_mode_via_recovery(
+                                reason=f"Auto-resume: {AUTO_RESUME_SUCCESS_CYCLES} successful recovery cycles",
+                                owner="market_analysis_loop"
                             )
-                            RUNNING_TASKS.add(_t)
-                            _t.add_done_callback(RUNNING_TASKS.discard)
+                            state_machine.sync_to_system_state(system_state, manual_pause_active=manual_pause)
+                            _adaptive_system_state["recovery_cycles"] = 0
+                            if not recovered:
+                                logger.warning("Recovery from SAFE_MODE refused by the state machine")
+                            else:
+                                if manual_pause:
+                                    logger.info("✅ SAFE_MODE cleared after %s clean cycles; manual pause stays", AUTO_RESUME_SUCCESS_CYCLES)
+                                    text = (f"✅ **Safe mode cleared**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} "
+                                            "clean analysis cycles. Trading stays paused manually — /resume to continue.")
+                                else:
+                                    logger.info("🔄 Trading auto-resumed after %s successful cycles", AUTO_RESUME_SUCCESS_CYCLES)
+                                    text = (f"✅ **Trading resumed**\n\nSystem recovered after {AUTO_RESUME_SUCCESS_CYCLES} "
+                                            "successful analysis cycles. Trading is now active.")
+                                _t = asyncio.create_task(send_message_async(text), name="TelegramNotify")
+                                RUNNING_TASKS.add(_t)
+                                _t.add_done_callback(RUNNING_TASKS.discard)
                     else:
-                        # Ошибка или неуспешный цикл - сбрасываем счетчик
+                        # Неудачный оборот в SAFE_MODE — отсчёт восстановления с нуля
                         if _adaptive_system_state["recovery_cycles"] > 0:
-                            logger.debug("🔄 Recovery reset: error detected (was %s/%s)", _adaptive_system_state['recovery_cycles'], AUTO_RESUME_SUCCESS_CYCLES)
+                            logger.info("🔄 Recovery reset: unclean cycle (was %s/%s)", _adaptive_system_state['recovery_cycles'], AUTO_RESUME_SUCCESS_CYCLES)
                         _adaptive_system_state["recovery_cycles"] = 0
                 else:
-                    # Торговля активна - сбрасываем счетчик восстановления
+                    # Не в SAFE_MODE: восстанавливать нечего, ручную паузу автоматически не снимаем
                     if _adaptive_system_state["recovery_cycles"] > 0:
                         _adaptive_system_state["recovery_cycles"] = 0
-                    # Если manual pause была активна, но торговля активна - снимаем флаг
-                    if manual_pause:
+                    # Флаг ручной паузы без самой паузы — устаревший, снимаем
+                    if manual_pause and not system_state.system_health.trading_paused:
                         _control_plane_state["manual_pause_active"] = False
-                
-                # Сбрасываем счетчик при входе в safe_mode
-                if system_state.system_health.safe_mode:
-                    if _adaptive_system_state["recovery_cycles"] > 0:
-                        logger.debug("🔄 Recovery reset: safe_mode activated (was %s/%s)", _adaptive_system_state['recovery_cycles'], AUTO_RESUME_SUCCESS_CYCLES)
-                    _adaptive_system_state["recovery_cycles"] = 0
             else:
                 # Auto-resume отключен - используем старую логику на основе safe_mode exit
                 if adaptive_state["last_safe_mode_state"] and not system_state.system_health.safe_mode:
@@ -2301,6 +2309,11 @@ async def market_analysis_loop():
                 shutdown_evt = get_shutdown_event()
                 remaining = sleep_time
                 while remaining > 0 and not shutdown_evt.is_set() and system_state.system_health.is_running:
+                    # В SAFE_MODE — не дольше SAFE_MODE_RECOVERY_INTERVAL, в том числе если
+                    # защитный режим включился посреди ожидания
+                    if system_state.system_health.safe_mode and remaining > SAFE_MODE_RECOVERY_INTERVAL:
+                        remaining = SAFE_MODE_RECOVERY_INTERVAL
+                        next_run = time.monotonic() + remaining
                     chunk = min(1.0, remaining)
                     await asyncio.sleep(chunk)
                     remaining -= chunk
@@ -2422,6 +2435,8 @@ async def main():
     # ========== STATE MACHINE INITIALIZATION ==========
     # HARDENING: Инициализируем state machine с правильным TTL
     state_machine = get_state_machine(safe_mode_ttl=SAFE_MODE_TTL)
+    # Флаги system_health следуют за автоматом после каждого перехода (11.09.2026)
+    state_machine.set_transition_listener(_sync_flags_from_machine)
     
     # HARDENING: Устанавливаем event loop для thread-safe вызовов из ThreadWatchdog
     loop = asyncio.get_running_loop()
