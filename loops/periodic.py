@@ -109,6 +109,30 @@ async def daily_report_loop(is_running: IsRunning, shutdown_evt: asyncio.Event):
     logger.info("Daily report loop stopped")
 
 
+async def weekly_report_loop(is_running: IsRunning, shutdown_evt: asyncio.Event):
+    """Еженедельный отчёт по стратегиям (шаг 4 плана обучения) — понедельник 06:00 UTC."""
+    from analytics import weekly_report
+    logger.info("Weekly report loop started")
+
+    while is_running() and not shutdown_evt.is_set():
+        delay = weekly_report.seconds_until_next_report(datetime.now(UTC))
+        logger.info("Next weekly report in %.1f hours", delay / 3600)
+        try:
+            await asyncio.wait_for(shutdown_evt.wait(), timeout=delay)
+            break
+        except asyncio.TimeoutError:
+            pass  # Expected: время отчёта
+        if not is_running():
+            break
+        try:
+            await asyncio.wait_for(asyncio.to_thread(weekly_report.send_weekly_report), timeout=120.0)
+            logger.info("Weekly report sent")
+        except Exception as e:
+            logger.warning("Failed to send weekly report (non-critical): %s: %s", type(e).__name__, e)
+
+    logger.info("Weekly report loop stopped")
+
+
 async def outcome_tracker_loop(is_running: IsRunning, shutdown_evt: asyncio.Event):
     """
     Периодически маркирует сигналы результатами (WIN/LOSS/NEUTRAL).
