@@ -33,7 +33,6 @@ SYMBOLS = [
     "NEARUSDT",
 
     # Новые высоколиквидные токены (2024–2025)
-    "TONUSDT",     # The Open Network
     "INJUSDT",     # Injective
     "WLDUSDT",     # Worldcoin
     "TIAUSDT",     # Celestia
