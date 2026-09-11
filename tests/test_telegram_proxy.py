@@ -84,7 +84,7 @@ def test_runner_passes_proxied_client_for_get_updates_too():
     передаёт оба клиента из build_request.
     """
     root = pathlib.Path(__file__).resolve().parent.parent
-    source = (root / "runner.py").read_text(encoding="utf-8")
+    source = (root / "loops" / "telegram_supervisor.py").read_text(encoding="utf-8")
     skip = (tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT)
     code = "".join(t.string for t in tokenize.generate_tokens(io.StringIO(source).readline) if t.type not in skip)
     assert ".request(build_request())" in code
