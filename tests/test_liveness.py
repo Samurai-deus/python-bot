@@ -184,7 +184,7 @@ def test_runtime_heartbeat_marks_liveness():
 
 
 def test_analysis_loop_marks_on_start_and_after_each_turn():
-    src = function_source("market_analysis_loop")
+    src = function_source("market_analysis_loop", "loops/market_analysis.py")
     assert src.count('liveness.mark("analysis")') >= 2
     assert src.index("increment_analysis_cycles()") < src.rindex('liveness.mark("analysis")'), \
         "метка оборота ставится после завершения цикла"

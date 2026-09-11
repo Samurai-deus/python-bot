@@ -1,5 +1,5 @@
 """
-Цикл анализа рынка (runner.run_market_analysis, runner.market_analysis_loop) —
+Цикл анализа рынка (loops/market_analysis.py: run_market_analysis, market_analysis_loop) —
 поведение как есть, до переноса из runner (пункт 5 плана отложенного,
 docs/DEFERRED_PLAN.md, шаг 8а).
 
@@ -9,7 +9,7 @@ docs/DEFERRED_PLAN.md, шаг 8а).
 защитный режим; снимок раз в 5 оборотов; метрики и метка healthcheck; адаптивный
 интервал; автовозобновление торговли и ручная пауза; опрос позиций на бирже.
 
-Все зависимости подменены на уровне runner: мозги экосистемы, загрузка свечей,
+Все зависимости подменены на уровне модуля цикла: мозги экосистемы, загрузка свечей,
 генератор сигналов, автомат состояний, Telegram. Интервалы и паузы укорочены.
 """
 import asyncio
@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 import runner
+from loops import market_analysis as analysis
 import telegram_bot
 import trading_mode
 from control_plane import state as cp_state
@@ -119,7 +120,7 @@ def cycle(monkeypatch):
         return {"processed": 1, "signals_sent": 0, "signals_blocked": 0, "errors": 0}
 
     for name, value in {
-        "system_state": env.state, "_active_symbols": ["SOLUSDT"], "is_good_time": lambda: True,
+        "system_state": env.state, "get_active_symbols": lambda: ["SOLUSDT"], "is_good_time": lambda: True,
         "get_decision_core": lambda: env.decision_core, "get_market_regime_brain": lambda: env.regime_brain,
         "get_risk_exposure_brain": lambda: env.risk_brain, "get_cognitive_filter": lambda: env.cognitive,
         "get_opportunity_awareness": lambda: env.opportunity, "get_gatekeeper": lambda: env.gatekeeper,
@@ -127,10 +128,11 @@ def cycle(monkeypatch):
         "analyze_market_correlations": lambda symbols, candles, tf: env.correlations,
         "generate_signals_for_symbols": generate, "update_volatility_state": env.volatility.append,
         "send_message_async": recording_send(env.sent), "error_alert": env.alerts.append,
-        "get_state_machine": lambda: env.machine, "RUNNING_TASKS": set(), "_shutdown_event": None,
+        "get_state_machine": lambda: env.machine, "RUNNING_TASKS": set(),
         "MAX_CONSECUTIVE_ERRORS": 5,
     }.items():
-        monkeypatch.setattr(runner, name, value)
+        monkeypatch.setattr(analysis, name, value)
+    monkeypatch.setattr(runner, "_shutdown_event", None)  # его читает get_shutdown_event runner
     monkeypatch.setattr(signal_snapshot_store.SystemStateSnapshotStore, "save", env.saved.append)
     monkeypatch.setattr(database, "cleanup_old_snapshots", lambda keep_last_n: env.cleaned.append(keep_last_n))
     monkeypatch.setattr(decision_trace, "prune_decision_trace", env.pruned.append)
@@ -138,11 +140,11 @@ def cycle(monkeypatch):
 
 
 def analyse():
-    return asyncio.run(asyncio.wait_for(runner.run_market_analysis(), 10.0))
+    return asyncio.run(asyncio.wait_for(analysis.run_market_analysis(), 10.0))
 
 
 def test_outside_trading_hours_the_cycle_is_skipped(cycle, monkeypatch):
-    monkeypatch.setattr(runner, "is_good_time", lambda: False)
+    monkeypatch.setattr(analysis, "is_good_time", lambda: False)
     assert analyse() is True
     assert cycle.candles_loaded == [] and cycle.state.cycles == []
 
@@ -169,7 +171,7 @@ def test_every_fifth_cycle_saves_a_snapshot_and_prunes_old_data(cycle):
 
 
 def test_slow_data_loading_is_a_soft_failure(cycle, monkeypatch):
-    monkeypatch.setattr(runner, "get_candles_parallel", raises(TimeoutError()))
+    monkeypatch.setattr(analysis, "get_candles_parallel", raises(TimeoutError()))
     assert analyse() is False
     assert cycle.state.errors == ["Data loading timeout (non-critical)"]
     assert cycle.generated == [] and cycle.machine.transitions == []
@@ -191,7 +193,7 @@ def test_a_decision_core_veto_notifies_and_skips_the_signals(cycle):
 
 
 def test_an_injected_decision_fault_enters_safe_mode_at_the_limit(cycle, monkeypatch):
-    monkeypatch.setattr(runner, "MAX_CONSECUTIVE_ERRORS", 2)
+    monkeypatch.setattr(analysis, "MAX_CONSECUTIVE_ERRORS", 2)
     cycle.state.system_health.consecutive_errors = 1
     cycle.decision_core.should_i_trade = raises(RuntimeError("FAULT_INJECTION: decision_exception"))
     assert analyse() is False
@@ -203,7 +205,7 @@ def test_an_injected_decision_fault_enters_safe_mode_at_the_limit(cycle, monkeyp
 @pytest.mark.parametrize("limit, safe_mode", [(2, True), (5, False)])
 def test_an_unexpected_error_alerts_the_owner_and_enters_safe_mode_at_the_limit(cycle, monkeypatch,
                                                                                 limit, safe_mode):
-    monkeypatch.setattr(runner, "MAX_CONSECUTIVE_ERRORS", limit)
+    monkeypatch.setattr(analysis, "MAX_CONSECUTIVE_ERRORS", limit)
     cycle.state.system_health.consecutive_errors = 1
     cycle.decision_core.should_i_trade = raises(RuntimeError("database is locked"))
     assert analyse() is False
@@ -215,20 +217,20 @@ def test_an_unexpected_error_alerts_the_owner_and_enters_safe_mode_at_the_limit(
 
 
 def test_a_signal_generation_error_is_logged_and_the_cycle_still_counts(cycle, monkeypatch):
-    monkeypatch.setattr(runner, "generate_signals_for_symbols", raises(ValueError("broken strategy")))
+    monkeypatch.setattr(analysis, "generate_signals_for_symbols", raises(ValueError("broken strategy")))
     assert analyse() is True
     assert cycle.state.cycles == [True] and cycle.state.errors == []
 
 
 def test_slow_signal_generation_is_recorded_then_the_cycle_completes(cycle, monkeypatch):
-    monkeypatch.setattr(runner, "generate_signals_for_symbols", raises(TimeoutError()))
+    monkeypatch.setattr(analysis, "generate_signals_for_symbols", raises(TimeoutError()))
     assert analyse() is True
     assert cycle.state.errors == ["Signal generation timeout (non-critical)"]
     assert cycle.state.resets == 1 and cycle.state.cycles == [True]
 
 
 def test_an_exhausted_budget_defers_the_rest_of_the_cycle(cycle, monkeypatch):
-    monkeypatch.setattr(runner, "ITERATION_BUDGET_SECONDS", -1.0)
+    monkeypatch.setattr(analysis, "ITERATION_BUDGET_SECONDS", -1.0)
     assert analyse() is False
     assert cycle.candles_loaded == [["SOLUSDT"]], "проверка после инициализации только предупреждает"
     assert cycle.generated == [] and cycle.state.cycles == []
@@ -258,12 +260,13 @@ def loop(monkeypatch):
     env.prometheus = {"analysis_duration_buckets": {b: 0 for b in cp_state.ANALYSIS_DURATION_BUCKETS},
                       "analysis_duration_sum": 0.0, "analysis_duration_count": 0,
                       "scheduler_stalls_total": 0, "analysis_cycles_total": 0}
-    # runner держит ссылки на объекты control_plane.state — подменяем оба имени
+    # модуль цикла держит ссылки на объекты control_plane.state — подменяем оба имени
     for runner_name, cp_name, value in (("_adaptive_system_state", "adaptive_system_state", env.adaptive),
                                         ("_control_plane_state", "control_plane_state", env.control),
                                         ("_analysis_metrics", "analysis_metrics", env.analysis),
                                         ("_prometheus_metrics", "prometheus_metrics", env.prometheus)):
-        monkeypatch.setattr(runner, runner_name, value)
+        if hasattr(analysis, runner_name):  # _prometheus_metrics цикл трогает только через функции cp_state
+            monkeypatch.setattr(analysis, runner_name, value)
         monkeypatch.setattr(cp_state, cp_name, value)
 
     async def fake_run():
@@ -282,7 +285,7 @@ def loop(monkeypatch):
 
     send = recording_send(env.sent)
     for name, value in {
-        "system_state": env.state, "run_market_analysis": fake_run, "_shutdown_event": None,
+        "system_state": env.state, "run_market_analysis": fake_run,
         "liveness": SimpleNamespace(mark=env.marks.append), "evaluate_and_send_alerts": evaluate,
         "get_state_machine": lambda: env.machine, "exit_safe_mode_via_recovery": recover,
         "send_message_async": send, "error_alert": env.alerts.append, "RUNNING_TASKS": set(),
@@ -291,7 +294,8 @@ def loop(monkeypatch):
         "AUTO_RESUME_TRADING_ENABLED": True, "AUTO_RESUME_SUCCESS_CYCLES": 2, "AUTO_RESUME_SAFE_MODE_DELAY": 0,
         "ERROR_PAUSE": 0, "MAX_CONSECUTIVE_ERRORS": 5, "SAFE_MODE_RECOVERY_INTERVAL": 0.01,
     }.items():
-        monkeypatch.setattr(runner, name, value)
+        monkeypatch.setattr(analysis, name, value)
+    monkeypatch.setattr(runner, "_shutdown_event", None)  # его читает get_shutdown_event runner
     monkeypatch.setattr(telegram_bot, "send_message_async", send)
     monkeypatch.setattr(trading_mode, "get_trading_mode", lambda: "PAPER")
 
@@ -299,7 +303,7 @@ def loop(monkeypatch):
         env.script = list(script)
 
         async def scenario():
-            await runner.market_analysis_loop()
+            await analysis.market_analysis_loop()
             await asyncio.sleep(0.01)  # дать отработать задачам алертов и уведомлений
 
         asyncio.run(asyncio.wait_for(scenario(), 10.0))
@@ -365,7 +369,7 @@ def test_safe_mode_is_left_after_enough_clean_turns(loop, caplog):
 
 
 def test_clean_turns_in_safe_mode_are_counted(loop, monkeypatch):
-    monkeypatch.setattr(runner, "AUTO_RESUME_SUCCESS_CYCLES", 3)
+    monkeypatch.setattr(analysis, "AUTO_RESUME_SUCCESS_CYCLES", 3)
     loop.state.system_health.safe_mode = True
     loop.state.system_health.trading_paused = True
     loop.run(True, True)
@@ -394,9 +398,9 @@ def test_a_refused_recovery_is_not_reported(loop):
 def test_safe_mode_shortens_the_wait_between_turns(loop, monkeypatch):
     """Чистые обороты должны уложиться в SAFE_MODE_TTL, иначе автомат уйдёт в FATAL раньше."""
     for name in ("ANALYSIS_INTERVAL", "ADAPTIVE_INTERVAL_MIN"):
-        monkeypatch.setattr(runner, name, 30.0)
-    monkeypatch.setattr(runner, "ADAPTIVE_INTERVAL_MAX", 60.0)
-    monkeypatch.setattr(runner, "AUTO_RESUME_SUCCESS_CYCLES", 5)
+        monkeypatch.setattr(analysis, name, 30.0)
+    monkeypatch.setattr(analysis, "ADAPTIVE_INTERVAL_MAX", 60.0)
+    monkeypatch.setattr(analysis, "AUTO_RESUME_SUCCESS_CYCLES", 5)
     loop.adaptive["adaptive_interval"] = 30.0
     loop.state.system_health.safe_mode = True
     loop.state.system_health.trading_paused = True
@@ -432,7 +436,7 @@ def test_a_failed_turn_resets_recovery_progress(loop):
 
 def test_trading_resumes_after_safe_mode_exit_when_auto_resume_is_off(loop, monkeypatch):
     """Та же ловушка с локальным send_message_async — во второй ветке возобновления."""
-    monkeypatch.setattr(runner, "AUTO_RESUME_TRADING_ENABLED", False)
+    monkeypatch.setattr(analysis, "AUTO_RESUME_TRADING_ENABLED", False)
     loop.state.system_health.safe_mode = True
     loop.state.system_health.trading_paused = True
 
@@ -500,9 +504,10 @@ def test_real_state_machine_leaves_safe_mode_and_unblocks_trading(loop, monkeypa
     state = SystemState()
     state.system_health.is_running = True
     loop.state = state
-    monkeypatch.setattr(runner, "system_state", state)
-    monkeypatch.setattr(runner, "get_state_machine", lambda: machine)
-    monkeypatch.setattr(runner, "exit_safe_mode_via_recovery", REAL_EXIT_SAFE_MODE)
+    for module in (runner, analysis):  # runner — для выхода из SAFE_MODE и синхронизации флагов
+        monkeypatch.setattr(module, "system_state", state)
+        monkeypatch.setattr(module, "get_state_machine", lambda: machine)
+    monkeypatch.setattr(analysis, "exit_safe_mode_via_recovery", REAL_EXIT_SAFE_MODE)
     monkeypatch.setattr(runner, "get_thread_watchdog", lambda: None)
     machine.set_transition_listener(runner._sync_flags_from_machine)
     loop.script = [True, True]
@@ -511,10 +516,42 @@ def test_real_state_machine_leaves_safe_mode_and_unblocks_trading(loop, monkeypa
         await machine.transition_to(runner.SystemStateEnum.SAFE_MODE, "test: heartbeat miss", "test")
         assert state.system_health.safe_mode and state.system_health.trading_paused
         assert trading_halt_reason(system_state=state, state_machine=machine, include_risk_core=False)
-        await runner.market_analysis_loop()
+        await analysis.market_analysis_loop()
 
     asyncio.run(asyncio.wait_for(scenario(), 10.0))
     assert machine.state == runner.SystemStateEnum.RUNNING
     assert not state.system_health.safe_mode and not state.system_health.trading_paused
     assert trading_halt_reason(system_state=state, state_machine=machine, include_risk_core=False) is None
     assert any("Trading resumed" in text for text in loop.sent)
+
+
+# ---------------------------------------------------------------------------
+# Связка с runner (шаг 8б)
+# ---------------------------------------------------------------------------
+
+def test_runner_configures_the_cycle_with_its_own_settings_and_objects(monkeypatch):
+    assert analysis.system_state is runner.system_state
+    assert analysis.RUNNING_TASKS is runner.RUNNING_TASKS
+    for name in ("get_shutdown_event", "evaluate_and_send_alerts", "exit_safe_mode_via_recovery"):
+        assert getattr(analysis, name) is getattr(runner, name), name
+    for name in analysis._INJECTED:
+        if name.isupper():
+            assert getattr(analysis, name) == getattr(runner, name), name
+    monkeypatch.setattr(runner, "_active_symbols", ["XRPUSDT"])  # main() переприсваивает список
+    assert analysis.get_active_symbols() == ["XRPUSDT"]
+    assert analysis._adaptive_system_state is cp_state.adaptive_system_state
+    for name in ("run_market_analysis", "market_analysis_loop", "IterationBudgetTracker", "cooperative_yield"):
+        assert not hasattr(runner, name), f"{name} — только в loops/market_analysis.py"
+
+
+def test_main_starts_the_cycle_from_its_module():
+    import inspect
+    assert 'market_analysis.market_analysis_loop(), name="MarketAnalysis"' in inspect.getsource(runner.main)
+
+
+def test_configure_refuses_missing_or_unknown_names():
+    with pytest.raises(TypeError, match="не хватает"):
+        analysis.configure(ANALYSIS_INTERVAL=300)
+    values = {name: getattr(analysis, name) for name in analysis._INJECTED}
+    with pytest.raises(TypeError, match="лишние"):
+        analysis.configure(**values, SOMETHING_ELSE=1)

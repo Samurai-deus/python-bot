@@ -76,7 +76,7 @@ def test_old_decision_traces_are_pruned(tmp_path):
 
 
 def test_analysis_cycle_prunes_decision_traces():
-    text = (ROOT / "runner.py").read_text(encoding="utf-8")
+    text = (ROOT / "loops" / "market_analysis.py").read_text(encoding="utf-8")
     node = next(n for n in ast.walk(ast.parse(text))
                 if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_market_analysis")
     assert "await asyncio.to_thread(prune_decision_trace, 90)" in ast.get_source_segment(text, node)
