@@ -29,6 +29,7 @@ from core.signal_snapshot import (
 from core.market_state import normalize_states_dict
 from core.cognitive_engine import calculate_confidence, calculate_entropy
 from strategies.strategy_manager import StrategyManager
+from strategies.setup import Skip, evaluate_setup
 from execution.sizing_guard import unaffordable_reason
 from datetime import datetime, UTC
 import logging
@@ -159,283 +160,32 @@ def generate_signals_for_symbols(
                 _unaffordable.discard(symbol)
                 logger.info("%s: снова кандидат — минимальный ордер укладывается в предел позиции", symbol)
 
-            # Определяем состояния для каждого таймфрейма
-            for tf, interval in TIMEFRAMES.items():
-                candles = candles_map.get(tf, [])
-                if not candles:
-                    logger.debug("No data for %s %s", symbol, tf)
-                    continue
-
-                log_monitor(symbol, tf)
-                atr_val = atr(candles)
-                # determine_state() возвращает MarketState enum (A/B/C/D) или None
-                # None означает, что состояние не определено (валидный результат)
-                states[tf] = determine_state(candles, atr_val)
-
-                if tf in ["30m", "1h", "4h"]:
-                    directions[tf] = market_direction(candles)
-
-            # Проверяем наличие необходимых данных для анализа
-            if "15m" not in candles_map or not candles_map["15m"]:
-                logger.debug("No 15m data for %s, skipping", symbol)
-                continue
-            
-            flat = is_flat(candles_map["15m"], atr(candles_map["15m"]))
-            
-            # Анализ волатильности
-            volatility_metrics = calculate_volatility_metrics(candles_map["15m"], period=20)
-            volatility_score, volatility_reasons = get_volatility_score(volatility_metrics)
-            
-            # Проверка фильтра волатильности
-            if not volatility_metrics.get("is_tradeable", True):
-                logger.debug(
-                    "%s: volatility %s (%.2f%%) not tradeable, skipping",
-                    symbol, volatility_metrics.get("volatility_level", "UNKNOWN"), volatility_metrics.get("atr_pct", 0)
-                )
-                continue
-            
-            # Анализ корреляций
-            correlation_data = market_correlations.get(symbol, {})
-            correlation_score, correlation_reasons = get_correlation_score(market_correlations, symbol)
-            
-            # Рассчитываем все индикаторы
-            momentum_data = {}
-            if candles_map.get("15m"):
+            # Оценка сетапа — чистая функция strategies/setup.py (Ф1 плана трейдера): тот же код
+            # вызывает проверка на истории. Здесь — только побочные эффекты генератора.
+            for tf in TIMEFRAMES:
+                if candles_map.get(tf):
+                    log_monitor(symbol, tf)
+            if candles_map.get("5m"):
+                # Кэш последней цены (WS-снапшот берёт из него current_price)
                 try:
-                    momentum_data["rsi_15m"] = rsi(candles_map["15m"], period=14)
-                    momentum_data["macd_15m"] = macd(candles_map["15m"])
-                    momentum_data["momentum_15m"] = momentum(candles_map["15m"])
-                    momentum_data["bb_15m"] = bollinger_bands(candles_map["15m"], period=20)
-                    momentum_data["stoch_15m"] = stochastic(candles_map["15m"], k_period=14)
-                    momentum_data["adx_15m"] = adx(candles_map["15m"], period=14)
-                    momentum_data["ema_cross_15m"] = ema_crossover(candles_map["15m"], fast_period=12, slow_period=26)
-                    momentum_data["volume_15m"] = volume_analysis(candles_map["15m"], period=20)
-                except Exception as e:
-                    logger.warning("Indicator calc error 15m for %s: %s", symbol, e)
-                    # Keep whatever was calculated before the error; do NOT reset momentum_data
-
-            if candles_map.get("30m"):
-                try:
-                    momentum_data["trend_strength_30m"] = trend_strength(candles_map["30m"], period=20)
-                    momentum_data["adx_30m"] = adx(candles_map["30m"], period=14)
-                    momentum_data["ema_cross_30m"] = ema_crossover(candles_map["30m"], fast_period=12, slow_period=26)
-                except Exception as e:
-                    logger.warning("Indicator calc error 30m for %s: %s", symbol, e)
-            
-            # Улучшенная система оценки (добавляем волатильность и корреляции)
-            score, reasons, score_details = calculate_score(
-                states, directions, flat, good_time, 
-                candles_map=candles_map, 
-                momentum_data=momentum_data
-            )
-            
-            # Добавляем баллы за волатильность и корреляции
-            score += volatility_score
-            reasons.extend(volatility_reasons)
-            score += correlation_score
-            reasons.extend(correlation_reasons)
-            
-            score_details["volatility_score"] = volatility_score
-            score_details["correlation_score"] = correlation_score
-            
-            mode = market_mode(score)
-
-            # Логируем состояние для отладки
-            logger.debug(
-                "%s: score=%s/125 mode=%s states=%s directions=%s",
-                symbol, score, mode, states, directions
-            )
-            logger.debug(
-                "%s: volatility=%s (%.2f%%) correlation=%s (avg=%.2f)",
-                symbol,
-                volatility_metrics.get("volatility_level", "UNKNOWN"),
-                volatility_metrics.get("atr_pct", 0),
-                correlation_data.get("market_alignment", "UNKNOWN"),
-                correlation_data.get("avg_correlation", 0),
-            )
-            if momentum_data:
-                logger.debug(
-                    "%s: RSI=%.1f trend=%.1f%%",
-                    symbol, momentum_data.get("rsi_15m", 0), momentum_data.get("trend_strength_30m", 0)
-                )
-
-            # если рынок плохой — вообще молчим
-            if mode == "STOP":
-                logger.debug("%s: mode=STOP, skipping", symbol)
+                    import price_cache as _pc
+                    _pc.update(symbol, float(candles_map["5m"][-1][4]))
+                except Exception:
+                    logger.error("Failed to update price_cache for %s", symbol, exc_info=True)
+            regime_state = system_state.market_regime if system_state and hasattr(system_state, "market_regime") else None
+            outcome = evaluate_setup(symbol, candles_map, market_correlations=market_correlations, good_time=good_time,
+                                     market_regime=regime_state, strategy_manager=_strategy_manager)
+            if isinstance(outcome, Skip):
+                if outcome.journal is not None:
+                    _journal(journal.SKIPPED, outcome.code, outcome.reason, **outcome.journal,
+                             collapse_repeats=True, seen_by=system_state)
                 continue
-
-            # Базовая оценка риска с учетом 4h
-            base_risk = risk_level(states, directions=directions)
-            direction_4h = directions.get("4h", "FLAT")
-            logger.debug("%s: base_risk=%s state_15m=%s 4h=%s", symbol, base_risk, states.get("15m"), direction_4h)
-            
-            # NOTE: check_trades вызывается ТОЛЬКО из paper_trading_monitor_loop (runner.py)
-            # каждые 60 секунд. Вызов здесь удалён — он приводил к дублированию
-            # сообщений о закрытии сделок (race condition между двумя циклами).
-
-            # Проверяем объемы для фильтрации
-            candle_analysis = get_candle_analysis(candles_map.get("15m", []))
-            volume_profile = candle_analysis.get("volume_profile", {})
-            volume_trend = volume_profile.get("volume_trend", "NORMAL")
-
-            # Пропускаем сигналы с низкой ликвидностью
-            if volume_trend == "LOW":
-                logger.debug("%s: low liquidity, skipping", symbol)
-                continue
-
-            # Рассчитываем параметры входа
-            if not candles_map.get("5m") or len(candles_map["5m"]) == 0:
-                continue
-            last_5m = candles_map["5m"][-1]
-
-            # Обновляем кэш последней цены (используется WS-снапшотом для current_price)
-            try:
-                import price_cache as _pc
-                _pc.update(symbol, float(last_5m[4]))
-            except Exception:
-                logger.error("Failed to update price_cache for %s", symbol, exc_info=True)
-
-            # ATR нужен и стратегиям, и fallback-логике
-            atr_15m = atr(candles_map["15m"])
-            atr_5m = atr(candles_map["5m"])
-            volatility_pct = calculate_volatility_pct(candles_map["15m"])
-            trend_strength_val = momentum_data.get("trend_strength_30m", 50) if momentum_data else 50
-
-            # ── Multi-Strategy Engine ──
-            # Стратегии имеют приоритет; если ни одна не сработала — fallback на старую логику.
-            strategy_signal = None
-            strategy_name = None
-            try:
-                vol_level = volatility_metrics.get("volatility_level", "MEDIUM")
-                regime = "RANGE"
-                if system_state and hasattr(system_state, "market_regime") and system_state.market_regime:
-                    mr = system_state.market_regime
-                    regime = getattr(mr, "trend_type", "RANGE") or "RANGE"
-                    # "MIXED" from MarketRegimeBrain = ambiguous, treat as RANGE
-                    if regime not in ("TREND", "RANGE"):
-                        regime = "RANGE"
-
-                # C-7: If regime is still RANGE (default), derive from ADX
-                if regime == "RANGE" and momentum_data:
-                    _adx_data = momentum_data.get("adx_15m", {})
-                    _adx_val = _adx_data.get("adx", 0) if isinstance(_adx_data, dict) else 0
-                    if _adx_val > 25:
-                        regime = "TREND"
-                    # elif _adx_val < 15: confirmed RANGE, keep as is
-
-                strategy_signal = _strategy_manager.get_best_signal(
-                    symbol, candles_map, directions, momentum_data, states,
-                    market_regime=regime, volatility_level=vol_level,
-                )
-            except Exception as e:
-                logger.warning("%s: strategy engine error: %s", symbol, e)
-
-            zone = None
-            pos_size = None
-            lev = None
-
-            if strategy_signal:
-                # Стратегия дала сигнал — используем её entry/stop/target/side
-                side = strategy_signal.side
-                entry = strategy_signal.entry
-                stop = strategy_signal.stop
-                target = strategy_signal.target
-                strategy_name = strategy_signal.strategy_name
-
-                risk_distance = abs(entry - stop)
-                rr_ratio = abs(target - entry) / risk_distance if risk_distance else 0
-                # Run risk assessment even for strategy signals (C-T4 fix)
-                stop_info_strat = calculate_stop_distance(entry, stop, atr_15m, entry)
-                volume_info_strat = {"volume_trend": volume_trend, "volume_ratio": volume_profile.get("volume_ratio", 1.0)}
-                risk = enhanced_risk_level(
-                    states, stop_info=stop_info_strat, volume_info=volume_info_strat,
-                    momentum_data=momentum_data, candles_map=candles_map, directions=directions
-                )
-                if risk == "HIGH":
-                    logger.info("%s: strategy %s signal rejected — HIGH risk", symbol, strategy_name)
-                    _journal(journal.SKIPPED, "high_risk", f"стратегия {strategy_name}: риск HIGH",
-                             symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
-                             risk=risk, score=score, strategy=strategy_name, mode=mode, collapse_repeats=True, seen_by=system_state)
-                    continue
-                logger.info(
-                    "%s: STRATEGY %s → %s entry=%.4f stop=%.4f target=%.4f R:R=%.2f conf=%.2f",
-                    symbol, strategy_name, side, entry, stop, target, rr_ratio, strategy_signal.confidence,
-                )
-            else:
-                # ── Fallback: старая entry_conditions логика ──
-                entry_conditions = get_entry_conditions(states, directions, score_details)
-                if not entry_conditions:
-                    logger.debug("%s: no strategy signal and no entry conditions, skipping", symbol)
-                    continue
-
-                logger.debug("%s: fallback entry conditions: %s, volume=%s", symbol, ", ".join(entry_conditions), volume_trend)
-
-                entry = float(last_5m[4])
-                high = float(last_5m[2])
-                low = float(last_5m[3])
-
-                bias = directions.get("30m", "FLAT")
-
-                # HARD GATE: не открываем LONG если макро-тренд (1h/4h) DOWN, и наоборот.
-                direction_1h = directions.get("1h", "FLAT")
-                macro_trend = direction_4h if direction_4h != "FLAT" else direction_1h
-
-                if bias == "UP" and macro_trend == "DOWN":
-                    logger.debug("%s: LONG blocked — macro trend DOWN (1h=%s 4h=%s)", symbol, direction_1h, direction_4h)
-                    continue
-                if bias == "DOWN" and macro_trend == "UP":
-                    logger.debug("%s: SHORT blocked — macro trend UP (1h=%s 4h=%s)", symbol, direction_1h, direction_4h)
-                    continue
-
-                if bias == "DOWN":
-                    side = "SHORT"
-                    stop = high
-                elif bias == "UP":
-                    side = "LONG"
-                    stop = low
-                else:
-                    logger.debug("%s: bias FLAT, no direction, skipping", symbol)
-                    continue
-
-                # Расширяем стоп если он слишком близко к entry.
-                min_stop_dist = max(atr_15m * 1.0, entry * 0.003)
-                if side == "LONG" and (entry - stop) < min_stop_dist:
-                    stop = entry - min_stop_dist
-                elif side == "SHORT" and (stop - entry) < min_stop_dist:
-                    stop = entry + min_stop_dist
-
-                # Проверяем размер стопа
-                stop_info = calculate_stop_distance(entry, stop, atr_15m, entry)
-                if not stop_info.get("is_valid", True):
-                    logger.debug("%s: invalid stop distance (%.2f%%), skipping", symbol, stop_info.get("stop_distance_pct", 0))
-                    continue
-
-                # Оценка риска
-                volume_info = {"volume_trend": volume_trend, "volume_ratio": volume_profile.get("volume_ratio", 1.0)}
-                risk = enhanced_risk_level(
-                    states, stop_info=stop_info, volume_info=volume_info,
-                    momentum_data=momentum_data, candles_map=candles_map, directions=directions
-                )
-                if risk == "HIGH":
-                    logger.debug("%s: high risk, skipping", symbol)
-                    continue
-
-                # Адаптивный R:R
-                rr_result = calculate_adaptive_rr(
-                    entry, stop, atr_15m, atr_5m,
-                    volatility_pct, trend_strength_val, risk
-                )
-                target = rr_result["target"]
-
-                MIN_RR = 1.5
-                if rr_result["rr_ratio"] < MIN_RR:
-                    logger.debug("%s: R:R %.2f < %.1f minimum, skipping", symbol, rr_result["rr_ratio"], MIN_RR)
-                    _journal(journal.SKIPPED, "low_rr", f"R:R {rr_result['rr_ratio']:.2f} < {MIN_RR}",
-                             symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
-                             risk=risk, score=score, strategy="legacy", mode=mode, collapse_repeats=True, seen_by=system_state)
-                    continue
-
-                strategy_name = "legacy"
+            states, directions = outcome.states, outcome.directions
+            score, reasons, score_details, mode = outcome.score, outcome.reasons, outcome.score_details, outcome.mode
+            volatility_metrics, correlation_data = outcome.volatility_metrics, outcome.correlation_data
+            atr_15m, volatility_pct, candle_analysis = outcome.atr_15m, outcome.volatility_pct, outcome.candle_analysis
+            side, entry, stop, target = outcome.side, outcome.entry, outcome.stop, outcome.target
+            strategy_name, risk = outcome.strategy_name, outcome.risk
 
             zone = {"entry": entry, "stop": stop, "target": target}
             pos_size = position_size(entry, stop, side)

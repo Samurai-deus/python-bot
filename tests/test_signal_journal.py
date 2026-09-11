@@ -145,9 +145,11 @@ def test_the_turn_limit_does_not_consume_novelty():
 
 def test_every_exit_after_a_setup_reaches_the_journal():
     source = (ROOT / "signal_generator.py").read_text(encoding="utf-8")
-    assert source.count("_journal(journal.SKIPPED,") == 7, \
-        "high_risk, low_rr, no_room, funding ×2, turn_limit, learner"
-    assert source.count("seen_by=system_state") == 6, "отсев до новизны — без повторов сетапа"
+    assert source.count("_journal(journal.SKIPPED,") == 6, \
+        "отсев оценки сетапа (high_risk, low_rr), no_room, funding ×2, turn_limit, learner"
+    assert source.count("seen_by=system_state") == 5, "отсев до новизны — без повторов сетапа"
+    setup = (ROOT / "strategies" / "setup.py").read_text(encoding="utf-8")
+    assert setup.count("journal=dict(") == 2, "high_risk стратегии и low_rr — с полями для журнала"
     assert source.count("status=journal.BLOCKED") == 2, "отказ гейткипера и сбой отправки"
     assert "SignalSnapshotStore.save(snapshot, strategy=strategy_name)" in source
 
