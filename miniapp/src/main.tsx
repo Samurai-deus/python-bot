@@ -4,11 +4,14 @@ import { BrowserRouter } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from './lib/queryClient'
 import { initTelegram } from './lib/telegram'
+import { startSession } from './api/client'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { App } from './App'
 import './index.css'
 
 initTelegram()
+// initData → серверная сессия (2.8); запросы API ждут этого обмена.
+void startSession()
 
 const rootEl = document.getElementById('root')
 if (!rootEl) {

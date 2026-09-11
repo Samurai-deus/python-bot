@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useSystemStore } from '../store/useSystemStore'
-import { getInitData } from '../api/client'
+import { getAuthToken, waitForSession } from '../api/client'
 import { logger } from '../lib/logger'
 import { parseWsSnapshot } from '../lib/wsSnapshot'
 
@@ -25,8 +25,8 @@ export function useWebSocket() {
 
     function connect() {
       if (destroyed) return
-      // Без initData сервер всё равно закроет сокет через 5 с — не открываем его зря.
-      if (!getInitData()) {
+      // Без токена сервер всё равно закроет сокет через 5 с — не открываем его зря.
+      if (!getAuthToken()) {
         logger.warn('WS: нет initData — приложение открыто не из Telegram, сокет не открываю')
         setWsStatus('disconnected')
         return
@@ -61,7 +61,7 @@ export function useWebSocket() {
       ws.onopen = () => {
         clearTimeout(connectTimer)
         if (destroyed) { ws.close(); return }
-        ws.send(JSON.stringify({ type: 'auth', token: getInitData() }))
+        ws.send(JSON.stringify({ type: 'auth', token: getAuthToken() }))
         retryRef.current = 0
         setWsStatus('connected')
         resetStaleTimer()
@@ -128,7 +128,9 @@ export function useWebSocket() {
       }
     }
 
-    connect()
+    // Первое соединение — после обмена initData на сессию (2.8): сокет, открытый
+    // с initData, после выкладки 3 получил бы 4001 и ложный баннер «откройте снова».
+    void waitForSession().then(connect)
 
     return () => {
       destroyed = true
