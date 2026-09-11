@@ -80,3 +80,15 @@ def test_analysis_cycle_prunes_decision_traces():
     node = next(n for n in ast.walk(ast.parse(text))
                 if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_market_analysis")
     assert "await asyncio.to_thread(prune_decision_trace, 90)" in ast.get_source_segment(text, node)
+
+
+def test_signals_is_the_module_not_a_shadowing_package():
+    """
+    До 11.09.2026 рядом с signals.py лежал пакет signals/, который через importlib
+    загружал тот же signals.py второй копией под другим именем: подмена в тесте
+    действовала только на одну из копий.
+    """
+    import pathlib
+    import signals
+    assert pathlib.Path(signals.__file__).name == "signals.py"
+    assert callable(signals.build_signal)

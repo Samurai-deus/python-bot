@@ -52,6 +52,39 @@ def test_missing_or_garbage_mark_has_no_age(liveness_dir):
     assert liveness.age("heartbeat") is None
 
 
+
+def test_mark_survives_a_briefly_locked_file(monkeypatch):
+    """Windows: антивирус держит файл — os.replace дважды получает WinError 5, метка всё равно ставится."""
+    real_replace = os.replace
+    failures = [PermissionError(13, "locked"), PermissionError(13, "locked")]
+
+    def flaky(src, dst):
+        if failures:
+            raise failures.pop(0)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(liveness.os, "replace", flaky)
+    monkeypatch.setattr(liveness.time, "sleep", lambda seconds: None)
+    liveness.mark("heartbeat", now=1000.0)
+    assert failures == []
+    assert liveness.age("heartbeat", now=1001.0) == pytest.approx(1.0)
+
+
+def test_mark_gives_up_on_a_permanently_locked_file(monkeypatch):
+    """Блокировка не проходит — метки нет, бот не падает: пропажу заметит healthcheck."""
+    calls = []
+
+    def locked(src, dst):
+        calls.append(dst)
+        raise PermissionError(13, "locked")
+
+    monkeypatch.setattr(liveness.os, "replace", locked)
+    monkeypatch.setattr(liveness.time, "sleep", lambda seconds: None)
+    liveness.mark("heartbeat")
+    assert len(calls) == 3
+    assert liveness.age("heartbeat") is None
+
+
 def test_mark_failure_does_not_crash_the_bot(tmp_path, monkeypatch):
     blocker = tmp_path / "file"
     blocker.write_text("", encoding="ascii")
