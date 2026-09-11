@@ -424,3 +424,19 @@ def test_web_switch_is_atomic_and_keeps_previous_assets():
 def test_smoke_checks_web_is_a_release_link():
     body = step_body((DEPLOY / "deploy.sh").read_text(encoding="utf-8"), "step_smoke")
     assert '[ -L "$APP/web" ]' in body
+
+
+def test_web_release_carries_only_the_previous_build_not_its_inheritance():
+    """
+    11.09.2026: выпуск фронта переносил в себя все ассеты прошлого — вместе с тем,
+    что тот унаследовал сам, и мусор копился без конца (8 из 16 — со старым SDK).
+    Теперь выпуск записывает список своих ассетов, а следующий переносит только его.
+    """
+    script = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
+    web = step_body(script, "step_web")
+    own_list = web.index('> "$new/.build-assets"')
+    carry_by_list = web.index('done < "$APP/web/.build-assets"')
+    carry_all = web.index('cp -rn "$APP/web/assets/." "$new/assets/"')
+    assert own_list < carry_by_list, "свой список — до переноса чужих, иначе в него попадёт унаследованное"
+    assert carry_by_list < carry_all, "полный перенос — только запасной путь для выпусков без списка"
+    assert carry_all < web.index('switch_web "$new"')

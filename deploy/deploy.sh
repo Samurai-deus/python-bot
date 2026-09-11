@@ -284,8 +284,23 @@ step_web() {
     ln -sfn "$WEB_RELEASES/legacy-$stamp" "$APP/web"
   fi
 
-  # Ассеты прошлого выпуска — в новый, без перезаписи (имена хешированные, не пересекаются).
-  if [ -d "$APP/web/assets" ]; then
+  # Свои ассеты выпуска — списком, до переноса чужих: следующий выпуск перенесёт
+  # только их.
+  (cd "$new" && find assets -type f 2>/dev/null | sort) > "$new/.build-assets"
+
+  # Ассеты прошлого выпуска — в новый, без перезаписи (имена хешированные): открытое
+  # у пользователя приложение ещё догружает свои чанки. Переносятся только файлы
+  # сборки прошлого выпуска, а не всё, что он сам унаследовал: до 11.09.2026 каждая
+  # выкладка тащила дальше ассеты всех прошлых сборок (8 из 16 — со старым SDK).
+  if [ -f "$APP/web/.build-assets" ]; then
+    while read -r f; do
+      if [ -f "$APP/web/$f" ] && [ ! -e "$new/$f" ]; then
+        mkdir -p "$(dirname "$new/$f")"
+        cp -p "$APP/web/$f" "$new/$f"
+      fi
+    done < "$APP/web/.build-assets"
+  elif [ -d "$APP/web/assets" ]; then
+    # у выпусков до 11.09 списка нет — один раз переносим всё, как раньше
     mkdir -p "$new/assets"
     cp -rn "$APP/web/assets/." "$new/assets/"
   fi
