@@ -582,6 +582,15 @@ class Gatekeeper:
                     "timestamp": datetime.now(UTC),
                 })
 
+            # Второе мнение ИИ (docs/AI_TRADER_PLAN.md). Этап 0 — тень: сигнал уходит в
+            # фоновую очередь, цикл не ждёт (бюджет итерации 60 с), на торговлю мнение
+            # не влияет. Любой сбой здесь — без последствий для сигнала.
+            try:
+                from ai_trader.worker import submit as ai_submit
+                ai_submit(symbol, signal_data, snapshot)
+            except Exception:
+                logger.warning("ai_trader: сигнал %s не поставлен на оценку", symbol, exc_info=True)
+
             # ========== EXECUTION (Phase 2) ==========
             # Размещаем ордер если режим TESTNET/LIVE
             self._execute_order(symbol, signal_data, sizing_result)

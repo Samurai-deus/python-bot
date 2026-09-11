@@ -1228,6 +1228,167 @@ def save_correlation_groups(groups: Dict) -> None:
         conn.close()
 
 
+
+# ========== ИИ-ТРЕЙДЕР (docs/AI_TRADER_PLAN.md) ==========
+# ai_usage — стоимость каждого вызова модели (суточный бюджет);
+# ai_opinions — мнения по сигналам с ключом (signal_ts, symbol), как у signal_outcomes.
+
+def _ensure_ai_tables(cursor) -> None:
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS ai_usage ("
+        " day TEXT NOT NULL,"
+        " ts TEXT NOT NULL,"
+        " purpose TEXT NOT NULL,"
+        " model TEXT,"
+        " prompt_tokens INTEGER,"
+        " completion_tokens INTEGER,"
+        " cost_usd DOUBLE PRECISION NOT NULL)"
+    )
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS ai_opinions ("
+        " signal_ts TEXT NOT NULL,"
+        " symbol TEXT NOT NULL,"
+        " side TEXT,"
+        " stage TEXT,"
+        " model TEXT,"
+        " decision TEXT,"
+        " size_multiplier DOUBLE PRECISION,"
+        " confidence DOUBLE PRECISION,"
+        " reasons TEXT,"
+        " key_risk TEXT,"
+        " cost_usd DOUBLE PRECISION,"
+        " latency_ms INTEGER,"
+        " error TEXT,"
+        " created_at TEXT NOT NULL,"
+        " PRIMARY KEY (signal_ts, symbol))"
+    )
+
+
+def record_ai_usage(day: str, purpose: str, model: str, prompt_tokens: int,
+                    completion_tokens: int, cost_usd: float) -> None:
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_ai_tables(cursor)
+        cursor.execute(
+            _q("INSERT INTO ai_usage (day, ts, purpose, model, prompt_tokens, completion_tokens, cost_usd) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?)"),
+            (day, datetime.now(UTC).isoformat(), purpose, model, prompt_tokens, completion_tokens, cost_usd),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_ai_spend(day: str) -> float:
+    """Расход на модели за сутки (UTC), $."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_ai_tables(cursor)
+        cursor.execute(_q("SELECT COALESCE(SUM(cost_usd), 0) AS total FROM ai_usage WHERE day = ?"), (day,))
+        total = float(cursor.fetchone()["total"] or 0.0)
+        conn.commit()
+    finally:
+        conn.close()
+    return total
+
+
+def save_ai_opinion(signal_ts: str, symbol: str, side, stage, model, decision, size_multiplier,
+                    confidence, reasons, key_risk, cost_usd, latency_ms, error) -> None:
+    """Записать мнение по сигналу (повторная оценка того же сигнала заменяет прежнюю)."""
+    import json
+    fields = (side, stage, model, decision, size_multiplier, confidence,
+              json.dumps(list(reasons or []), ensure_ascii=False), key_risk, cost_usd, latency_ms, error,
+              datetime.now(UTC).isoformat())
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_ai_tables(cursor)
+        cursor.execute(
+            _q("UPDATE ai_opinions SET side = ?, stage = ?, model = ?, decision = ?, size_multiplier = ?, "
+               "confidence = ?, reasons = ?, key_risk = ?, cost_usd = ?, latency_ms = ?, error = ?, "
+               "created_at = ? WHERE signal_ts = ? AND symbol = ?"),
+            fields + (signal_ts, symbol),
+        )
+        if cursor.rowcount == 0:
+            cursor.execute(
+                _q("INSERT INTO ai_opinions (side, stage, model, decision, size_multiplier, confidence, reasons, "
+                   "key_risk, cost_usd, latency_ms, error, created_at, signal_ts, symbol) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+                fields + (signal_ts, symbol),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_recent_ai_opinions(limit: int = 5) -> List[Dict]:
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_ai_tables(cursor)
+        cursor.execute(
+            _q("SELECT symbol, side, decision, size_multiplier, confidence, key_risk, created_at "
+               "FROM ai_opinions WHERE decision IS NOT NULL ORDER BY created_at DESC LIMIT ?"),
+            (limit,),
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.commit()
+    finally:
+        conn.close()
+    return rows
+
+
+def get_ai_opinion_stats(days: int = 30) -> Dict:
+    """
+    {решение: {'total': n, 'outcomes': {'WIN': n, ...}}} за days дней. Исход — из
+    signal_outcomes по (signal_ts, symbol); у свежих сигналов его ещё нет.
+    """
+    from datetime import timedelta
+    since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_ai_tables(cursor)
+        cursor.execute(
+            _q("SELECT COALESCE(o.decision, 'нет мнения') AS decision, so.outcome AS outcome, COUNT(*) AS n "
+               "FROM ai_opinions o LEFT JOIN signal_outcomes so "
+               "ON so.signal_ts = o.signal_ts AND so.symbol = o.symbol "
+               "WHERE o.created_at >= ? "
+               "GROUP BY COALESCE(o.decision, 'нет мнения'), so.outcome"),
+            (since,),
+        )
+        rows = cursor.fetchall()
+        conn.commit()
+    finally:
+        conn.close()
+    stats: Dict = {}
+    for row in rows:
+        entry = stats.setdefault(row["decision"], {"total": 0, "outcomes": {}})
+        entry["total"] += int(row["n"])
+        if row["outcome"]:
+            entry["outcomes"][row["outcome"]] = entry["outcomes"].get(row["outcome"], 0) + int(row["n"])
+    return stats
+
+
+def get_signal_outcome_counts(days: int = 30) -> Dict:
+    """Исходы сигналов системы за days дней: {'WIN': n, 'LOSS': n, 'NEUTRAL': n}."""
+    from datetime import timedelta
+    since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q("SELECT outcome, COUNT(*) AS n FROM signal_outcomes WHERE signal_ts >= ? GROUP BY outcome"),
+            (since,),
+        )
+        counts = {row["outcome"]: int(row["n"]) for row in cursor.fetchall()}
+    finally:
+        conn.close()
+    return counts
+
+
 def get_total_open_positions_size() -> float:
     """Номинал открытых сделок (занятый капитал) — после частичного закрытия остаток."""
     conn = get_db_connection()
