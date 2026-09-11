@@ -17,7 +17,7 @@
 import logging
 from typing import Optional, Tuple
 
-from market_data.instrument_limits import min_order_usd, min_order_violation
+from market_data.instrument_limits import min_order_usd, min_order_violation, smallest_order_usd
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,21 @@ def stop_distance_from_signal(signal_data) -> Optional[float]:
     return abs(entry - stop) / entry
 
 
+def reduce_keeping_minimum(symbol: str, size_usd: float, factor: float, entry_price: Optional[float],
+                           fetch=None) -> float:
+    """
+    Уменьшить размер в factor раз (ALLOW_LIMITED, PortfolioBrain), но не ниже
+    наименьшего ордера биржи — если исходный размер сам не меньше него. До
+    11.09.2026 любое «урезать» на счёте в 100 $ было «отказать»: половина позиции
+    в 10 $ — меньше минимального ордера, и сигнал отсекался (демо-счёт).
+    """
+    reduced = size_usd * factor
+    floor = smallest_order_usd(symbol, entry_price, fetch=fetch)
+    if floor is not None and floor <= size_usd and reduced < floor:
+        return floor
+    return reduced
+
+
 def finalize_position_size(symbol: str, sized_usd: Optional[float], approved_usd: Optional[float],
                            entry_price: Optional[float], fetch=None) -> Tuple[Optional[float], Optional[str]]:
     """
@@ -76,6 +91,15 @@ def finalize_position_size(symbol: str, sized_usd: Optional[float], approved_usd
             symbol, final, approved_usd,
         )
         final = float(approved_usd)
+
+    # Меньше наименьшего ордера биржи, но Risk Core одобрил не меньше него — поднять до
+    # наименьшего ордера: верхняя граница (одобренное) не нарушается, а сигнал не
+    # теряется из-за того, что PositionSizer насчитал чуть меньше (шаг 2б, 11.09.2026).
+    floor = smallest_order_usd(symbol, entry_price, fetch=fetch)
+    if floor is not None and final < floor and approved_usd and approved_usd >= floor:
+        logger.info("[SIZER] %s: размер %.2f $ поднят до наименьшего ордера биржи %.2f $ (одобрено %.2f $)",
+                    symbol, final, floor, approved_usd)
+        final = floor
 
     violation = min_order_violation(symbol, final, entry_price, fetch=fetch)
     if violation:

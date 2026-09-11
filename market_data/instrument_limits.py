@@ -18,7 +18,7 @@ PAPER так же, как в TESTNET/LIVE. Кэш на 6 часов: лимит�
 import logging
 import threading
 import time
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from typing import Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -100,6 +100,25 @@ def min_order_usd(symbol: str, price: float,
     if limits is None:
         return None
     return float(max(limits["min_qty"] * Decimal(str(price)), limits["min_notional"]))
+
+
+def smallest_order_usd(symbol: str, price: Optional[float],
+                       fetch: Optional[Callable[[str], Optional[dict]]] = None) -> Optional[float]:
+    """
+    Наименьший номинал, который биржа примет после округления количества до шага
+    лота. min_order_usd — порог, а исполнитель округляет количество ВНИЗ: 5 $ по ADA
+    при цене 0,2136 — это 23 монеты на 4,91 $, ниже минимума. Здесь количество
+    округляется вверх: 24 монеты, 5,13 $. None — нет цены или лимитов.
+    """
+    if not price or price <= 0:
+        return None
+    limits = get_limits(symbol, fetch)
+    if limits is None:
+        return None
+    p = Decimal(str(price))
+    step = limits["qty_step"]
+    by_notional = (limits["min_notional"] / p / step).to_integral_value(rounding=ROUND_UP) * step
+    return float(max(limits["min_qty"], by_notional) * p)
 
 
 def min_order_violation(symbol: str, notional_usd: float, entry_price: Optional[float],
