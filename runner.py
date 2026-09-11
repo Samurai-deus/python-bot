@@ -49,7 +49,7 @@ from error_alert import error_alert
 from telegram_bot import send_message, send_message_async
 from health_monitor import send_heartbeat, send_heartbeat_async, HEARTBEAT_INTERVAL
 from utils import liveness
-from loops import periodic
+from loops import monitors, periodic
 
 # Новые модули для контролируемой архитектуры
 from chaos_engine import get_chaos_engine, ChaosType
@@ -2616,196 +2616,9 @@ async def runtime_heartbeat_loop():
     logger.info("💓 Runtime heartbeat stopped (total: %d)", heartbeat_count)
 
 
-async def loop_guard_watchdog():
-    """
-    REQUIREMENT 3: LOOP_GUARD_TIMEOUT
-    
-    Watchdog для event loop - обнаруживает длительные блокировки.
-    После timeout:
-    - снимает дамп задач (asyncio.all_tasks)
-    - записывает structured task dump в лог
-    - инициирует SAFE_MODE
-    """
-    # GLOBAL STATE (intentional) - no globals needed, state machine handles TTL
-    logger.info("🛡️ Loop guard watchdog started")
-    
-    last_heartbeat_check = time.time()
-    shutdown_evt = get_shutdown_event()
-    
-    while system_state.system_health.is_running and not shutdown_evt.is_set():
-        try:
-            await asyncio.sleep(10.0)  # Проверяем каждые 10 секунд
-            
-            if shutdown_evt.is_set() or not system_state.system_health.is_running:
-                break
-            
-            # Проверяем время с последнего heartbeat
-            current_time = time.time()
-            time_since_last_heartbeat = current_time - last_heartbeat_check
-            
-            if system_state.system_health.last_heartbeat:
-                time_since_heartbeat = (current_time - system_state.system_health.last_heartbeat.timestamp())
-            else:
-                time_since_heartbeat = time_since_last_heartbeat
-            
-            # Если прошло больше LOOP_GUARD_TIMEOUT - event loop заблокирован
-            if time_since_heartbeat > LOOP_GUARD_TIMEOUT:
-                import uuid
-                incident_id = f"loop-guard-{uuid.uuid4().hex[:8]}"
-                
-                logger.critical(
-                    "LOOP_GUARD_TIMEOUT: Event loop blocked for %.1fs (threshold=%ss) incident_id=%s",
-                    time_since_heartbeat, LOOP_GUARD_TIMEOUT, incident_id
-                )
-                
-                # ========== TASK DUMP ==========
-                try:
-                    all_tasks = asyncio.all_tasks()
-                    task_dump = []
-                    for task in all_tasks:
-                        task_info = {
-                            "name": task.get_name(),
-                            "done": task.done(),
-                            "cancelled": task.cancelled(),
-                        }
-                        if task.done():
-                            try:
-                                task_info["exception"] = str(task.exception())
-                            except Exception:
-                                logger.debug("Failed to get task exception in loop guard dump", exc_info=True)
-                        task_dump.append(task_info)
-                    
-                    logger.critical(
-                        "LOOP_GUARD_TASK_DUMP incident_id=%s total_tasks=%s tasks=%s",
-                        incident_id, len(task_dump), task_dump
-                    )
-                except Exception as e:
-                    logger.error("LOOP_GUARD: Failed to dump tasks: %s: %s", type(e).__name__, e)
-                
-                # HARDENING: SAFE_MODE ACTIVATION через state machine
-                state_machine = get_state_machine()
-                if not state_machine.is_safe_mode:
-                    await state_machine.transition_to(
-                        SystemStateEnum.SAFE_MODE,
-                        reason=f"LOOP_GUARD_TIMEOUT: Event loop blocked for {time_since_heartbeat:.1f}s",
-                        owner="loop_guard_watchdog",
-                        metadata={"time_since_heartbeat": time_since_heartbeat, "incident_id": incident_id}
-                    )
-                    logger.critical(
-                        "LOOP_GUARD_ENFORCEMENT: SAFE_MODE activated - incident_id=%s",
-                        incident_id
-                    )
-                    
-                    system_state.record_error(f"LOOP_GUARD_TIMEOUT: {incident_id}")
-            
-            last_heartbeat_check = current_time
-            
-        except asyncio.CancelledError:
-            logger.info("⏹ Loop guard watchdog cancelled")
-            break
-        except Exception as e:
-            logger.error("Error in loop guard watchdog: %s: %s", type(e).__name__, e)
-    
-    logger.info("🛡️ Loop guard watchdog stopped")
-
-
-async def safe_mode_ttl_monitor():
-    """
-    HARDENING: Мониторит SAFE_MODE TTL через state machine.
-    
-    SINGLE-WRITER: Вся логика TTL находится в state machine.
-    Этот монитор только вызывает check_safe_mode_ttl() и обрабатывает FATAL.
-    
-    REQUIREMENT 4: SAFE_MODE TTL
-    - По истечении TTL: SAFE_MODE → FATAL (через state machine)
-    - FATAL обрабатывается централизованным exit handler
-    """
-    logger.info("⏱️ Safe mode TTL monitor started")
-    
-    state_machine = get_state_machine()
-    shutdown_evt = get_shutdown_event()
-    
-    while system_state.system_health.is_running and not shutdown_evt.is_set():
-        try:
-            await asyncio.sleep(30.0)  # Проверяем каждые 30 секунд
-            
-            if shutdown_evt.is_set() or not system_state.system_health.is_running:
-                break
-            
-            # HARDENING: Проверяем TTL через state machine
-            # State machine сам выполнит переход SAFE_MODE → FATAL если TTL истёк
-            ttl_expired = await state_machine.check_safe_mode_ttl()
-            
-            if ttl_expired:
-                # HARDENING: TTL истёк, state machine перешёл в FATAL
-                # Централизованный exit handler обработает os._exit
-                logger.critical("SAFE_MODE_TTL_EXPIRED: State machine transitioned to FATAL")
-                # Exit handler будет вызван в main() при проверке состояния
-            
-        except asyncio.CancelledError:
-            logger.info("⏹ Safe mode TTL monitor cancelled")
-            break
-        except Exception as e:
-            logger.error("Error in safe mode TTL monitor: %s: %s", type(e).__name__, e)
-    
-    logger.info("⏱️ Safe mode TTL monitor stopped")
-
-async def heartbeat_loop():
-    """
-    Отправляет периодические heartbeat сообщения в Telegram.
-    Отдельно от runtime heartbeat для доказательства liveness.
-    """
-    logger.info("💓 Telegram heartbeat monitoring started")
-    
-    # Use shutdown_event for proper cancellation semantics
-    shutdown_evt = get_shutdown_event()
-    
-    while system_state.system_health.is_running and not shutdown_evt.is_set():
-        try:
-            # Sleep с проверкой shutdown каждую секунду для быстрого отклика на SIGTERM
-            remaining = HEARTBEAT_INTERVAL
-            while remaining > 0 and not shutdown_evt.is_set() and system_state.system_health.is_running:
-                try:
-                    await asyncio.sleep(min(1.0, remaining))
-                except asyncio.CancelledError:
-                    raise  # Пробрасываем для правильного shutdown
-                remaining -= 1.0
-            
-            # Проверяем shutdown после sleep
-            if shutdown_evt.is_set() or not system_state.system_health.is_running:
-                break
-            
-            try:
-                # КРИТИЧНО: to_thread может блокировать при network blackhole, обёртываем в wait_for
-                # Таймаут 10s достаточен для нормальной работы, но предотвращает блокировку shutdown
-                await send_heartbeat_async()
-                system_state.update_heartbeat()
-                update_heartbeat_thread_safe()  # Обновляем для ThreadWatchdog
-                logger.debug("Telegram heartbeat sent")
-            except asyncio.TimeoutError:
-                # Timeout при network blackhole - не критично, просто пропускаем heartbeat
-                logger.debug("Telegram heartbeat timeout (non-critical) - network may be unreachable")
-            except Exception as e:
-                # Telegram ошибки не должны останавливать heartbeat
-                logger.warning("Telegram heartbeat failed (non-critical): %s: %s", type(e).__name__, e)
-        except asyncio.CancelledError:
-            logger.info("⏹ Telegram heartbeat cancelled")
-            break
-        except Exception as e:
-            logger.error("Error in Telegram heartbeat loop: %s: %s", type(e).__name__, e)
-            # Пауза перед повтором с проверкой shutdown каждую секунду
-            shutdown_evt = get_shutdown_event()
-            remaining = 300
-            while remaining > 0 and not shutdown_evt.is_set() and system_state.system_health.is_running:
-                try:
-                    await asyncio.sleep(min(1.0, remaining))
-                except asyncio.CancelledError:
-                    raise  # Пробрасываем для правильного shutdown
-                remaining -= 1.0
-            if shutdown_evt.is_set() or not system_state.system_health.is_running:
-                break
-    
-    logger.info("💓 Telegram heartbeat stopped")
+def _state():
+    """Для задач из loops/: текущий system_state, даже если его заменили."""
+    return system_state
 
 
 def _is_running() -> bool:
@@ -4433,7 +4246,7 @@ async def main():
             "RuntimeHeartbeat"
         ),
         register_task(
-            asyncio.create_task(heartbeat_loop(), name="TelegramHeartbeat"),
+            asyncio.create_task(monitors.heartbeat_loop(_state, get_shutdown_event(), update_heartbeat_thread_safe), name="TelegramHeartbeat"),
             "TelegramHeartbeat"
         ),
         register_task(
@@ -4446,11 +4259,11 @@ async def main():
         ),
         # ========== PRODUCTION HARDENING MONITORS ==========
         register_task(
-            asyncio.create_task(loop_guard_watchdog(), name="LoopGuardWatchdog"),
+            asyncio.create_task(monitors.loop_guard_watchdog(_state, get_shutdown_event(), LOOP_GUARD_TIMEOUT), name="LoopGuardWatchdog"),
             "LoopGuardWatchdog"
         ),
         register_task(
-            asyncio.create_task(safe_mode_ttl_monitor(), name="SafeModeTTLMonitor"),
+            asyncio.create_task(monitors.safe_mode_ttl_monitor(_state, get_shutdown_event()), name="SafeModeTTLMonitor"),
             "SafeModeTTLMonitor"
         ),
         register_task(
