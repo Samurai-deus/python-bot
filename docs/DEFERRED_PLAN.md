@@ -117,7 +117,7 @@
 
 ---
 
-## 5. 6.1 — структура кода — 🔄 шаги 1–4: страж корня; периодические циклы — `loops/periodic.py`, контролёры процесса — `loops/monitors.py`, бумажный монитор — `loops/paper_monitor.py`, внедрение сбоев — `loops/fault_injection.py`
+## 5. 6.1 — структура кода — 🔄 шаги 1–5: страж корня; периодические циклы — `loops/periodic.py`, контролёры процесса — `loops/monitors.py`, бумажный монитор — `loops/paper_monitor.py`, внедрение сбоев — `loops/fault_injection.py`, супервизор Telegram — `loops/telegram_supervisor.py` (мёртвый `_telegram_polling_task` удалён)
 
 **Факты.**
 - В корне 40 модулей. Самые нагруженные по числу импортирующих файлов: `database` — 45, `capital` — 20, `telegram_bot` и `indicators` — по 12. `runner.py` — 5153 строки, 56 функций, 10 фоновых циклов.
