@@ -152,8 +152,8 @@ THREAD_WATCHDOG_INTERVAL = 5.0  # Проверка каждые 5 секунд
 THREAD_WATCHDOG_HEARTBEAT_TIMEOUT = 30.0  # 30 секунд без heartbeat → LOOP_STALL
 
 # ========== CHAOS TRACKING (для инварианта) ==========
-# HARDENING: _chaos_was_active остается для chaos invariant tracking
-_chaos_was_active: bool = False  # Флаг: был ли chaos активен (для REQUIREMENT 2)
+# Флаг «был ли chaos активен» (REQUIREMENT 2) — cp_state.chaos["was_active"]
+# в control_plane/state.py: его пишут обработчики хаоса, читает runtime_heartbeat_loop.
 # HARDENING: _safe_mode_entered_at УДАЛЕН - теперь управляется state machine
 
 # ========== THREAD-SAFE HEARTBEAT ACCESS ==========
@@ -341,98 +341,20 @@ async def exit_safe_mode_via_recovery(reason: str, owner: str) -> bool:
             logger.info("ThreadWatchdog re-armed after recovery")
     return success
 
-# ========== GLOBAL METRICS FOR HEALTH ENDPOINT ==========
-# Метрики анализа рынка для healthcheck endpoint
-# Обновляются в market_analysis_loop
-_analysis_metrics = {
-    "analysis_count": 0,
-    "analysis_total_time": 0.0,
-    "analysis_max_time": 0.0,
-    "last_analysis_duration": 0.0,
-    "start_time": None,  # Будет установлено при первом запуске
-}
+# ========== ОБЩЕЕ СОСТОЯНИЕ ПРОЦЕССА ==========
+# Живёт в control_plane/state.py (пункт 5 плана отложенного, шаг 6б). Здесь —
+# ссылки на те же объекты под прежними именами: изменения по ключам видны всем,
+# кто их держит, включая команды бота (telegram_commands импортирует функции runner).
+from control_plane import state as cp_state
+_analysis_metrics = cp_state.analysis_metrics
+ANALYSIS_DURATION_BUCKETS = cp_state.ANALYSIS_DURATION_BUCKETS
+_prometheus_metrics = cp_state.prometheus_metrics
+_adaptive_system_state = cp_state.adaptive_system_state
+_control_plane_state = cp_state.control_plane_state
+_TimeoutLock = cp_state.TimeoutLock
+_metrics_lock = cp_state.metrics_lock
+_get_admin_lock = cp_state.get_admin_lock
 
-# ========== PROMETHEUS METRICS STATE ==========
-# Histogram buckets for analysis duration (seconds)
-ANALYSIS_DURATION_BUCKETS = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0]
-
-# Prometheus metrics state
-_prometheus_metrics = {
-    # Histogram: analysis duration buckets
-    "analysis_duration_buckets": {bucket: 0 for bucket in ANALYSIS_DURATION_BUCKETS},
-    "analysis_duration_sum": 0.0,  # Sum of all durations
-    "analysis_duration_count": 0,  # Total observations
-    
-    # Counters
-    "scheduler_stalls_total": 0,
-    "analysis_cycles_total": 0,
-    # Admin command counters with result labels
-    # Structure: {"command": {"result": count}}
-    "admin_commands_total": {
-        "pause": {"success": 0},
-        "resume": {"success": 0, "blocked_safe_mode": 0}
-    }
-}
-
-# Adaptive system state (volatility tracking, recovery cycles)
-_adaptive_system_state = {
-    "volatility_state": "MEDIUM",  # LOW, MEDIUM, HIGH (from market_regime.volatility_level)
-    "adaptive_interval": None,  # Current adaptive interval (None = not initialized)
-    "recovery_cycles": 0,  # Consecutive successful cycles while trading_paused
-}
-
-# Control plane state (manual pause tracking)
-_control_plane_state = {
-    "manual_pause_active": False,  # True if trading was paused manually (via admin/telegram)
-    # NOTE: admin_commands_total moved to _prometheus_metrics for single source of truth
-}
-
-# ========== CONCURRENCY PROTECTION FOR HTTP HANDLERS ==========
-# Lock to prevent race conditions in HTTP handlers (especially admin commands)
-# REQUIREMENT: Concurrent HTTP requests cannot race-clear safe_mode or resume trading while safe_mode == true
-# Initialized lazily in start_http_server() when event loop is available
-_admin_command_lock = None
-
-# Thread-safe lock for metrics counters.
-# These sync functions may be called from the event loop thread OR from threads
-# spawned by run_in_executor, so threading.Lock is required (asyncio.Lock cannot
-# be awaited from sync code).
-# _TimeoutLock: acquire() raises RuntimeError after `timeout` seconds to surface
-# potential deadlocks instead of hanging indefinitely.
-class _TimeoutLock:
-    def __init__(self, timeout: float = 5.0):
-        self._lock = threading.Lock()
-        self._timeout = timeout
-
-    def __enter__(self):
-        if not self._lock.acquire(timeout=self._timeout):
-            logger.error("_metrics_lock acquire timeout after %.1fs — possible deadlock", self._timeout)
-            raise RuntimeError("_metrics_lock acquire timeout")
-        return self
-
-    def __exit__(self, *args):
-        self._lock.release()
-
-    # Compatibility shim used by code that calls acquire()/release() directly
-    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
-        t = timeout if timeout >= 0 else self._timeout
-        return self._lock.acquire(blocking=blocking, timeout=t)
-
-    def release(self):
-        self._lock.release()
-
-
-_metrics_lock = _TimeoutLock(timeout=1.0)
-
-def _get_admin_lock() -> asyncio.Lock:
-    """Returns the admin command lock, initializing it on first call.
-
-    Safe: all callers are in the same asyncio event loop (cooperative).
-    """
-    global _admin_command_lock
-    if _admin_command_lock is None:
-        _admin_command_lock = asyncio.Lock()
-    return _admin_command_lock
 
 def get_analysis_metrics():
     """Возвращает текущие метрики анализа для health endpoint"""
@@ -2561,7 +2483,7 @@ async def runtime_heartbeat_loop():
                         
                         # ========== REQUIREMENT 2: CHAOS INVARIANT ==========
                         # Если chaos был активен, фиксируем что переход через SAFE_MODE произошёл
-                        if _chaos_was_active:
+                        if cp_state.chaos["was_active"]:
                             logger.critical(
                                 "CHAOS_INVARIANT_SATISFIED: SAFE_MODE entered after chaos - incident_id=%s",
                                 incident_id
@@ -2846,7 +2768,6 @@ async def handle_chaos_inject():
     Body: {"type": "cross_lock_deadlock|sync_io_block|recursive_await|cpu_bound_loop", "duration": 300}
     """
     # GLOBAL STATE (intentional)
-    global _chaos_was_active
     # Проверка доступа (только в debug mode)
     chaos_enabled = os.environ.get("CHAOS_ENABLED", "false").lower() == "true"
     if not chaos_enabled:
@@ -2879,7 +2800,7 @@ async def handle_chaos_inject():
         # ========== REQUIREMENT 2: CHAOS INVARIANT ==========
         # Если chaos был активен И произошёл heartbeat miss:
         # система ОБЯЗАНА пройти через SAFE_MODE
-        _chaos_was_active = True
+        cp_state.chaos["was_active"] = True
         logger.critical(
             "CHAOS_INJECTION_TRIGGERED (invariant tracking enabled) incident_id=%s chaos_type=%s duration=%ss",
             incident_id, chaos_type.value, duration
@@ -2921,7 +2842,6 @@ async def handle_chaos_stop():
     - Если chaos был активен И произошёл heartbeat miss → SAFE_MODE обязателен
     """
     # GLOBAL STATE (intentional)
-    global _chaos_was_active
     chaos_enabled = os.environ.get("CHAOS_ENABLED", "false").lower() == "true"
     if not chaos_enabled:
         return 403, json.dumps({
@@ -2934,7 +2854,7 @@ async def handle_chaos_stop():
         
         # ========== REQUIREMENT 2: CHAOS INVARIANT ENFORCEMENT ==========
         # Если chaos был активен, проверяем что система прошла через SAFE_MODE
-        if _chaos_was_active and stopped:
+        if cp_state.chaos["was_active"] and stopped:
             if not system_state.system_health.safe_mode:
                 # ИНВАРИАНТ НАРУШЕН: chaos был активен, но система не в SAFE_MODE
                 # Принудительно активируем SAFE_MODE
@@ -2954,7 +2874,7 @@ async def handle_chaos_stop():
                 )
             
             # Сбрасываем флаг после проверки инварианта
-            _chaos_was_active = False
+            cp_state.chaos["was_active"] = False
         
         if stopped:
             return 200, json.dumps({

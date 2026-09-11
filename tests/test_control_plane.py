@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 import runner
+from control_plane import state as cp_state
 
 
 def call(handler):
@@ -74,8 +75,8 @@ def plane(monkeypatch):
     monkeypatch.setattr(runner, "_adaptive_system_state",
                         {"volatility_state": "MEDIUM", "adaptive_interval": None, "recovery_cycles": 0})
     monkeypatch.setattr(runner, "get_state_machine", lambda: machine)
-    monkeypatch.setattr(runner, "_admin_command_lock", None)  # asyncio.Lock — на цикл событий теста
-    monkeypatch.setattr(runner, "_chaos_was_active", False)
+    cp_state.reset_admin_lock()  # asyncio.Lock — на цикл событий теста
+    monkeypatch.setitem(cp_state.chaos, "was_active", False)
     monkeypatch.delenv("CHAOS_ENABLED", raising=False)
     return SimpleNamespace(state=state, machine=machine, metrics=metrics)
 
@@ -178,24 +179,25 @@ def test_chaos_injection_sets_the_flag_runtime_heartbeat_reads(plane, monkeypatc
     assert ("POST", "/admin/chaos/inject") in runner.build_http_routes()
     status, body = call(runner.handle_chaos_inject)
     assert status == 200 and json.loads(body)["incident_id"] == "inc-test"
-    assert runner._chaos_was_active is True
-    assert "_chaos_was_active" in runner.runtime_heartbeat_loop.__code__.co_names
+    assert cp_state.chaos["was_active"] is True
+    import inspect
+    assert 'cp_state.chaos["was_active"]' in inspect.getsource(runner.runtime_heartbeat_loop)
 
 
 def test_second_chaos_injection_is_a_conflict(plane, monkeypatch):
     monkeypatch.setenv("CHAOS_ENABLED", "true")
     monkeypatch.setattr(runner, "get_chaos_engine", lambda: FakeChaos(inject_error=RuntimeError("already active")))
     assert call(runner.handle_chaos_inject)[0] == 409
-    assert runner._chaos_was_active is False
+    assert cp_state.chaos["was_active"] is False
 
 
 def test_stopping_chaos_outside_safe_mode_enforces_it_and_resets_the_flag(plane, monkeypatch):
     monkeypatch.setenv("CHAOS_ENABLED", "true")
     monkeypatch.setattr(runner, "get_chaos_engine", lambda: FakeChaos(stopped=True))
-    runner._chaos_was_active = True
+    cp_state.chaos["was_active"] = True
     assert call(runner.handle_chaos_stop)[0] == 200
     assert plane.machine.transitions == [(runner.SystemStateEnum.SAFE_MODE, "handle_chaos_stop")]
-    assert runner._chaos_was_active is False
+    assert cp_state.chaos["was_active"] is False
 
 
 def test_stopping_without_active_chaos_is_404(plane, monkeypatch):
@@ -203,3 +205,14 @@ def test_stopping_without_active_chaos_is_404(plane, monkeypatch):
     monkeypatch.setattr(runner, "get_chaos_engine", lambda: FakeChaos(stopped=False))
     assert call(runner.handle_chaos_stop)[0] == 404
     assert plane.machine.transitions == []
+
+
+def test_runner_shares_the_very_same_state_objects():
+    """Шаг 6б: runner держит ссылки на объекты control_plane.state, а не копии."""
+    assert runner._analysis_metrics is cp_state.analysis_metrics
+    assert runner._prometheus_metrics is cp_state.prometheus_metrics
+    assert runner._adaptive_system_state is cp_state.adaptive_system_state
+    assert runner._control_plane_state is cp_state.control_plane_state
+    assert runner._metrics_lock is cp_state.metrics_lock
+    assert runner._get_admin_lock is cp_state.get_admin_lock
+    assert runner.ANALYSIS_DURATION_BUCKETS is cp_state.ANALYSIS_DURATION_BUCKETS
