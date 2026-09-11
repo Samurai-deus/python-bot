@@ -1040,23 +1040,14 @@ class Gatekeeper:
                 if system_state.system_health.safe_mode or system_state.system_health.consecutive_errors > 5:
                     system_health = SystemHealthStatus.DEGRADED
 
-            # H-19: Get recent trade outcomes for loss-streak detection
-            # MetaDecisionBrain expects List[float] (PnL values), not strings
+            # Исходы сделок мета-мозгу не передаются (11.09.2026). Его правило «больше 60 %
+            # последних сделок в минусе» брало 10 сделок за 7 дней — бумажные вперемешку с
+            # биржевыми, без окна по времени — и после серии убытков блокировало все входы:
+            # пока сделок нет, исходы не меняются, и блок держится, пока убытки не выйдут
+            # из 7 дней. Доля убыточных без выплаты к тому же не мера: при R:R 2,5 и 30 %
+            # прибыльных ожидание положительное. Серии убытков сдерживает Risk Core — серия
+            # в событиях, пауза не дольше 60 минут (core.risk_core.loss_streak).
             recent_outcomes = None
-            try:
-                import database as _db
-                closed_recent = _db.get_closed_trades(days=7)
-                if closed_recent:
-                    recent_outcomes = []
-                    for t in closed_recent[-10:]:
-                        pnl = t.get("pnl", 0) or t.get("net_pnl", 0)
-                        try:
-                            recent_outcomes.append(float(pnl))
-                        except (TypeError, ValueError):
-                            recent_outcomes.append(0.0)
-            except Exception:
-                logger.error("Failed to fetch recent_outcomes for MetaDecisionBrain", exc_info=True)
-                recent_outcomes = None
 
             # H-20: Compute time_context based on UTC hour
             from datetime import timezone as _tz
