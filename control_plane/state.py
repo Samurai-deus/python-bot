@@ -118,3 +118,75 @@ def reset_admin_lock() -> None:
     """Сбросить блокировку — для тестов: asyncio.Lock привязывается к циклу событий."""
     global _admin_command_lock
     _admin_command_lock = None
+
+
+# ---------------------------------------------------------------------------
+# Функции метрик (перенесены из runner.py на шаге 6в; runner держит прежние имена)
+# ---------------------------------------------------------------------------
+
+def get_analysis_metrics():
+    """Возвращает текущие метрики анализа для health endpoint"""
+    with metrics_lock:
+        return analysis_metrics.copy()
+
+
+def update_analysis_metrics(metrics_update: dict):
+    """Обновляет глобальные метрики анализа"""
+    with metrics_lock:
+        analysis_metrics.update(metrics_update)
+
+
+def get_prometheus_metrics():
+    """Возвращает текущие Prometheus метрики"""
+    with metrics_lock:
+        return prometheus_metrics.copy()
+
+
+def record_analysis_duration(duration: float):
+    """
+    Записывает длительность анализа в histogram buckets.
+
+    NON-BLOCKING: Просто обновляет счетчики в памяти.
+
+    Prometheus histogram buckets are cumulative:
+    - Each bucket counts all observations <= bucket value
+    - Values < smallest bucket are still counted in smallest bucket
+    """
+    with metrics_lock:
+        prometheus_metrics["analysis_duration_sum"] += duration
+        prometheus_metrics["analysis_duration_count"] += 1
+        for bucket in ANALYSIS_DURATION_BUCKETS:
+            if duration <= bucket:
+                prometheus_metrics["analysis_duration_buckets"][bucket] += 1
+
+
+def increment_scheduler_stalls():
+    """Увеличивает счетчик scheduler stalls (NON-BLOCKING)"""
+    with metrics_lock:
+        prometheus_metrics["scheduler_stalls_total"] += 1
+
+
+def increment_analysis_cycles():
+    """Увеличивает счетчик завершенных циклов анализа (NON-BLOCKING)"""
+    with metrics_lock:
+        prometheus_metrics["analysis_cycles_total"] += 1
+
+
+def get_adaptive_system_state():
+    """Возвращает текущее состояние адаптивной системы"""
+    return adaptive_system_state.copy()
+
+
+def update_volatility_state(volatility_level: str):
+    """Обновляет состояние волатильности (NON-BLOCKING)"""
+    # Нормализуем уровень волатильности: LOW, MEDIUM, HIGH
+    if volatility_level in ["LOW", "NORMAL", "MEDIUM", "HIGH", "EXTREME"]:
+        # Маппинг: LOW -> LOW, NORMAL/MEDIUM -> MEDIUM, HIGH/EXTREME -> HIGH
+        if volatility_level == "LOW":
+            new_state = "LOW"
+        elif volatility_level in ["NORMAL", "MEDIUM"]:
+            new_state = "MEDIUM"
+        else:  # HIGH, EXTREME
+            new_state = "HIGH"
+        with metrics_lock:
+            adaptive_system_state["volatility_state"] = new_state
