@@ -122,7 +122,8 @@ def verify_init_data(init_data: str, bot_token: str, max_age: int = INIT_DATA_MA
     except (ValueError, TypeError, KeyError):
         raise InitDataError("в initData нет корректного user.id")
 
-    return {**params, "user_id": user_id, "username": user.get("username")}
+    # init_hash — чтобы обмен на сессию мог пометить этот initData использованным
+    return {**params, "user_id": user_id, "username": user.get("username"), "init_hash": hash_value}
 
 
 def _dev_stub() -> dict:
@@ -136,6 +137,12 @@ async def verify_auth(request: Request) -> dict:
     """
     if auth_disabled("http"):
         return _dev_stub()
+
+    # Сессия (2.8) — основной способ. initData в заголовке пока тоже принимается:
+    # выкладка 1 из 3, открытое приложение и закэшированный фронт не ломаются.
+    authorization = request.headers.get("Authorization", "")
+    if authorization.startswith("Bearer "):
+        return await _session_user(authorization[len("Bearer "):].strip())
 
     init_data = request.headers.get("X-Telegram-Init-Data")
     if not init_data:
@@ -172,6 +179,49 @@ async def verify_admin(request: Request) -> dict:
     return user
 
 
+
+async def _session_user(token: str) -> dict:
+    """Пользователь по токену сессии; допуск перепроверяется на каждом запросе."""
+    from api.sessions import SessionUnavailable, get_store, is_session_token
+    if not is_session_token(token):
+        raise HTTPException(status_code=401, detail="Invalid session")
+    try:
+        record = await get_store().resolve(token)
+    except SessionUnavailable as exc:
+        logger.error("verify_auth: хранилище сессий недоступно: %s", exc)
+        raise HTTPException(status_code=503, detail="Session service unavailable")
+    if record is None:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    user = {"user_id": int(record["user_id"]), "username": record.get("username"), "session": True}
+    if not principals.is_allowed(user["user_id"]):
+        # доступ отозван в конфиге — прежняя сессия больше не пускает
+        logger.warning("verify_auth: сессия user_id=%s — пользователь больше не допущен", user["user_id"])
+        raise HTTPException(status_code=403, detail="Access denied")
+    return user
+
+
+async def verify_admin_fresh(request: Request) -> dict:
+    """
+    verify_admin плюс initData того же пользователя не старше 10 минут — для
+    записи ключей биржи. Даже украденная сессия (или initData, утёкший час назад)
+    ключи не меняет: для этого нужно только что открытое приложение владельца.
+    """
+    user = await verify_admin(request)
+    if user.get("dev"):
+        return user
+    from api.sessions import STEP_UP_MAX_AGE
+    try:
+        fresh = verify_init_data(request.headers.get("X-Telegram-Init-Data") or "",
+                                 env_str("TELEGRAM_BOT_TOKEN"), max_age=STEP_UP_MAX_AGE)
+    except InitDataError as exc:
+        logger.info("verify_admin_fresh: нет свежего initData — %s", exc)
+        raise HTTPException(status_code=403, detail="Fresh Telegram InitData required")
+    if fresh["user_id"] != user["user_id"]:
+        logger.warning("verify_admin_fresh: initData другого пользователя (%s ≠ %s)", fresh["user_id"], user["user_id"])
+        raise HTTPException(status_code=403, detail="Fresh Telegram InitData required")
+    return user
+
+
 def ws_user(init_data: str) -> Optional[dict]:
     """
     Пользователь WebSocket: подпись, свежесть и допуск — или None. Раньше
@@ -195,3 +245,18 @@ def ws_user(init_data: str) -> Optional[dict]:
 def verify_ws_token(init_data: str) -> bool:
     """Проверка initData для WebSocket (см. ws_user)."""
     return ws_user(init_data) is not None
+
+
+async def ws_user_async(token: str) -> Optional[dict]:
+    """Пользователь WebSocket: токен сессии (2.8) или, пока идёт переход, initData."""
+    from api.sessions import SessionUnavailable, get_store, is_session_token
+    if auth_disabled("ws") or not is_session_token(token):
+        return ws_user(token)
+    try:
+        record = await get_store().resolve(token)
+    except SessionUnavailable as exc:
+        logger.error("ws: хранилище сессий недоступно: %s", exc)
+        return None
+    if record is None or not principals.is_allowed(record["user_id"]):
+        return None
+    return {"user_id": int(record["user_id"]), "username": record.get("username"), "session": True}

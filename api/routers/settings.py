@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 import config
 import database
-from api.deps import run_sync, verify_auth, verify_admin
+from api.deps import run_sync, verify_auth, verify_admin, verify_admin_fresh
 from api.models import SettingItem, SettingsResponse, UpdateSettingsRequest
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -189,7 +189,7 @@ async def list_keys(_user=Depends(verify_auth)):
 
 
 @router.put("/keys", response_model=KeysResponse)
-async def store_keys(body: StoreKeysRequest, user=Depends(verify_admin)):
+async def store_keys(body: StoreKeysRequest, user=Depends(verify_admin_fresh)):
     """
     Encrypt and store Bybit API credentials in the database.
 

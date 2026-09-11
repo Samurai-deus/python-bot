@@ -44,6 +44,18 @@ def status(headers: dict) -> int:
         return exc.code
 
 
+
+def exchange(init: str):
+    """POST /api/auth/session → (HTTP-код, тело)."""
+    request = urllib.request.Request(BASE + "/api/auth/session", method="POST",
+                                     headers={"X-Telegram-Init-Data": init})
+    try:
+        response = urllib.request.urlopen(request, timeout=10)
+        return response.status, json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        return exc.code, {}
+
+
 def main() -> int:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     owner = os.environ.get("ADMIN_CHAT_ID", "")
@@ -60,6 +72,20 @@ def main() -> int:
     ok = True
     for name, headers, expected in checks:
         got = status(headers)
+        mark = "ok" if got == expected else "ОШИБКА"
+        print(f"  {mark}  {name}: {got} (ждали {expected})")
+        ok = ok and got == expected
+    # Сессия (2.8): обмен initData владельца → токен; токен пускает; повтор того
+    # же initData — 401. Сам токен не печатается.
+    owner_init = init_data(owner_id, token)
+    code, body = exchange(owner_init)
+    session = body.get("token", "") if code == 200 else ""
+    session_checks = [
+        ("обмен initData на сессию", code, 200),
+        ("вход по сессии", status({"Authorization": "Bearer " + session}) if session else 0, 200),
+        ("повторный обмен того же initData", exchange(owner_init)[0], 401),
+    ]
+    for name, got, expected in session_checks:
         mark = "ok" if got == expected else "ОШИБКА"
         print(f"  {mark}  {name}: {got} (ждали {expected})")
         ok = ok and got == expected

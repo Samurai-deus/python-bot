@@ -8,7 +8,7 @@ from datetime import datetime, UTC
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from api.deps import ws_user
+from api.deps import ws_user_async
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +177,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4001, reason="Auth error")
         return
 
-    user = ws_user(token)
+    user = await ws_user_async(token)
     if user is None:
         await ws.close(code=4001, reason="Unauthorized")
         return

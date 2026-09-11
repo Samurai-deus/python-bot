@@ -104,7 +104,7 @@ def create_app() -> FastAPI:
     enforce_security_config()
     _init_sentry()
 
-    from api.routers import analytics, positions, settings, signals, system, ws
+    from api.routers import analytics, auth, positions, settings, signals, system, ws
 
     production = is_production()
     app = FastAPI(
@@ -131,11 +131,12 @@ def create_app() -> FastAPI:
         allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT"],
-        allow_headers=["Content-Type", "X-Telegram-Init-Data"],
+        allow_headers=["Content-Type", "X-Telegram-Init-Data", "Authorization"],
     )
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(IPWhitelistMiddleware)
 
+    app.include_router(auth.router)
     app.include_router(system.router)
     app.include_router(positions.router)
     app.include_router(signals.router)
