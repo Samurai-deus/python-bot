@@ -71,7 +71,7 @@ def test_exposure_consumers_use_the_remainder(path):
 
 def test_paper_monitor_keeps_the_database_off_the_event_loop():
     import ast
-    text = (ROOT / "runner.py").read_text(encoding="utf-8")
+    text = (ROOT / "loops" / "paper_monitor.py").read_text(encoding="utf-8")
     node = next(n for n in ast.walk(ast.parse(text))
                 if isinstance(n, ast.AsyncFunctionDef) and n.name == "paper_trading_monitor_loop")
     src = ast.get_source_segment(text, node)

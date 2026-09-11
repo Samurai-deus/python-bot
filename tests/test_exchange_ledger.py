@@ -184,9 +184,9 @@ def test_no_paper_trade_next_to_a_real_order():
 
 
 def test_paper_monitor_idles_in_real_orders_mode():
-    src = _function("runner.py", "paper_trading_monitor_loop")
+    src = _function("loops/paper_monitor.py", "paper_trading_monitor_loop")
     guard = src.index("if sends_real_orders():")
-    assert guard < src.index("await shutdown_evt.wait()") < src.index("while system_state")
+    assert guard < src.index("await shutdown_evt.wait()") < src.index("while get_state()")
 
 
 def test_startup_reconciles_and_pauses_on_failure():
