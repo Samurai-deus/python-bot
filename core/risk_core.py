@@ -167,6 +167,11 @@ class RiskCoreConfig:
     loss_retry_cooldown_minutes: int = 60  # Cooldown after loss
     action_cooldown_seconds: int = 60      # Cooldown between actions
     
+    # Portfolio risk invariants (шаг 2 плана обучения, 11.09.2026)
+    max_open_positions: int = 6        # открытых позиций одновременно
+    max_open_risk_pct: float = 6.0     # суммарный риск открытых сделок вместе с новой, % баланса
+    max_group_risk_pct: float = 3.0    # риск коррелирующей группы в одном направлении, % баланса
+
     # Systemic invariants
     max_consecutive_errors: int = 5
 
@@ -517,7 +522,49 @@ class RiskCore:
                         RiskState.LOCKED,
                         key=lambda s: self._state_severity(s)
                     )
-    
+
+        # Портфель по риску (шаг 2 плана обучения, 11.09.2026). Риск сделки — номинал ×
+        # расстояние до стопа / вход; позиция без стопа — весь номинал.
+        def position_risk(size_usd, entry, stop):
+            if entry <= 0 or stop <= 0:
+                return size_usd
+            return size_usd * abs(entry - stop) / entry
+
+        def escalate(invariant, message):
+            violation_report.violations.append(message)
+            violation_report.violated_invariants.append(invariant)
+            violation_report.highest_severity_state = max(
+                violation_report.highest_severity_state,
+                RiskState.LOCKED,
+                key=lambda s: self._state_severity(s)
+            )
+
+        open_count = len(exposure.open_positions)
+        if open_count >= self.config.max_open_positions:
+            escalate("PORTFOLIO_OPEN_POSITIONS",
+                     f"Portfolio invariant violated: Open positions {open_count} >= {self.config.max_open_positions}")
+
+        new_risk = position_risk(intent.position_size_usd, intent.entry_price, intent.stop_price)
+        open_risk = sum(position_risk(p.position_size_usd, p.entry_price, p.stop_price)
+                        for p in exposure.open_positions)
+        total_risk_pct = ((open_risk + new_risk) / balance * 100) if balance > 0 else 0
+        if total_risk_pct > self.config.max_open_risk_pct:
+            escalate("PORTFOLIO_OPEN_RISK",
+                     f"Portfolio invariant violated: Open risk {total_risk_pct:.2f}% > {self.config.max_open_risk_pct}%")
+
+        for group_name, symbols in exposure.correlation_groups.items():
+            if intent.symbol in symbols:
+                group_risk = new_risk + sum(
+                    position_risk(p.position_size_usd, p.entry_price, p.stop_price)
+                    for p in exposure.open_positions
+                    if p.symbol in symbols and p.side == intent.side
+                )
+                group_risk_pct = (group_risk / balance * 100) if balance > 0 else 0
+                if group_risk_pct > self.config.max_group_risk_pct:
+                    escalate("PORTFOLIO_GROUP_RISK",
+                             f"Portfolio invariant violated: Group '{group_name}' risk {group_risk_pct:.2f}% "
+                             f"> {self.config.max_group_risk_pct}%")
+
     def _check_behavioral_invariants(
         self,
         behavioral: BehavioralCounters,
@@ -751,6 +798,23 @@ class RiskCore:
 
 # ========== GLOBAL INSTANCE ==========
 
+def config_from_settings() -> RiskCoreConfig:
+    """
+    Пределы Risk Core процесса — из config.py (переопределяются окружением). Значения
+    RiskCoreConfig по умолчанию — исходные ADR (10/50/30 % номинала) — остаются для
+    тестов инвариантов; процесс живёт по риск-модели плана обучения (11.09.2026).
+    """
+    import config
+    return RiskCoreConfig(
+        max_single_position_pct=config.RISK_MAX_SINGLE_POSITION_PCT,
+        max_aggregate_exposure_pct=config.RISK_MAX_AGGREGATE_EXPOSURE_PCT,
+        max_correlated_group_pct=config.RISK_MAX_CORRELATED_GROUP_PCT,
+        max_open_positions=config.RISK_MAX_OPEN_POSITIONS,
+        max_open_risk_pct=config.RISK_MAX_OPEN_RISK_PCT,
+        max_group_risk_pct=config.RISK_MAX_GROUP_RISK_PCT,
+    )
+
+
 _risk_core: Optional[RiskCore] = None
 
 
@@ -758,6 +822,6 @@ def get_risk_core(config: Optional[RiskCoreConfig] = None) -> RiskCore:
     """Get global Risk Core instance."""
     global _risk_core
     if _risk_core is None:
-        _risk_core = RiskCore(config)
+        _risk_core = RiskCore(config or config_from_settings())
     return _risk_core
 

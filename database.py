@@ -1472,6 +1472,27 @@ def get_open_margin() -> float:
         conn.close()
 
 
+def get_open_risk_usd() -> float:
+    """
+    Суммарный риск открытых сделок: номинал (после частичного закрытия — остаток) ×
+    расстояние до стопа / вход. Сделка без стопа — весь номинал: её убыток ничем не
+    ограничен.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q("SELECT COALESCE(SUM("
+               "(CASE WHEN partial_closed = 1 THEN position_size * ? ELSE position_size END) * "
+               "(CASE WHEN stop IS NULL OR stop <= 0 OR entry <= 0 THEN 1.0 ELSE ABS(entry - stop) / entry END)"
+               "), 0) AS total FROM trades WHERE status = 'OPEN' AND position_size IS NOT NULL"),
+            (1 - PARTIAL_CLOSE_FRACTION,),
+        )
+        return float(cursor.fetchone()["total"] or 0.0)
+    finally:
+        conn.close()
+
+
 def count_open_trades(on_exchange: bool) -> int:
     """
     Открытые сделки журнала: биржевые (есть exchange_order_id или позиция взята

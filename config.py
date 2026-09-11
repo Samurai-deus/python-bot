@@ -70,4 +70,15 @@ RISK_PERCENT = _env_float("RISK_PERCENT", 2.0)
 # market_data.instrument_limits; это значение — ранний отсев.
 MIN_POSITION_SIZE = _env_float("MIN_POSITION_SIZE_USDT", 5.0)
 MAX_POSITION_SIZE = _env_float("MAX_POSITION_SIZE_USDT", 1000.0)
+# Пределы Risk Core процесса (шаг 2 плана обучения на демо-счёте, 11.09.2026). Размер
+# сделки задаёт риск (RISK_PERCENT от капитала до стопа), портфель ограничен числом
+# позиций и суммарным риском. Номинальные пределы — под позиции с плечом: при риске
+# 1 % и стопе 2 % номинал сделки — половина капитала. Прежние 10/50/30 % номинала при
+# 100 $ давали сделки по 10 $ и отказ почти каждому следующему сигналу.
+RISK_MAX_SINGLE_POSITION_PCT = _env_float("RISK_MAX_SINGLE_POSITION_PCT", 100.0)
+RISK_MAX_AGGREGATE_EXPOSURE_PCT = _env_float("RISK_MAX_AGGREGATE_EXPOSURE_PCT", 300.0)
+RISK_MAX_CORRELATED_GROUP_PCT = _env_float("RISK_MAX_CORRELATED_GROUP_PCT", 150.0)
+RISK_MAX_OPEN_POSITIONS = int(_env_float("RISK_MAX_OPEN_POSITIONS", 6))
+RISK_MAX_OPEN_RISK_PCT = _env_float("RISK_MAX_OPEN_RISK_PCT", 6.0)
+RISK_MAX_GROUP_RISK_PCT = _env_float("RISK_MAX_GROUP_RISK_PCT", 3.0)
 POSITION_ALLOCATION_PERCENT = 3.0  # Base % of available capital to allocate per trade (professional: 1-3%)

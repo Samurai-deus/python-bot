@@ -646,10 +646,10 @@ step_mode() {
     demo)
       grep -qE '^BYBIT_API_KEY=[A-Za-z0-9]+$' "$APP/.env" \
         || { echo "  в .env нет ключа Bybit — сначала deploy.sh bybit-key"; exit 1; }
-      pairs="PAPER_TRADING=false DRY_RUN=false LIVE_TRADING=false BYBIT_TESTNET=false BYBIT_DEMO=true REAL_CAPITAL_CAP_USDT=100"
+      pairs="PAPER_TRADING=false DRY_RUN=false LIVE_TRADING=false BYBIT_TESTNET=false BYBIT_DEMO=true REAL_CAPITAL_CAP_USDT=100 RISK_PERCENT=1"
       expected=TESTNET; others=False ;;
     paper)
-      pairs="PAPER_TRADING=true DRY_RUN=true LIVE_TRADING=false BYBIT_TESTNET=false BYBIT_DEMO=false REAL_CAPITAL_CAP_USDT=0"
+      pairs="PAPER_TRADING=true DRY_RUN=true LIVE_TRADING=false BYBIT_TESTNET=false BYBIT_DEMO=false REAL_CAPITAL_CAP_USDT=0 RISK_PERCENT=2"
       expected=PAPER_TRADING; others=True ;;
     *) echo "  использование: deploy.sh mode demo|paper"; exit 2 ;;
   esac
