@@ -122,5 +122,5 @@ docker start market-bot market-bot-api
    `/tmp/market-bot-deploy/`, затем `deploy.sh bybit-key` — ключ проверяется на
    демо-бирже до записи в `.env`, режим не меняется.
 3. `deploy.sh mode demo` — ордера уходят на демо-счёт, капитал виден как счёт в
-   100 $ (`REAL_CAPITAL_CAP_USDT`), своя база капитала `DEMO`; обратно —
+   1000 $ (`REAL_CAPITAL_CAP_USDT`), своя база капитала `DEMO`; обратно —
    `deploy.sh mode paper`.

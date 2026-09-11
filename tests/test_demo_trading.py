@@ -229,7 +229,7 @@ def test_bybit_key_step_checks_the_demo_exchange_before_editing_env_and_hides_th
 def test_mode_step_refuses_demo_without_keys_and_records_the_expected_mode():
     step = step_body(SCRIPT, "step_mode")
     assert step.index("^BYBIT_API_KEY=") < step.index("--force-recreate"), "без ключа в демо не переключаемся"
-    assert "BYBIT_DEMO=true REAL_CAPITAL_CAP_USDT=100" in step and "PAPER_TRADING=false" in step
+    assert "BYBIT_DEMO=true REAL_CAPITAL_CAP_USDT=1000" in step and "PAPER_TRADING=false" in step
     assert "PAPER_TRADING=true" in step and "BYBIT_DEMO=false" in step, "обратный путь — mode paper"
     assert "trading_mode.expected" in step
     assert 'mode)    step_mode "$@"' in SCRIPT
