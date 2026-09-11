@@ -47,7 +47,7 @@ def opinion_error():
 def test_the_review_asks_for_enough_tokens(db, key, offline_market):
     calls = []
     worker.process(job(), transport=openrouter(opinion_json(), calls=calls), notify=lambda text: None)
-    assert calls[0]["max_tokens"] == worker.REVIEW_MAX_TOKENS >= 1500
+    assert calls[0]["max_tokens"] == worker.REVIEW_MAX_TOKENS >= 2500, "JSON ~450 символов + скрытое рассуждение"
 
 
 def test_a_cut_off_answer_is_recorded_as_truncated(db, key, offline_market):
