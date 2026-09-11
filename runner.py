@@ -49,7 +49,7 @@ from error_alert import error_alert
 from telegram_bot import send_message, send_message_async
 from health_monitor import send_heartbeat, send_heartbeat_async, HEARTBEAT_INTERVAL
 from utils import liveness
-from loops import monitors, periodic
+from loops import monitors, paper_monitor, periodic
 
 # Новые модули для контролируемой архитектуры
 from chaos_engine import get_chaos_engine, ChaosType
@@ -2626,97 +2626,6 @@ def _is_running() -> bool:
     return system_state.system_health.is_running
 
 
-async def paper_trading_monitor_loop():
-    """
-    Мониторинг бумажных сделок — проверяет SL/TP каждые 60 секунд.
-
-    Независим от signal_generator: работает постоянно, пока есть открытые сделки.
-    При достижении SL/TP — закрывает сделку и отправляет отчёт в Telegram.
-    """
-    logger.info("📄 Paper trading monitor started")
-    from paper_fills import CandleWatermark
-    paper_watermark = CandleWatermark()
-    shutdown_evt = get_shutdown_event()
-    from trading_mode import sends_real_orders
-    if sends_real_orders():
-        # В TESTNET/LIVE сделки ведёт биржа, строки журнала закрывает трекер позиций
-        # (execution/exchange_ledger.py). Задача остаётся живой: завершившуюся
-        # задачу супервизор счёл бы сбоем.
-        logger.info("📄 Бумажный монитор простаивает: режим с реальными ордерами")
-        await shutdown_evt.wait()
-        return
-
-    while system_state.system_health.is_running and not shutdown_evt.is_set():
-        try:
-            from trade_manager import check_trades, get_open_trades
-            from trade_reporter import generate_trade_report
-            from data_loader import get_candles
-
-            # База — в пуле потоков: синхронный запрос в async-функции держал весь цикл событий.
-            open_trades = await asyncio.to_thread(get_open_trades)
-            if open_trades:
-                # Собираем уникальные символы с открытыми сделками
-                symbols_to_check = list({t["symbol"] for t in open_trades})
-
-                for symbol in symbols_to_check:
-                    try:
-                        candles = await asyncio.to_thread(get_candles, symbol, "5", 1)
-                        if candles:
-                            candle = candles[-1]
-                            current_price = float(candle[4])  # close price
-                            # Экстремумы — только появившиеся после прошлой проверки:
-                            # минимум, случившийся до подтягивания трейлинга, раньше
-                            # закрывал сделку по новому стопу задним числом.
-                            fresh_low, fresh_high = paper_watermark.fresh_extremes(
-                                symbol, candle[0], float(candle[3]), float(candle[2]))
-
-                            # Обновляем кэш цен для WS snapshot (Mini App progress bar)
-                            try:
-                                import price_cache as _pc
-                                _pc.update(symbol, current_price)
-                            except Exception:
-                                logger.debug("Failed to update price_cache for %s", symbol, exc_info=True)
-                            closed = await asyncio.to_thread(
-                                check_trades, symbol, current_price, low=fresh_low, high=fresh_high)
-                            for closed_trade in closed:
-                                trade_pnl = closed_trade.get("pnl", 0)
-                                logger.info(
-                                    "[PAPER] Trade closed: %s %s @ %.4f (%s) pnl=%.2f",
-                                    symbol, closed_trade.get("side"), closed_trade.get("close_price", current_price),
-                                    closed_trade.get("close_reason"), trade_pnl,
-                                )
-                                # Сбрасываем кэш сигнала И cooldown для символа,
-                                # чтобы следующий цикл мог снова генерировать сигналы.
-                                # reset_signal_cooldown clears both _trend_signal_timestamps
-                                # (4h cooldown) and signal_cache (state dedup).
-                                system_state.reset_signal_cooldown(symbol)
-                                # Не отправляем отчёт если PnL фактически нулевой
-                                # (breakeven exit или time exit при ~0 движении)
-                                if abs(trade_pnl) < 0.01:
-                                    logger.info("[PAPER] Skipping report for %s: PnL=%.4f (negligible)", symbol, trade_pnl)
-                                    continue
-                                try:
-                                    await asyncio.to_thread(generate_trade_report, closed_trade)
-                                except Exception as report_err:
-                                    logger.warning("[PAPER] Failed to send trade report: %s", report_err)
-                    except Exception as sym_err:
-                        logger.warning("[PAPER] Error checking %s: %s", symbol, sym_err)
-
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error("[PAPER] Monitor loop error: %s", e, exc_info=True)
-
-        # Poll every 15s to catch flash crashes (was 60s — too slow)
-        try:
-            await asyncio.wait_for(shutdown_evt.wait(), timeout=15.0)
-            break  # shutdown_evt сработал
-        except asyncio.TimeoutError:
-            pass  # Нормальный timeout — продолжаем цикл
-
-    logger.info("📄 Paper trading monitor stopped")
-
-
 async def synthetic_decision_tick_loop():
     """
     Synthetic decision tick - периодически выполняет decision pipeline
@@ -4267,7 +4176,7 @@ async def main():
             "SafeModeTTLMonitor"
         ),
         register_task(
-            asyncio.create_task(paper_trading_monitor_loop(), name="PaperTradingMonitor"),
+            asyncio.create_task(paper_monitor.paper_trading_monitor_loop(_state, get_shutdown_event()), name="PaperTradingMonitor"),
             "PaperTradingMonitor"
         ),
         register_task(
