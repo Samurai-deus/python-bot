@@ -68,6 +68,25 @@ def _signal_times(signals) -> list:
     return out
 
 
+# Окно правила перегрузки MetaDecisionBrain (SOFT BLOCK при > 10 сигналов «за период»).
+META_OVERTRADING_WINDOW_SECONDS = 3600
+
+
+def _recent_signal_count(system_state, now=None) -> int:
+    """
+    Сколько сигналов отправлено за окно META_OVERTRADING_WINDOW_SECONDS.
+
+    До 11.09.2026 здесь была длина system_state.recent_signals целиком. Список по
+    времени не чистится и возвращается из снимка состояния при старте: после 11
+    отправленных 10.09 сигналов правило «> 10 за период» блокировало каждый
+    следующий сигнал, перезапуски не помогали — сделки встали на сутки.
+    """
+    signals = getattr(system_state, "recent_signals", []) if system_state else []
+    now = now or datetime.now(UTC)
+    return sum(1 for t in _signal_times(signals)
+               if (now - t).total_seconds() < META_OVERTRADING_WINDOW_SECONDS)
+
+
 class Gatekeeper:
     """
     Gatekeeper проверяет все сигналы через Decision Core.
@@ -1001,7 +1020,7 @@ class Gatekeeper:
                 portfolio_exposure = 0.0
 
             # Получаем signals_count_recent из system_state
-            signals_count_recent = len(system_state.recent_signals) if system_state and hasattr(system_state, 'recent_signals') else 0
+            signals_count_recent = _recent_signal_count(system_state)
 
             # Преобразуем system_health в SystemHealthStatus
             system_health = SystemHealthStatus.OK
