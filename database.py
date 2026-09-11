@@ -279,20 +279,27 @@ _SIGNAL_JOURNAL_COLUMNS = (
     ("reason", "TEXT"),
     ("strategy", "TEXT"),
     ("score", "REAL"),
+    ("version", "TEXT"),  # метка версии (Ф0 плана трейдера)
 )
 
 
-def _ensure_signal_journal_columns(cursor) -> None:
+def _add_missing_columns(cursor, table: str, columns) -> None:
+    """Добавить к существующей таблице недостающие колонки (обе БД)."""
     if _PG_MODE:
-        for name, kind in _SIGNAL_JOURNAL_COLUMNS:
-            cursor.execute(f"ALTER TABLE signal_journal ADD COLUMN IF NOT EXISTS {name} {kind}")
-    else:
-        cursor.execute("PRAGMA table_info(signal_journal)")
-        present = {row[1] for row in cursor.fetchall()}
-        for name, kind in _SIGNAL_JOURNAL_COLUMNS:
-            if name not in present:
-                cursor.execute(f"ALTER TABLE signal_journal ADD COLUMN {name} {kind}")
+        for name, kind in columns:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {kind}")
+        return
+    cursor.execute(f"PRAGMA table_info({table})")
+    present = {row[1] for row in cursor.fetchall()}
+    for name, kind in columns:
+        if name not in present:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+
+
+def _ensure_signal_journal_columns(cursor) -> None:
+    _add_missing_columns(cursor, "signal_journal", _SIGNAL_JOURNAL_COLUMNS)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_journal_status ON signal_journal(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_journal_version ON signal_journal(version)")
 
 
 def _init_pg_schema(conn) -> None:
@@ -334,6 +341,8 @@ def _init_pg_schema(conn) -> None:
         "strategy_name": "TEXT",
         "original_stop": "REAL",
         "exchange_order_id": "TEXT",
+        "version": "TEXT",  # метка версии (Ф0 плана трейдера, core/release.py)
+        "mode": "TEXT",  # PAPER / TESTNET / DEMO / LIVE
     }
     for col_name, col_type in _ALLOWED_COLUMNS.items():
         try:
@@ -579,6 +588,8 @@ def _init_database(conn) -> None:
         "strategy_name": "TEXT",
         "original_stop": "REAL",
         "exchange_order_id": "TEXT",
+        "version": "TEXT",  # метка версии (Ф0 плана трейдера, core/release.py)
+        "mode": "TEXT",  # PAPER / TESTNET / DEMO / LIVE
     }
     for col_name, col_type in _ALLOWED_COLUMNS_SQLITE.items():
         if col_name not in _ALLOWED_COLUMNS_SQLITE:
@@ -796,6 +807,19 @@ if _PG_MODE:
 # ============================================================================
 
 
+def _data_version() -> str:
+    """Метка версии для записей (Ф0 плана трейдера): «коммит релиза-хеш настроек»."""
+    from core.release import version
+    return version()
+
+
+def _trade_mode() -> str:
+    """Режим, в котором открыта сделка: PAPER, TESTNET, DEMO или LIVE."""
+    from trading_mode import get_trading_mode, uses_demo_endpoint
+    mode = get_trading_mode().value
+    return "DEMO" if mode == "TESTNET" and uses_demo_endpoint() else mode
+
+
 def add_trade(
     symbol: str,
     side: str,
@@ -815,10 +839,11 @@ def add_trade(
         trade_id = _exec_insert(
             cursor,
             """
-            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage, strategy_name, original_stop, exchange_order_id)
-            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)
+            INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, position_size, leverage, strategy_name, original_stop, exchange_order_id, version, mode)
+            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?)
             """,
-            (timestamp, symbol, side, entry, stop, target, position_size, leverage, strategy_name, stop, exchange_order_id),
+            (timestamp, symbol, side, entry, stop, target, position_size, leverage, strategy_name, stop, exchange_order_id,
+             _data_version(), _trade_mode()),
         )
         conn.commit()
     finally:
@@ -1332,6 +1357,7 @@ def _ensure_ai_tables(cursor) -> None:
         " created_at TEXT NOT NULL,"
         " PRIMARY KEY (signal_ts, symbol))"
     )
+    _add_missing_columns(cursor, "ai_opinions", (("version", "TEXT"),))
 
 
 def record_ai_usage(day: str, purpose: str, model: str, prompt_tokens: int,
@@ -1370,7 +1396,7 @@ def save_ai_opinion(signal_ts: str, symbol: str, side, stage, model, decision, s
     import json
     fields = (side, stage, model, decision, size_multiplier, confidence,
               json.dumps(list(reasons or []), ensure_ascii=False), key_risk, cost_usd, latency_ms, error,
-              datetime.now(UTC).isoformat())
+              datetime.now(UTC).isoformat(), _data_version())
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -1378,14 +1404,14 @@ def save_ai_opinion(signal_ts: str, symbol: str, side, stage, model, decision, s
         cursor.execute(
             _q("UPDATE ai_opinions SET side = ?, stage = ?, model = ?, decision = ?, size_multiplier = ?, "
                "confidence = ?, reasons = ?, key_risk = ?, cost_usd = ?, latency_ms = ?, error = ?, "
-               "created_at = ? WHERE signal_ts = ? AND symbol = ?"),
+               "created_at = ?, version = ? WHERE signal_ts = ? AND symbol = ?"),
             fields + (signal_ts, symbol),
         )
         if cursor.rowcount == 0:
             cursor.execute(
                 _q("INSERT INTO ai_opinions (side, stage, model, decision, size_multiplier, confidence, reasons, "
-                   "key_risk, cost_usd, latency_ms, error, created_at, signal_ts, symbol) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+                   "key_risk, cost_usd, latency_ms, error, created_at, version, signal_ts, symbol) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
                 fields + (signal_ts, symbol),
             )
         conn.commit()
@@ -1519,29 +1545,32 @@ def get_open_risk_usd() -> float:
         conn.close()
 
 
-# Сделка на бирже: есть exchange_order_id или позиция взята с биржи при сверке.
+# Сделка на бирже: есть exchange_order_id, позиция взята с биржи при сверке или режим
+# сделки — с реальными ордерами (колонка mode с 11.09.2026; у старых строк её нет).
 _EXCHANGE_TRADE = ("(COALESCE(exchange_order_id, '') <> '' "
-                   "OR COALESCE(strategy_name, '') = 'adopted_from_exchange')")
+                   "OR COALESCE(strategy_name, '') = 'adopted_from_exchange' "
+                   "OR COALESCE(mode, '') IN ('TESTNET', 'DEMO', 'LIVE'))")
 
 
-def get_closed_trades_since(since_iso: str, on_exchange: bool) -> List[Dict]:
+def get_closed_trades_since(since_iso: str, on_exchange: bool, version: Optional[str] = None) -> List[Dict]:
     """Сделки режима (биржевые или бумажные), закрытые начиная с since_iso."""
     condition = _EXCHANGE_TRADE if on_exchange else f"NOT {_EXCHANGE_TRADE}"
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+        by_version = " AND version = ?" if version else ""
         cursor.execute(
             _q("SELECT symbol, side, strategy_name, entry, stop, original_stop, position_size, pnl, "
-               "close_reason, updated_at FROM trades "
-               f"WHERE status = 'CLOSED' AND updated_at >= ? AND {condition} ORDER BY updated_at"),
-            (since_iso,),
+               "close_reason, updated_at, version FROM trades "
+               f"WHERE status = 'CLOSED' AND updated_at >= ? AND {condition}{by_version} ORDER BY updated_at"),
+            (since_iso, version) if version else (since_iso,),
         )
         return [dict(r) for r in cursor.fetchall()]
     finally:
         conn.close()
 
 
-def get_ai_verdicts(since_iso: str) -> List[Dict]:
+def get_ai_verdicts(since_iso: str, version: Optional[str] = None) -> List[Dict]:
     """Мнения ИИ по сигналам начиная с since_iso: решение, судьба сигнала, R:R и исход по свечам."""
     conn = get_db_connection()
     try:
@@ -1551,8 +1580,8 @@ def get_ai_verdicts(since_iso: str) -> List[Dict]:
             _q("SELECT o.decision, o.error, j.status, j.rr_ratio, so.outcome FROM ai_opinions o "
                "LEFT JOIN signal_journal j ON j.timestamp = o.signal_ts AND j.symbol = o.symbol "
                "LEFT JOIN signal_outcomes so ON so.signal_ts = o.signal_ts AND so.symbol = o.symbol "
-               "WHERE o.signal_ts >= ?"),
-            (since_iso,),
+               "WHERE o.signal_ts >= ?" + (" AND o.version = ?" if version else "")),
+            (since_iso, version) if version else (since_iso,),
         )
         rows = [dict(r) for r in cursor.fetchall()]
         conn.commit()
@@ -1561,7 +1590,7 @@ def get_ai_verdicts(since_iso: str) -> List[Dict]:
     return rows
 
 
-def get_signal_fates(since_iso: str) -> List[Dict]:
+def get_signal_fates(since_iso: str, version: Optional[str] = None) -> List[Dict]:
     """Сигналы журнала с судьбой начиная с since_iso и их исходы по свечам (None — ещё нет)."""
     conn = get_db_connection()
     try:
@@ -1570,8 +1599,8 @@ def get_signal_fates(since_iso: str) -> List[Dict]:
             _q("SELECT j.status, j.reason_code, j.strategy, j.rr_ratio, o.outcome "
                "FROM signal_journal j LEFT JOIN signal_outcomes o "
                "ON o.signal_ts = j.timestamp AND o.symbol = j.symbol "
-               "WHERE j.timestamp >= ? AND j.status IS NOT NULL"),
-            (since_iso,),
+               "WHERE j.timestamp >= ? AND j.status IS NOT NULL" + (" AND j.version = ?" if version else "")),
+            (since_iso, version) if version else (since_iso,),
         )
         return [dict(r) for r in cursor.fetchall()]
     finally:
@@ -2312,7 +2341,7 @@ def get_outcomes_for_analysis(days: int = 30) -> List[Dict]:
 _SIGNAL_JOURNAL_FIELDS = (
     "timestamp", "symbol", "state_1h", "state_30m", "state_15m", "state_5m", "risk",
     "entry", "tp", "sl", "rr_ratio", "decision", "confidence", "direction",
-    "status", "reason_code", "reason", "strategy", "score",
+    "status", "reason_code", "reason", "strategy", "score", "version",
 )
 
 

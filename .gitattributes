@@ -19,3 +19,6 @@
 *.gif binary
 *.woff binary
 *.woff2 binary
+
+# Коммит релиза подставляет git archive (Ф0 плана трейдера, core/release.py)
+release_commit.txt export-subst
