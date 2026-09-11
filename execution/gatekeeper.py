@@ -1383,36 +1383,21 @@ class Gatekeeper:
             actions_last_hour = sum(1 for t in recent_times if (_now - t).total_seconds() < 3600)
             actions_last_24h = sum(1 for t in recent_times if (_now - t).total_seconds() < 86400)
             
-            # Compute ACTUAL consecutive losses (count from most recent trade backward)
+            # Серия убытков — в событиях (11.09.2026): убытки, закрытые в пределах окна от
+            # самого нового убытка события, — одна ставка. Раньше каждая сделка считалась
+            # отдельно, по порядку ОТКРЫТИЯ (id) и вперемешку с бумажными: пять SHORT по
+            # альтам, выбитые одним отскоком за 14 минут, дали паузу 60 минут.
             consecutive_losses = 0
             last_loss_timestamp = None
             try:
-                from database import get_db_connection, _q
-                _conn = get_db_connection()
-                try:
-                    _cur = _conn.cursor()
-                    _cur.execute(_q(
-                        "SELECT pnl, updated_at FROM trades WHERE status = 'CLOSED' "
-                        "ORDER BY id DESC LIMIT 20"
-                    ))
-                    for _row in _cur.fetchall():
-                        _pnl = float(_row["pnl"]) if _row["pnl"] is not None else 0.0
-                        if _pnl < 0:
-                            consecutive_losses += 1
-                            if last_loss_timestamp is None and _row["updated_at"]:
-                                try:
-                                    last_loss_timestamp = datetime.fromisoformat(str(_row["updated_at"]).replace("Z", "+00:00"))
-                                    if last_loss_timestamp.tzinfo is None:
-                                        last_loss_timestamp = last_loss_timestamp.replace(tzinfo=UTC)
-                                except (ValueError, TypeError):
-                                    last_loss_timestamp = datetime.now(UTC)
-                        else:
-                            break  # streak broken
-                finally:
-                    _conn.close()
+                import database
+                from core.risk_core import loss_streak
+                from trading_mode import sends_real_orders
+                consecutive_losses, last_loss_timestamp = loss_streak(
+                    database.get_recent_closes(on_exchange=sends_real_orders()))
             except Exception as _e:
                 logger.warning("Failed to compute consecutive losses: %s", _e)
-            
+
             behavioral = BehavioralCounters(
                 actions_last_hour=actions_last_hour,
                 actions_last_24h=actions_last_24h,
