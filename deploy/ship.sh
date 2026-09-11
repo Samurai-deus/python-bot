@@ -56,7 +56,9 @@ for step in "$@"; do
       "$SSH" "$HOST" "/opt/market-bot/deploy.sh release $SHA"
       ;;
     web)
-      (cd miniapp && npm ci --no-audit --no-fund && npm run build)
+      # dist чистится явно: emptyOutDir у vite на Windows молча не удаляет старые
+      # файлы, и в архив уезжали ассеты прошлых сборок (11.09 — восемь штук, со старым SDK).
+      (cd miniapp && rm -rf dist && npm ci --no-audit --no-fund && npm run build)
       tar -czf "$WORK/web.tar.gz" -C miniapp/dist .
       "$SCP" "${WORK_LOCAL}web.tar.gz" "$HOST:$STAGE/web.tar.gz"
       "$SSH" "$HOST" "/opt/market-bot/deploy.sh web"
