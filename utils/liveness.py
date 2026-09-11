@@ -22,10 +22,28 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_DIR = "/tmp/market-bot-liveness"
+_REPLACE_ATTEMPTS = 3
+_REPLACE_PAUSE_SECONDS = 0.05
 
 
 def _dir() -> pathlib.Path:
     return pathlib.Path(os.environ.get("LIVENESS_DIR") or DEFAULT_DIR)
+
+
+def _replace(src: pathlib.Path, dst: pathlib.Path) -> None:
+    """
+    os.replace с повтором. На Windows антивирус на мгновение держит только что
+    записанный файл, и замена получает WinError 5 (PermissionError): тест метки
+    падал примерно раз из трёх. На Linux (прод, CI) повтор не срабатывает.
+    """
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_PAUSE_SECONDS)
 
 
 def mark(name: str, now: Optional[float] = None) -> None:
@@ -35,7 +53,7 @@ def mark(name: str, now: Optional[float] = None) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         tmp = directory / f".{name}.tmp"
         tmp.write_text(f"{time.time() if now is None else now:.3f}", encoding="ascii")
-        os.replace(tmp, directory / name)
+        _replace(tmp, directory / name)
     except OSError as exc:
         logger.warning("liveness: не удалось записать метку %s: %s", name, exc)
 
