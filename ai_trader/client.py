@@ -104,9 +104,12 @@ def complete(purpose: str, system: str, user: str, model: str, max_tokens: int =
         "temperature": 0.2,
         "usage": {"include": True},
     }
+    # С IP сервера OpenRouter напрямую отвечает 403 — ходим через прокси хоста,
+    # как Telegram. Подставной транспорт (тесты) прокси не нужен.
+    proxy = (env_str("AI_PROXY_URL", "").strip() or None) if transport is None else None
     started = time.monotonic()
     try:
-        with httpx.Client(timeout=TIMEOUT_SECONDS, transport=transport) as http:
+        with httpx.Client(timeout=TIMEOUT_SECONDS, transport=transport, proxy=proxy) as http:
             response = http.post(API_URL, json=body,
                                  headers={"Authorization": f"Bearer {key}", "X-Title": "market-bot"})
         response.raise_for_status()
