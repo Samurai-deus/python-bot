@@ -24,7 +24,6 @@
   "current_state": "string | null",
   "duration_in_state": "number | null",
   "consecutive_errors": "number | null",
-  "recovery_cycles": "number | null",
   "safe_mode_entered_at": "ISO 8601 datetime | null",
   "last_heartbeat": "ISO 8601 datetime | null",
   "transitions_count": "number | null",
@@ -113,7 +112,6 @@
 - **Current State:** `state`
 - **Duration in State:** `duration`
 - **Consecutive Errors:** `number`
-- **Recovery Cycles:** `number`
 - **Safe Mode Entered At:** `datetime | null`
 - **Last Transition:** `from` → `to`
   - Reason: `reason`

@@ -10,7 +10,8 @@ tests/test_analysis_cycle.py). Тело не менялось: всё, что п
 exit_safe_mode_via_recovery), system_state и RUNNING_TASKS — runner передаёт
 один раз через configure() под прежними именами. Единственная правка — список
 символов: _active_symbols переприсваивается в main(), поэтому приходит
-функцией get_active_symbols.
+функцией get_active_symbols. После переноса удалён мёртвый локальный импорт
+из database (11.09.2026).
 """
 import asyncio
 import logging
@@ -653,7 +654,6 @@ async def market_analysis_loop():
                 _mode = get_trading_mode()
                 if _mode in (TradingMode.TESTNET, TradingMode.LIVE):
                     from execution.position_tracker import get_position_tracker
-                    from database import close_position_by_order_id, insert_pnl_record
                     _tracker = get_position_tracker()
                     if _tracker.active_count() > 0:
                         _poll = await asyncio.to_thread(_tracker.poll)

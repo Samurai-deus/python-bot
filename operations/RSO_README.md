@@ -89,7 +89,6 @@ RSO создает JSON отчет со следующей структурой:
     "current_state": "RUNNING",
     "duration_in_state": 3600.0,
     "consecutive_errors": 0,
-    "recovery_cycles": 0,
     "safe_mode_entered_at": null,
     "last_heartbeat": "2024-01-01T12:00:00+00:00",
     "transitions_count": 5,
