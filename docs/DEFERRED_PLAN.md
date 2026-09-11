@@ -117,7 +117,7 @@
 
 ---
 
-## 5. 6.1 — структура кода — 🔄 шаги 1–5, 6а (тесты HTTP-панели как есть), 6б (общее состояние — `control_plane/state.py`, флаг хаоса — поле словаря), 6в (HTTP-панель — `control_plane/http.py`, состояние процесса — аргументом обработчика), 7 (runtime heartbeat — `loops/runtime_heartbeat.py`): страж корня; периодические циклы — `loops/periodic.py`, контролёры процесса — `loops/monitors.py`, бумажный монитор — `loops/paper_monitor.py`, внедрение сбоев — `loops/fault_injection.py`, супервизор Telegram — `loops/telegram_supervisor.py` (мёртвый `_telegram_polling_task` удалён)
+## 5. 6.1 — структура кода — 🔄 шаги 1–5, 6а (тесты HTTP-панели как есть), 6б (общее состояние — `control_plane/state.py`, флаг хаоса — поле словаря), 6в (HTTP-панель — `control_plane/http.py`, состояние процесса — аргументом обработчика), 7 (runtime heartbeat — `loops/runtime_heartbeat.py`), 8а (тесты цикла анализа как есть; исправлен локальный `send_message_async`, ронявший уведомление о возобновлении торговли): страж корня; периодические циклы — `loops/periodic.py`, контролёры процесса — `loops/monitors.py`, бумажный монитор — `loops/paper_monitor.py`, внедрение сбоев — `loops/fault_injection.py`, супервизор Telegram — `loops/telegram_supervisor.py` (мёртвый `_telegram_polling_task` удалён)
 
 **Факты.**
 - В корне 40 модулей. Самые нагруженные по числу импортирующих файлов: `database` — 45, `capital` — 20, `telegram_bot` и `indicators` — по 12. `runner.py` — 5153 строки, 56 функций, 10 фоновых циклов.
