@@ -297,7 +297,11 @@ def test_server_answers_405_404_and_400(plane, server_slot):
 
 
 def test_server_refuses_requests_once_shutdown_began(plane, server_slot):
-    """Заодно: заголовок обещал 19 байт при теле в 21 — клиент получал обрезанный ответ (исправлено на 6в)."""
+    """
+    Исправлено на 6в: заголовок обещал 19 байт при теле в 21 — клиент получал
+    обрезанный ответ; а на Linux ответ не доходил вовсе — сервер закрывал сокет,
+    не прочитав запрос, и ядро слало RST (в CI — ConnectionResetError).
+    """
     (status, headers, body), = serve(lambda: plane.state, b"POST /admin/pause HTTP/1.1\r\n\r\n",
                                      shutting_down=True)
     assert status == 503 and body == b"Service Shutting Down"

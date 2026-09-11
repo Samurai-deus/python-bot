@@ -457,7 +457,14 @@ async def start_http_server(get_state, shutdown_evt, host="127.0.0.1", port=8080
         # КРИТИЧНО: Проверяем shutdown event ПЕРЕД обработкой запроса
         # Это гарантирует, что после начала shutdown новые запросы не обрабатываются
         if shutdown_evt.is_set():
-            # Shutdown начался - немедленно возвращаем 503 и закрываем соединение
+            # Shutdown начался - немедленно возвращаем 503 и закрываем соединение.
+            # Запрос сперва коротко дочитываем: закрытие сокета с непрочитанными
+            # данными на Linux шлёт RST вместо FIN, и клиент терял ответ 503
+            # (ConnectionResetError). Найдено тестом в CI на шаге 6в.
+            try:
+                await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=1.0)
+            except Exception:
+                logger.debug("Shutdown: HTTP request not fully read before 503", exc_info=True)
             try:
                 response = (
                     b"HTTP/1.1 503 Service Unavailable\r\n"
