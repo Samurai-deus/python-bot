@@ -315,8 +315,8 @@ class RiskCore:
             # Log for observability
             if violation_report.violations:
                 logger.warning(
-                    "Risk Core: %d violations detected, state=%s, permission=%s",
-                    len(violation_report.violations), new_state.value, permission.value
+                    "Risk Core: %d violations detected, state=%s, permission=%s: %s",
+                    len(violation_report.violations), new_state.value, permission.value, "; ".join(violation_report.violations)
                 )
             
             return permission, new_state, violation_report

@@ -174,6 +174,15 @@ def get_available_capital() -> float:
     return max(equity - locked, 0.0)
 
 
+# Запас до пределов Risk Core. Risk Core пересчитывает долю позиции от баланса
+# в свой момент и сравнивает строго (> 10 %). На живом кошельке баланс между
+# расчётом размера и проверкой успевает сдвинуться (кэш кошелька 30 с,
+# нереализованный PnL): позиция ровно в 10 % давала 10,005 % → LIMITED → размер
+# вдвое → ниже минимального ордера биржи. На демо-счёте 11.09.2026 так
+# отсекались все сигналы после первой сделки.
+RISK_LIMIT_HEADROOM = 0.99
+
+
 def position_size(entry_price, stop_price, side="LONG"):
     """
     Размер позиции (номинал в USDT) из риска на сделку.
@@ -211,8 +220,9 @@ def position_size(entry_price, stop_price, side="LONG"):
     from core.risk_core import get_risk_core
     limits = get_risk_core().config
     equity = get_current_balance()
-    single_cap = equity * limits.max_single_position_pct / 100.0
-    aggregate_room = equity * limits.max_aggregate_exposure_pct / 100.0 - get_total_open_positions_size()
+    single_cap = equity * limits.max_single_position_pct / 100.0 * RISK_LIMIT_HEADROOM
+    aggregate_room = (equity * limits.max_aggregate_exposure_pct / 100.0 * RISK_LIMIT_HEADROOM
+                      - get_total_open_positions_size())
     position_usd = min(position_usd, MAX_POSITION_SIZE, available, single_cap, aggregate_room)
 
     # Меньше минимума — не открываем, а не раздуваем до минимума. Раньше здесь
