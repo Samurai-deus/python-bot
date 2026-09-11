@@ -1519,6 +1519,45 @@ def get_open_risk_usd() -> float:
         conn.close()
 
 
+# Сделка на бирже: есть exchange_order_id или позиция взята с биржи при сверке.
+_EXCHANGE_TRADE = ("(COALESCE(exchange_order_id, '') <> '' "
+                   "OR COALESCE(strategy_name, '') = 'adopted_from_exchange')")
+
+
+def get_closed_trades_since(since_iso: str, on_exchange: bool) -> List[Dict]:
+    """Сделки режима (биржевые или бумажные), закрытые начиная с since_iso."""
+    condition = _EXCHANGE_TRADE if on_exchange else f"NOT {_EXCHANGE_TRADE}"
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q("SELECT symbol, side, strategy_name, entry, stop, original_stop, position_size, pnl, "
+               "close_reason, updated_at FROM trades "
+               f"WHERE status = 'CLOSED' AND updated_at >= ? AND {condition} ORDER BY updated_at"),
+            (since_iso,),
+        )
+        return [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_signal_fates(since_iso: str) -> List[Dict]:
+    """Сигналы журнала с судьбой начиная с since_iso и их исходы по свечам (None — ещё нет)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            _q("SELECT j.status, j.reason_code, j.strategy, j.rr_ratio, o.outcome "
+               "FROM signal_journal j LEFT JOIN signal_outcomes o "
+               "ON o.signal_ts = j.timestamp AND o.symbol = j.symbol "
+               "WHERE j.timestamp >= ? AND j.status IS NOT NULL"),
+            (since_iso,),
+        )
+        return [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 def count_open_trades(on_exchange: bool) -> int:
     """
     Открытые сделки журнала: биржевые (есть exchange_order_id или позиция взята
@@ -1526,9 +1565,7 @@ def count_open_trades(on_exchange: bool) -> int:
     шаг deploy.sh mode переключает режим только без открытых сделок другого
     режима — иначе сверка при старте закрыла бы бумажные по цене входа с PnL 0.
     """
-    exchange = ("(COALESCE(exchange_order_id, '') <> '' "
-                "OR COALESCE(strategy_name, '') = 'adopted_from_exchange')")
-    condition = exchange if on_exchange else f"NOT {exchange}"
+    condition = _EXCHANGE_TRADE if on_exchange else f"NOT {_EXCHANGE_TRADE}"
     conn = get_db_connection()
     try:
         cursor = conn.cursor()

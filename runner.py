@@ -1210,6 +1210,10 @@ async def main():
             "DailyReport"
         ),
         register_task(
+            asyncio.create_task(periodic.weekly_report_loop(_is_running, get_shutdown_event()), name="WeeklyReport"),
+            "WeeklyReport"
+        ),
+        register_task(
             asyncio.create_task(periodic.correlation_groups_loop(_is_running, get_shutdown_event()), name="CorrelationGroups"),
             "CorrelationGroups"
         ),

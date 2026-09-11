@@ -595,6 +595,9 @@ def generate_signals_for_symbols(
                     "entry": entry,
                     "stop": stop,
                     "target": target,
+                    # Стратегия — в журнал сделок (record_open берёт signal_data["strategy_name"]).
+                    # До 11.09.2026 ключа не было, и у биржевых сделок стратегия была пустой.
+                    "strategy_name": strategy_name,
                     "position_size": pos_size,
                     "leverage": lev,
                     "candle_analysis": candle_analysis,

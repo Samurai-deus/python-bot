@@ -343,7 +343,8 @@ class Gatekeeper:
                 risk_allowed = permission != TradingPermission.DENY
                 risk_reason = "Risk state: %s" % risk_state.value
                 if violation_report and violation_report.violations:
-                    risk_reason += ", violations: %d" % len(violation_report.violations)
+                    risk_reason += ", violations: %d: %s" % (
+                        len(violation_report.violations), "; ".join(map(str, violation_report.violations[:2])))
                 block_level = TraceBlockLevel.HARD if (not risk_allowed and TraceBlockLevel) else (TraceBlockLevel.NONE if TraceBlockLevel else None)
                 trace_entries.append(("RiskCore", risk_allowed, risk_reason, block_level))
                 logger.info("[TRACE] RiskCore → %s → %s", "ALLOW" if risk_allowed else "DENY", risk_reason)
