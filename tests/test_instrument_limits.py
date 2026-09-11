@@ -6,10 +6,11 @@
 не нужна.
 """
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
-from execution.sizing_guard import finalize_position_size
+from execution.sizing_guard import finalize_position_size, unaffordable_reason
 from market_data import instrument_limits as il
 
 BTC = {"min_qty": Decimal("0.001"), "qty_step": Decimal("0.001"), "min_notional": Decimal("5"), "status": "Trading"}
@@ -150,3 +151,37 @@ def test_capped_size_below_exchange_minimum_is_blocked():
 def test_no_positive_size_is_blocked(sized):
     size, reason = finalize_position_size("ADAUSDT", sized, 60.0, ADA_PRICE, fetch=fixed(ADA))
     assert size is None and reason
+
+
+# ---------------------------------------------------------------------------
+# Символ, который не открыть ни при каком сигнале
+# ---------------------------------------------------------------------------
+
+SOL = {"min_qty": Decimal("0.1"), "qty_step": Decimal("0.1"), "min_notional": Decimal("5"), "status": "Trading"}
+
+
+def test_btc_is_not_a_candidate_at_100_usd():
+    """Предел позиции 10 $ (10 % от 100 $), минимальный ордер BTC около 78 $."""
+    reason = unaffordable_reason("BTCUSDT", BTC_PRICE, 10.0, fetch=fixed(BTC))
+    assert reason and "78.11" in reason
+
+
+def test_sol_just_above_the_cap_is_not_a_candidate():
+    assert unaffordable_reason("SOLUSDT", 100.12, 10.0, fetch=fixed(SOL)) is not None
+
+
+def test_cheap_coin_and_bigger_capital_are_candidates():
+    assert unaffordable_reason("ADAUSDT", ADA_PRICE, 10.0, fetch=fixed(ADA)) is None
+    assert unaffordable_reason("BTCUSDT", BTC_PRICE, 100.0, fetch=fixed(BTC)) is None, "при капитале 1000 $"
+
+
+def test_unknown_limits_price_or_cap_do_not_skip():
+    """Без данных символ не отсеивается — решают проверки дальше по цепочке."""
+    assert unaffordable_reason("BTCUSDT", BTC_PRICE, 10.0, fetch=lambda symbol: None) is None
+    assert unaffordable_reason("BTCUSDT", None, 10.0, fetch=fixed(BTC)) is None
+    assert unaffordable_reason("BTCUSDT", BTC_PRICE, 0.0, fetch=fixed(BTC)) is None
+
+
+def test_signal_generator_skips_unaffordable_symbols():
+    text = (Path(__file__).resolve().parent.parent / "signal_generator.py").read_text(encoding="utf-8")
+    assert "unaffordable_reason(symbol" in text

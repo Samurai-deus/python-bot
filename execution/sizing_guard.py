@@ -17,7 +17,7 @@
 import logging
 from typing import Optional, Tuple
 
-from market_data.instrument_limits import min_order_violation
+from market_data.instrument_limits import min_order_usd, min_order_violation
 
 logger = logging.getLogger(__name__)
 
@@ -81,3 +81,21 @@ def finalize_position_size(symbol: str, sized_usd: Optional[float], approved_usd
     if violation:
         return None, violation
     return final, None
+
+
+def unaffordable_reason(symbol: str, price: Optional[float], position_cap_usd: float,
+                        fetch=None) -> Optional[str]:
+    """
+    Почему символ не кандидат для сделки — или None.
+
+    Минимальный ордер биржи больше предела одной позиции: такую сделку не открыть
+    ни при каком сигнале. При 100 $ и пределе 10 % это BTC (минимум около 77 $),
+    ETH (около 24 $) и SOL (10,01 $). С ростом капитала символ возвращается сам.
+    Нет цены, предела или лимитов биржи — None: решают проверки дальше по цепочке.
+    """
+    if not price or price <= 0 or position_cap_usd <= 0:
+        return None
+    min_usd = min_order_usd(symbol, price, fetch=fetch)
+    if min_usd is None or min_usd <= position_cap_usd:
+        return None
+    return f"минимальный ордер биржи {min_usd:.2f} $ больше предела позиции {position_cap_usd:.2f} $"

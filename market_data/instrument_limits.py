@@ -89,6 +89,19 @@ def clear_cache() -> None:
         _cache.clear()
 
 
+
+def min_order_usd(symbol: str, price: float,
+                  fetch: Optional[Callable[[str], Optional[dict]]] = None) -> Optional[float]:
+    """
+    Минимальный ордер биржи в долларах при цене price: лот × цена, но не меньше
+    минимального номинала. None — лимиты инструмента недоступны.
+    """
+    limits = get_limits(symbol, fetch)
+    if limits is None:
+        return None
+    return float(max(limits["min_qty"] * Decimal(str(price)), limits["min_notional"]))
+
+
 def min_order_violation(symbol: str, notional_usd: float, entry_price: Optional[float],
                         fetch: Optional[Callable[[str], Optional[dict]]] = None) -> Optional[str]:
     """
