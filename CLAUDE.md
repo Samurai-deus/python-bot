@@ -71,7 +71,6 @@ market_bot/
 │   ├── portfolio_brain.py  # Анализ портфеля
 │   ├── position_sizer.py   # Расчёт размера позиции
 │   ├── cognitive_engine.py # Уверенность/энтропия решений
-│   ├── drift_detector.py   # Обнаружение деградации стратегии
 │   ├── replay_engine.py    # Бэктест / воспроизведение сигналов
 │   ├── signal_snapshot.py  # Иммутабельный снимок сигнала
 │   ├── signal_snapshot_store.py  # Хранение снимков в SQLite
