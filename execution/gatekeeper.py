@@ -206,6 +206,8 @@ class Gatekeeper:
             # Defensive copy: modules below mutate position_size, so we must
             # not modify the caller's dict (prevents cross-module interference).
             # Наружу уходит одно поле — одобренный размер, см. перед return True.
+            # (код, текст) причины отказа — генератор пишет её в журнал сигналов
+            self.last_block_reason = None
             caller_signal_data = signal_data
             caller_signal_data.pop("approved_position_size", None)
             signal_data = dict(signal_data)
@@ -225,6 +227,7 @@ class Gatekeeper:
             halt_reason = trading_halt_reason(system_state=system_state, include_risk_core=False)
             if halt_reason:
                 logger.info("Gatekeeper: сигнал %s не пропущен — %s", symbol, halt_reason)
+                self.last_block_reason = ("halt", str(halt_reason))
                 return False
 
             # Cache open trades once per signal evaluation to prevent TOCTOU race.
@@ -258,6 +261,7 @@ class Gatekeeper:
                 )
                 self.blocked_signals_count += 1
                 self._update_state()
+                self.last_block_reason = ("SystemGuardian", str(permission.reason))
                 return False  # Early exit - fail-safe (архитектурно принудительно)
             
             # ========== DECISION TRACE - ЛОКАЛЬНЫЙ СБОР РЕШЕНИЙ ==========
@@ -628,6 +632,7 @@ class Gatekeeper:
             # Сохраняем trace ПОСЛЕ принятия решения (если есть)
             if 'trace_entries' in locals():
                 self._save_decision_trace(symbol, snapshot, trace_entries, final_decision="ERROR")
+            self.last_block_reason = ("error", f"{type(e).__name__}: {e}")
             self.blocked_signals_count += 1
             self._update_state()
             return False
@@ -1221,6 +1226,12 @@ class Gatekeeper:
         Примечание:
             Вызывается ПОСЛЕ принятия решения, не влияет на runtime-логику.
         """
+        if final_decision != "SEND":
+            refusal = next(((source, reason) for source, allowed, reason, _ in reversed(trace_entries)
+                            if not allowed), None)
+            self.last_block_reason = ((str(refusal[0]), str(refusal[1])) if refusal
+                                      else (final_decision.lower(), f"Final decision: {final_decision}"))
+
         if not self.trace_enabled or not self.decision_trace:
             return
         

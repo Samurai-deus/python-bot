@@ -271,6 +271,30 @@ def get_db_connection():
 # ========== SCHEMA INITIALISATION ==========
 
 
+# Судьба сигнала-кандидата (шаг 3 плана обучения, 11.09.2026): SENT / BLOCKED / SKIPPED,
+# код причины, её текст, стратегия и score. Добавляются к существующей таблице.
+_SIGNAL_JOURNAL_COLUMNS = (
+    ("status", "TEXT"),
+    ("reason_code", "TEXT"),
+    ("reason", "TEXT"),
+    ("strategy", "TEXT"),
+    ("score", "REAL"),
+)
+
+
+def _ensure_signal_journal_columns(cursor) -> None:
+    if _PG_MODE:
+        for name, kind in _SIGNAL_JOURNAL_COLUMNS:
+            cursor.execute(f"ALTER TABLE signal_journal ADD COLUMN IF NOT EXISTS {name} {kind}")
+    else:
+        cursor.execute("PRAGMA table_info(signal_journal)")
+        present = {row[1] for row in cursor.fetchall()}
+        for name, kind in _SIGNAL_JOURNAL_COLUMNS:
+            if name not in present:
+                cursor.execute(f"ALTER TABLE signal_journal ADD COLUMN {name} {kind}")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_journal_status ON signal_journal(status)")
+
+
 def _init_pg_schema(conn) -> None:
     """Create all tables in PostgreSQL if they don't already exist."""
     cursor = conn.cursor()
@@ -507,6 +531,7 @@ def _init_pg_schema(conn) -> None:
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_signal_journal_decision ON signal_journal(decision)"
     )
+    _ensure_signal_journal_columns(cursor)
 
     conn.commit()
 
@@ -748,6 +773,7 @@ def _init_database(conn) -> None:
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_signal_journal_decision ON signal_journal(decision)"
     )
+    _ensure_signal_journal_columns(cursor)
 
     conn.commit()
 
@@ -2189,20 +2215,6 @@ def save_signal_outcome(data: dict) -> Optional[int]:
         conn.close()
 
 
-def is_outcome_tracked(signal_ts: str, symbol: str) -> bool:
-    """Проверяет, записан ли уже исход для данного сигнала."""
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            _q("SELECT 1 FROM signal_outcomes WHERE signal_ts = ? AND symbol = ? LIMIT 1"),
-            (signal_ts, symbol),
-        )
-        return cursor.fetchone() is not None
-    finally:
-        conn.close()
-
-
 def get_outcomes_for_analysis(days: int = 30) -> List[Dict]:
     """Возвращает все исходы за последние N дней для анализа точности."""
     conn = get_db_connection()
@@ -2224,64 +2236,63 @@ def get_outcomes_for_analysis(days: int = 30) -> List[Dict]:
 # ============================================================================
 
 
-def log_signal_to_db(snapshot) -> None:
-    """Записывает SignalSnapshot в signal_journal."""
-    from core.market_state import state_to_string
+_SIGNAL_JOURNAL_FIELDS = (
+    "timestamp", "symbol", "state_1h", "state_30m", "state_15m", "state_5m", "risk",
+    "entry", "tp", "sl", "rr_ratio", "decision", "confidence", "direction",
+    "status", "reason_code", "reason", "strategy", "score",
+)
 
+
+def log_signal_to_db(row: Dict) -> None:
+    """Записывает сигнал-кандидат в signal_journal; row — поля из journal.record_signal."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        direction = snapshot.side or (
-            "LONG"
-            if (snapshot.entry and snapshot.tp and snapshot.tp > snapshot.entry)
-            else "SHORT"
-            if (snapshot.entry and snapshot.tp)
-            else ""
-        )
-        cursor.execute(
-            _q(
-                """INSERT INTO signal_journal
-                (timestamp, symbol, state_1h, state_30m, state_15m, state_5m,
-                 risk, entry, tp, sl, rr_ratio, decision, confidence, direction)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-            ),
-            (
-                snapshot.timestamp.isoformat(),
-                snapshot.symbol,
-                state_to_string(snapshot.states.get("1h")),
-                state_to_string(snapshot.states.get("30m")),
-                state_to_string(snapshot.states.get("15m")),
-                state_to_string(snapshot.states.get("5m")),
-                snapshot.risk_level.value if snapshot.risk_level else None,
-                snapshot.entry,
-                snapshot.tp,
-                snapshot.sl,
-                snapshot.rr_ratio,
-                snapshot.decision.value if snapshot.decision else None,
-                snapshot.confidence,
-                direction,
-            ),
-        )
+        columns = ", ".join(_SIGNAL_JOURNAL_FIELDS)
+        marks = ", ".join("?" for _ in _SIGNAL_JOURNAL_FIELDS)
+        cursor.execute(_q(f"INSERT INTO signal_journal ({columns}) VALUES ({marks})"),
+                       tuple(row.get(field) for field in _SIGNAL_JOURNAL_FIELDS))
         conn.commit()
-    except Exception as e:
-        logger.warning("log_signal_to_db failed: %s", e)
     finally:
         conn.close()
 
 
-def get_signals_from_db(since_iso: str, limit: int = 200) -> List[Dict]:
-    """Возвращает сигналы из signal_journal начиная с since_iso."""
+def get_signals_from_db(since_iso: str, limit: int = 200, statuses=None) -> List[Dict]:
+    """Сигналы из signal_journal начиная с since_iso, новые первыми; statuses — фильтр судьбы."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        sql = "SELECT * FROM signal_journal WHERE timestamp >= ?"
+        params: list = [since_iso]
+        if statuses:
+            sql += " AND status IN (" + ", ".join("?" for _ in statuses) + ")"
+            params.extend(statuses)
+        cursor.execute(_q(sql + " ORDER BY timestamp DESC LIMIT ?"), (*params, limit))
+        return [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_signals_to_evaluate(since_iso: str, before_iso: str, limit: int = 300) -> List[Dict]:
+    """
+    Сигналы с полной геометрией (направление, вход, цель, стоп) из окна
+    [since_iso, before_iso) без записанного исхода — старые первыми.
+    """
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
         cursor.execute(
             _q(
-                "SELECT * FROM signal_journal WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?"
+                "SELECT j.* FROM signal_journal j "
+                "LEFT JOIN signal_outcomes o ON o.signal_ts = j.timestamp AND o.symbol = j.symbol "
+                "WHERE j.timestamp >= ? AND j.timestamp < ? AND o.symbol IS NULL "
+                "AND j.direction IN ('LONG', 'SHORT') "
+                "AND j.entry IS NOT NULL AND j.tp IS NOT NULL AND j.sl IS NOT NULL "
+                "ORDER BY j.timestamp ASC LIMIT ?"
             ),
-            (since_iso, limit),
+            (since_iso, before_iso, limit),
         )
-        rows = cursor.fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in cursor.fetchall()]
     finally:
         conn.close()
 

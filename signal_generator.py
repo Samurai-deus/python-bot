@@ -10,7 +10,7 @@ from indicators import (
 from context_engine import determine_state
 from states import market_direction, is_flat
 from risk import risk_level, enhanced_risk_level, calculate_stop_distance
-from journal import log_signal
+import journal
 from scoring import calculate_score, market_mode, get_entry_conditions
 from monitor_log import log_monitor
 from capital import position_size
@@ -52,6 +52,22 @@ def _position_cap_usd() -> float:
         logger.warning("signal_generator: предел позиции не посчитан — отсев по минимальному ордеру "
                        "в этом цикле выключен", exc_info=True)
         return 0.0
+
+
+def _journal(status, code, reason, *, mode=None, seen_by=None, **fields):
+    """
+    Сигнал-кандидат в журнал (шаг 3 плана обучения). Сбой журнала торговлю не трогает.
+    seen_by — SystemState для отсева до проверки новизны: сетап, по которому сигнал уже
+    был (то же состояние 15m), — не новый кандидат, а повтор, и в журнал не идёт.
+    """
+    try:
+        if seen_by is not None and not seen_by.would_be_new_signal(
+                fields["symbol"], (fields.get("states") or {}).get("15m", "")):
+            return
+        journal.record_signal(status=status, reason_code=code, reason=reason,
+                              decision=mode_to_decision(mode) if mode else None, **fields)
+    except Exception:
+        logger.warning("Журнал сигналов: запись не удалась", exc_info=True)
 
 
 def generate_signals_for_symbols(
@@ -321,6 +337,9 @@ def generate_signals_for_symbols(
                 )
                 if risk == "HIGH":
                     logger.info("%s: strategy %s signal rejected — HIGH risk", symbol, strategy_name)
+                    _journal(journal.SKIPPED, "high_risk", f"стратегия {strategy_name}: риск HIGH",
+                             symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
+                             risk=risk, score=score, strategy=strategy_name, mode=mode, collapse_repeats=True, seen_by=system_state)
                     continue
                 logger.info(
                     "%s: STRATEGY %s → %s entry=%.4f stop=%.4f target=%.4f R:R=%.2f conf=%.2f",
@@ -395,6 +414,9 @@ def generate_signals_for_symbols(
                 MIN_RR = 1.5
                 if rr_result["rr_ratio"] < MIN_RR:
                     logger.debug("%s: R:R %.2f < %.1f minimum, skipping", symbol, rr_result["rr_ratio"], MIN_RR)
+                    _journal(journal.SKIPPED, "low_rr", f"R:R {rr_result['rr_ratio']:.2f} < {MIN_RR}",
+                             symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
+                             risk=risk, score=score, strategy="legacy", mode=mode, collapse_repeats=True, seen_by=system_state)
                     continue
 
                 strategy_name = "legacy"
@@ -407,6 +429,9 @@ def generate_signals_for_symbols(
                 # 11.09.2026 он уходил с нулевым размером, и гейткипер записывал это как
                 # сбой Risk Core («returned None → DENY + HALTED»).
                 logger.info("%s: сигнал пропущен — размер позиции 0 (портфель заполнен или ниже минимума)", symbol)
+                _journal(journal.SKIPPED, "no_room", "размер позиции 0: портфель заполнен или размер ниже минимума",
+                         symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
+                         risk=risk, score=score, strategy=strategy_name, mode=mode, collapse_repeats=True, seen_by=system_state)
                 continue
             lev = calculate_leverage(states, atr_15m, entry, stop, side)
 
@@ -420,9 +445,15 @@ def generate_signals_for_symbols(
 
                 if micro.get("block_long") and side == "LONG":
                     logger.info("%s: LONG blocked by extreme positive funding", symbol)
+                    _journal(journal.SKIPPED, "funding", "экстремальный фандинг против LONG",
+                             symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
+                             risk=risk, score=score, strategy=strategy_name, mode=mode, collapse_repeats=True, seen_by=system_state)
                     continue
                 if micro.get("block_short") and side == "SHORT":
                     logger.info("%s: SHORT blocked by extreme negative funding", symbol)
+                    _journal(journal.SKIPPED, "funding", "экстремальный фандинг против SHORT",
+                             symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
+                             risk=risk, score=score, strategy=strategy_name, mode=mode, collapse_repeats=True, seen_by=system_state)
                     continue
             except Exception as e:
                 logger.debug("Microstructure unavailable for %s: %s", symbol, e)
@@ -436,6 +467,21 @@ def generate_signals_for_symbols(
             )
 
             state_15m = states.get("15m", "")
+
+            from config import MAX_NEW_POSITIONS_PER_TURN
+            if stats["signals_sent"] >= MAX_NEW_POSITIONS_PER_TURN:
+                # Не больше N новых позиций за оборот (шаг 2б плана, 11.09.2026) — вместо паузы
+                # 60 с между действиями Risk Core. Проверка стоит ДО is_new_signal: тот запоминает
+                # состояние, и отложенный сигнал в следующий оборот был бы уже «не новым».
+                if system_state is None or system_state.would_be_new_signal(symbol, state_15m):
+                    stats["skipped_turn_limit"] = stats.get("skipped_turn_limit", 0) + 1
+                    logger.info("%s: сигнал отложен — за оборот уже %d новых позиций (предел %d)",
+                                symbol, stats["signals_sent"], MAX_NEW_POSITIONS_PER_TURN)
+                    _journal(journal.SKIPPED, "turn_limit",
+                             f"за оборот уже {stats['signals_sent']} новых позиций (предел {MAX_NEW_POSITIONS_PER_TURN})",
+                             symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
+                             risk=risk, score=score, strategy=strategy_name, mode=mode, collapse_repeats=True, seen_by=system_state)
+                continue
             # Используем SystemState для проверки нового сигнала
             is_new = system_state.is_new_signal(symbol, state_15m) if system_state else True
             logger.debug("%s: new signal check: state_15m=%s is_new=%s", symbol, state_15m, is_new)
@@ -500,6 +546,9 @@ def generate_signals_for_symbols(
                     )
                     if should_skip_symbol(symbol):
                         logger.info("[Learning] Skipping %s — historically very low win rate", symbol)
+                        _journal(journal.SKIPPED, "learner", "исторически очень низкая доля прибыльных",
+                                 symbol=symbol, side=side, entry=entry, stop=stop, target=target, states=states,
+                                 risk=risk, score=score, strategy=strategy_name, mode=mode, confidence=confidence)
                         continue
 
                     learner_adj = get_symbol_adjustment(symbol, side) + get_confidence_calibration(confidence)
@@ -558,14 +607,6 @@ def generate_signals_for_symbols(
                     "atr": atr_15m,
                 }
                 
-                from config import MAX_NEW_POSITIONS_PER_TURN
-                if stats["signals_sent"] >= MAX_NEW_POSITIONS_PER_TURN:
-                    # Не больше N новых позиций за оборот (шаг 2б плана, 11.09.2026) — вместо
-                    # паузы 60 с между действиями Risk Core. В этот оборот сигнал не отправляется.
-                    stats["skipped_turn_limit"] = stats.get("skipped_turn_limit", 0) + 1
-                    logger.info("%s: сигнал пропущен — за оборот уже %d новых позиций (предел %d)",
-                                symbol, stats["signals_sent"], MAX_NEW_POSITIONS_PER_TURN)
-                    continue
                 logger.info("%s: sending signal via Gatekeeper", symbol)
                 try:
                     # Используем Gatekeeper для отправки сигнала
@@ -586,7 +627,7 @@ def generate_signals_for_symbols(
                     if signal_sent:
                         # Логируем через SignalSnapshotStore - entry point с fault injection
                         from core.signal_snapshot_store import SignalSnapshotStore
-                        SignalSnapshotStore.save(snapshot)
+                        SignalSnapshotStore.save(snapshot, strategy=strategy_name)
                         stats["signals_sent"] += 1
 
                         # Открываем демо-сделку только если сигнал реально отправлен
@@ -628,12 +669,23 @@ def generate_signals_for_symbols(
                     else:
                         stats["signals_blocked"] += 1
                         logger.info("%s: signal blocked by Gatekeeper", symbol)
+                        code, why = getattr(gatekeeper, "last_block_reason", None) or ("gatekeeper", "причина не передана")
+                        try:
+                            journal.log_signal_snapshot(snapshot, status=journal.BLOCKED, reason_code=code,
+                                                        reason=why, strategy=strategy_name)
+                        except Exception:
+                            logger.warning("Журнал сигналов: запись не удалась", exc_info=True)
                 except Exception as e:
                     logger.error(
                         "%s: error sending signal: %s: %s",
                         symbol, type(e).__name__, e, exc_info=True
                     )
                     stats["signals_blocked"] += 1
+                    try:
+                        journal.log_signal_snapshot(snapshot, status=journal.BLOCKED, reason_code="error",
+                                                    reason=f"{type(e).__name__}: {e}", strategy=strategy_name)
+                    except Exception:
+                        logger.warning("Журнал сигналов: запись не удалась", exc_info=True)
             else:
                 logger.debug("%s: signal not new (state_15m=%s already sent), skipping", symbol, state_15m)
 

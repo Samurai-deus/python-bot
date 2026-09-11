@@ -21,10 +21,11 @@ async def get_latest_signals(
 ):
     try:
         from datetime import datetime, UTC, timedelta
-        from journal import get_recent_signals
+        from journal import SENT, get_recent_signals
 
         since = datetime.now(UTC) - timedelta(days=30)
-        rows = await asyncio.wait_for(run_sync(get_recent_signals, since), timeout=5.0)
+        # Лента — отправленные сигналы; заблокированные и пропущенные — для отчётов
+        rows = await asyncio.wait_for(run_sync(get_recent_signals, since, (SENT,)), timeout=5.0)
         rows.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
         result = []
         for r in rows[:limit]:

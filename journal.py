@@ -1,304 +1,165 @@
-import csv
-import os
-from datetime import datetime, UTC, timedelta
-from typing import List, Dict, Optional
-from core.market_state import MarketState, state_to_string
-from core.signal_snapshot import SignalSnapshot, SignalDecision
+"""
+Журнал сигналов: каждый сигнал-кандидат и его судьба (шаг 3 плана обучения, 11.09.2026).
+
+Кандидат — сетап с направлением, входом, стопом и целью. Журнал пишет, что с ним стало:
+  SENT    — ушёл в торговлю (гейткипер пропустил);
+  BLOCKED — отказал гейткипер (Risk Core, мета-мозг, портфель, размер...), с причиной;
+  SKIPPED — отсёк сам генератор (портфель заполнен, фандинг, предел за оборот...).
+Outcome tracker размечает по свечам ВСЕ записи, и видно, не отсекают ли фильтры
+прибыльные сигналы, а не только как отработали взятые.
+
+До 11.09.2026 в режиме SQLite журнал писался в signals_log.csv внутри контейнера: файл
+пропадал с каждым деплоем, в него попадали только отправленные сигналы, а outcome
+tracker читал тот же пустой файл («0 ENTER signals to evaluate»). Теперь — только БД.
+"""
+import logging
+import threading
+import time
+from datetime import UTC, datetime
+from typing import Dict, List, Optional, Sequence
+
+from core.signal_snapshot import SignalSnapshot
+
+logger = logging.getLogger(__name__)
+
+SENT = "SENT"
+BLOCKED = "BLOCKED"
+SKIPPED = "SKIPPED"
+
+# Отсев до проверки новизны повторяется каждый оборот (≈ 5 мин), пока сетап жив. Такие
+# записи вызывающий помечает collapse_repeats: одна на символ, сторону, судьбу и причину
+# в час — иначе журнал и разметка исходов тонут в копиях одного сигнала.
+REPEAT_WINDOW_SECONDS = 3600
+_recent: Dict[tuple, float] = {}
+_recent_lock = threading.Lock()
 
 
-def _parse_price(s: str) -> Optional[float]:
-    """Парсит цену из строки CSV. Возвращает None если не число."""
-    if not s or s in ("NO_ENTRY", "NO_EXIT", ""):
+def _is_repeat(key: tuple, now: float) -> bool:
+    with _recent_lock:
+        last = _recent.get(key)
+        if last is not None and now - last < REPEAT_WINDOW_SECONDS:
+            return True
+        _recent[key] = now
+        if len(_recent) > 5000:
+            for stale in [k for k, t in _recent.items() if now - t >= REPEAT_WINDOW_SECONDS]:
+                del _recent[stale]
+        return False
+
+
+def _text(value) -> Optional[str]:
+    """MarketState, RiskLevel, SignalDecision или строка — в строку для БД."""
+    if value is None:
         return None
+    return str(getattr(value, "value", value))
+
+
+def record_signal(*, symbol: str, side: Optional[str], entry: Optional[float], stop: Optional[float],
+                  target: Optional[float], status: str, reason_code: Optional[str] = None,
+                  reason: Optional[str] = None, states: Optional[Dict] = None, risk=None,
+                  score: Optional[float] = None, strategy: Optional[str] = None, decision=None,
+                  confidence: Optional[float] = None, timestamp: Optional[datetime] = None,
+                  collapse_repeats: bool = False) -> bool:
+    """
+    Записать сигнал-кандидат. True — записан; False — повтор в окне или сбой записи.
+    Журнал на торговлю не влияет: сбой записи — предупреждение в лог, не исключение.
+    """
+    direction = side or ("LONG" if entry and target and target > entry else "SHORT" if entry and target else "")
+    if collapse_repeats and _is_repeat((symbol, direction, status, reason_code), time.monotonic()):
+        return False
+    states = states or {}
+    rr = abs(target - entry) / abs(entry - stop) if entry and stop and target and entry != stop else None
+    row = {
+        "timestamp": (timestamp or datetime.now(UTC)).isoformat(),
+        "symbol": symbol,
+        "state_1h": _text(states.get("1h")),
+        "state_30m": _text(states.get("30m")),
+        "state_15m": _text(states.get("15m")),
+        "state_5m": _text(states.get("5m")),
+        "risk": _text(risk),
+        "entry": entry,
+        "tp": target,
+        "sl": stop,
+        "rr_ratio": rr,
+        "decision": _text(decision),
+        "confidence": confidence,
+        "direction": direction,
+        "status": status,
+        "reason_code": reason_code,
+        "reason": reason,
+        "strategy": strategy,
+        "score": score,
+    }
     try:
-        return float(s)
-    except (ValueError, TypeError):
-        return None
+        from database import log_signal_to_db
+        log_signal_to_db(row)
+        return True
+    except Exception as e:
+        logger.warning("Журнал сигналов: %s %s не записан: %s: %s", symbol, status, type(e).__name__, e)
+        return False
 
 
-def _parse_rr(s: str) -> Optional[float]:
-    """Парсит R-ratio из строки вида 'R=2.50'. Возвращает None если не распарсилось."""
-    if not s:
-        return None
-    try:
-        if s.startswith("R="):
-            return float(s[2:])
-        return float(s)
-    except (ValueError, TypeError):
-        return None
-
-
-def _compute_sl_from_row(row: list) -> Optional[float]:
+def log_signal_snapshot(snapshot: SignalSnapshot, status: str = SENT, reason_code: Optional[str] = None,
+                        reason: Optional[str] = None, strategy: Optional[str] = None) -> bool:
     """
-    Возвращает SL из колонки 13 (новый формат) или вычисляет из entry/tp/rr (старый формат).
+    Записать сигнал по SignalSnapshot. Метка времени — snapshot.timestamp: по ней же
+    ИИ-трейдер пишет мнение (ai_opinions) и outcome tracker — исход (signal_outcomes).
+    Fault injection проверяется в SignalSnapshotStore.save() — точке входа.
     """
-    # Новый формат: col 13
-    if len(row) > 13:
-        sl = _parse_price(row[13])
-        if sl is not None:
-            return sl
-
-    # Старый формат: вычисляем из entry, tp, rr
-    entry = _parse_price(row[7]) if len(row) > 7 else None
-    tp = _parse_price(row[8]) if len(row) > 8 else None
-    rr = _parse_rr(row[9]) if len(row) > 9 else None
-    direction = row[12] if len(row) > 12 else ""
-
-    if entry and tp and rr and rr > 0:
-        if direction == "LONG" and tp > entry:
-            return entry - (tp - entry) / rr
-        if direction == "SHORT" and tp < entry:
-            return entry + (entry - tp) / rr
-    return None
-
-
-# ========== FAULT INJECTION (для тестирования устойчивости) ==========
-
-FAULT_INJECT_STORAGE_FAILURE = os.environ.get("FAULT_INJECT_STORAGE_FAILURE", "false").lower() == "true"
-
-def log_signal(symbol, states, risk):
-    """
-    УСТАРЕВШАЯ функция - используйте log_signal_snapshot().
-    
-    Оставлена для обратной совместимости.
-    """
-    log_signal_snapshot_from_legacy(symbol, states, risk)
-
-
-def log_signal_snapshot(snapshot: SignalSnapshot):
-    """
-    Логирует SignalSnapshot в БД (PG-режим) и CSV (fallback).
-
-    Это IO-операция: преобразует domain-объект в строки для записи.
-
-    Args:
-        snapshot: SignalSnapshot для логирования
-
-    Note:
-        Fault injection проверяется в SignalSnapshotStore.save() - entry point.
-        Эта функция вызывается только после проверки fault injection.
-    """
-    from database import _PG_MODE, log_signal_to_db
-
-    if _PG_MODE:
-        try:
-            log_signal_to_db(snapshot)
-        except Exception as _db_err:
-            import logging as _log
-            _log.getLogger(__name__).warning("DB journal write failed: %s", _db_err)
-
-    file_exists = os.path.exists("signals_log.csv")
-    with open("signals_log.csv", "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        
-        # Если файл новый, записываем заголовки
-        if not file_exists:
-            writer.writerow([
-                "timestamp",
-                "symbol",
-                "state_1h",
-                "state_30m",
-                "state_15m",
-                "state_5m",
-                "risk",
-                "entry",
-                "exit",
-                "r",
-                "decision",
-                "confidence",
-                "direction",
-                "sl",
-            ])
-
-        # Преобразуем domain-объект в строки (IO-граница)
-        timestamp = snapshot.timestamp.isoformat()
-        state_1h = state_to_string(snapshot.states.get("1h"))
-        state_30m = state_to_string(snapshot.states.get("30m"))
-        state_15m = state_to_string(snapshot.states.get("15m"))
-        state_5m = state_to_string(snapshot.states.get("5m"))
-        risk_str = snapshot.risk_level.value if snapshot.risk_level else ""
-
-        # Entry/Exit из snapshot
-        entry_str = f"{snapshot.entry:.4f}" if snapshot.entry else "NO_ENTRY"
-        exit_str = f"{snapshot.tp:.4f}" if snapshot.tp else "NO_EXIT"
-
-        # R-ratio из snapshot
-        rr_str = f"R={snapshot.rr_ratio:.2f}" if snapshot.rr_ratio else "R=0"
-
-        # Decision, confidence, direction
-        decision_str = snapshot.decision.value if snapshot.decision else ""
-        confidence_str = f"{snapshot.confidence:.4f}" if snapshot.confidence is not None else ""
-        if snapshot.side:
-            direction_str = snapshot.side
-        elif snapshot.entry and snapshot.tp:
-            direction_str = "LONG" if snapshot.tp > snapshot.entry else "SHORT"
-        else:
-            direction_str = ""
-
-        sl_str = f"{snapshot.sl:.4f}" if snapshot.sl else ""
-
-        writer.writerow([
-            timestamp,
-            snapshot.symbol,
-            state_1h,
-            state_30m,
-            state_15m,
-            state_5m,
-            risk_str,
-            entry_str,
-            exit_str,
-            rr_str,
-            decision_str,
-            confidence_str,
-            direction_str,
-            sl_str,
-        ])
-
-
-def log_signal_snapshot_from_legacy(symbol: str, states: Dict[str, Optional[MarketState]], risk: str):
-    """
-    Создаёт минимальный SignalSnapshot из legacy параметров и логирует его.
-    
-    Используется для обратной совместимости со старым кодом.
-    
-    Args:
-        symbol: Торговая пара
-        states: Словарь состояний
-        risk: Уровень риска (строка)
-    """
-    from core.signal_snapshot import risk_string_to_enum
-    from core.market_state import normalize_states_dict
-    
-    normalized_states = normalize_states_dict(states)
-    risk_enum = risk_string_to_enum(risk)
-    
-    snapshot = SignalSnapshot(
-        timestamp=datetime.now(UTC),
-        symbol=symbol,
-        timeframe_anchor="15m",
-        states=normalized_states,
-        risk_level=risk_enum,
-        decision=SignalDecision.SKIP,  # Неизвестно из legacy данных
-        decision_reason="Legacy signal",
-        confidence=0.0,  # Не вычисляется для legacy сигналов
-        entropy=0.0       # Не вычисляется для legacy сигналов
+    return record_signal(
+        symbol=snapshot.symbol, side=snapshot.side, entry=snapshot.entry, stop=snapshot.sl,
+        target=snapshot.tp, status=status, reason_code=reason_code, reason=reason,
+        states=snapshot.states, risk=snapshot.risk_level, score=snapshot.score, strategy=strategy,
+        decision=snapshot.decision, confidence=snapshot.confidence, timestamp=snapshot.timestamp,
     )
-    
-    # Логируем через основной метод
-    log_signal_snapshot(snapshot)
 
-def get_recent_signals(since: Optional[datetime] = None) -> List[Dict]:
+
+def _parse_timestamp(value) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        moment = value
+    else:
+        try:
+            moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def get_recent_signals(since: Optional[datetime] = None,
+                       statuses: Optional[Sequence[str]] = None) -> List[Dict]:
     """
-    Получает недавние сигналы из БД (PG-режим) или CSV.
+    Недавние сигналы из журнала, новые первыми.
 
     Args:
-        since: Временная метка начала периода (опционально)
-
-    Returns:
-        list: Список сигналов
+        since: начало периода (по умолчанию — вся история)
+        statuses: только эти судьбы (SENT/BLOCKED/SKIPPED); None — все
     """
-    from database import _PG_MODE, get_signals_from_db
+    from database import get_signals_from_db
 
-    if _PG_MODE:
-        since_iso = since.isoformat() if since else "1970-01-01T00:00:00"
-        rows = get_signals_from_db(since_iso, limit=200)
-        result = []
-        for r in rows:
-            try:
-                ts_str = r.get("timestamp", "")
-                if "Z" in ts_str:
-                    ts_str = ts_str.replace("Z", "+00:00")
-                signal_time = datetime.fromisoformat(ts_str)
-                if signal_time.tzinfo is None:
-                    signal_time = signal_time.replace(tzinfo=UTC)
-                result.append({
-                    "timestamp": signal_time,
-                    "symbol": r.get("symbol", ""),
-                    "states": {
-                        "1h": r.get("state_1h"),
-                        "30m": r.get("state_30m"),
-                        "15m": r.get("state_15m"),
-                        "5m": r.get("state_5m"),
-                    },
-                    "risk": r.get("risk"),
-                    "decision": r.get("decision", ""),
-                    "confidence": r.get("confidence"),
-                    "direction": r.get("direction", ""),
-                    "entry": r.get("entry"),
-                    "tp": r.get("tp"),
-                    "sl": r.get("sl"),
-                })
-            except (ValueError, TypeError):
-                continue
-        return result
-
-    signals = []
-
-    try:
-        with open("signals_log.csv", "r", newline="") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) < 2:
-                    continue
-                
-                try:
-                    # Парсим время и нормализуем к UTC (offset-aware)
-                    time_str = str(row[0]).strip()
-                    
-                    # Обрабатываем разные форматы
-                    if 'Z' in time_str:
-                        time_str = time_str.replace('Z', '+00:00')
-                    
-                    # Пробуем парсить ISO формат
-                    try:
-                        signal_time = datetime.fromisoformat(time_str)
-                    except ValueError:
-                        # Если не получилось, пробуем другие форматы
-                        # Может быть старый формат без timezone
-                        try:
-                            signal_time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S.%f')
-                        except ValueError:
-                            try:
-                                signal_time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
-                            except ValueError:
-                                # Пропускаем строку, если не удалось распарсить
-                                continue
-                    
-                    # Если datetime без timezone, добавляем UTC
-                    if signal_time.tzinfo is None:
-                        signal_time = signal_time.replace(tzinfo=UTC)
-                    # Нормализуем к UTC для сравнения
-                    signal_time = signal_time.astimezone(UTC)
-                    
-                    # Нормализуем since к UTC для сравнения
-                    if since:
-                        if since.tzinfo is None:
-                            since_normalized = since.replace(tzinfo=UTC)
-                        else:
-                            since_normalized = since.astimezone(UTC)
-                        if signal_time < since_normalized:
-                            continue
-                    
-                    signals.append({
-                        "timestamp": signal_time,
-                        "symbol": row[1] if len(row) > 1 else "",
-                        "states": {
-                            "1h": row[2] if len(row) > 2 else None,
-                            "30m": row[3] if len(row) > 3 else None,
-                            "15m": row[4] if len(row) > 4 else None,
-                            "5m": row[5] if len(row) > 5 else None,
-                        },
-                        "risk": row[6] if len(row) > 6 else None,
-                        "decision": row[10] if len(row) > 10 else "",
-                        "confidence": float(row[11]) if len(row) > 11 and row[11] else None,
-                        "direction": row[12] if len(row) > 12 else "",
-                        "entry": _parse_price(row[7]) if len(row) > 7 else None,
-                        "tp": _parse_price(row[8]) if len(row) > 8 else None,
-                        "sl": _compute_sl_from_row(row),
-                    })
-                except (ValueError, IndexError):
-                    continue
-    except FileNotFoundError:
-        pass
-    
-    return signals
+    since_iso = since.isoformat() if since else "1970-01-01T00:00:00"
+    result = []
+    for r in get_signals_from_db(since_iso, limit=200, statuses=statuses):
+        signal_time = _parse_timestamp(r.get("timestamp", ""))
+        if signal_time is None:
+            continue
+        result.append({
+            "timestamp": signal_time,
+            "symbol": r.get("symbol", ""),
+            "states": {
+                "1h": r.get("state_1h"),
+                "30m": r.get("state_30m"),
+                "15m": r.get("state_15m"),
+                "5m": r.get("state_5m"),
+            },
+            "risk": r.get("risk"),
+            "decision": r.get("decision", ""),
+            "confidence": r.get("confidence"),
+            "direction": r.get("direction", ""),
+            "entry": r.get("entry"),
+            "tp": r.get("tp"),
+            "sl": r.get("sl"),
+            "status": r.get("status"),
+            "reason_code": r.get("reason_code"),
+            "reason": r.get("reason"),
+            "strategy": r.get("strategy"),
+        })
+    return result

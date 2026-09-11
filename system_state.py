@@ -64,6 +64,10 @@ def _revive_signal(item):
     return item
 
 
+# TREND_CONTINUATION (state_15m None): повтор сигнала по символу не чаще раза в 4 часа.
+TREND_SIGNAL_COOLDOWN = 4 * 3600
+
+
 class SystemState:
     """
     Единая модель состояния системы.
@@ -181,7 +185,6 @@ class SystemState:
                 # TREND_CONTINUATION сигнал: разрешаем повтор раз в 4 часа.
                 # В trending market state_15m часто None (нет специфичного паттерна),
                 # поэтому старый "return False" блокировал ВСЕ сигналы навсегда.
-                TREND_SIGNAL_COOLDOWN = 4 * 3600  # 4 часа
                 now = time.time()
                 last_ts = self._trend_signal_timestamps.get(symbol, 0.0)
                 if (now - last_ts) < TREND_SIGNAL_COOLDOWN:
@@ -197,6 +200,18 @@ class SystemState:
             self.signal_cache[symbol] = state_15m
             return True
     
+    def would_be_new_signal(self, symbol: str, state_15m: Optional[str]) -> bool:
+        """
+        То же, что is_new_signal, но без отметки «отправлен». Нужна, чтобы отложить
+        сигнал (предел новых позиций за оборот) и не потерять его: is_new_signal
+        запоминает состояние, и в следующий оборот сигнал уже не новый.
+        """
+        import time
+        with self._lock:
+            if state_15m is None:
+                return time.time() - self._trend_signal_timestamps.get(symbol, 0.0) >= TREND_SIGNAL_COOLDOWN
+            return self.signal_cache.get(symbol) != state_15m
+
     def reset_signal_cache(self, symbol: Optional[str] = None):
         """
         Сбрасывает кэш сигналов для указанного символа или для всех символов.
