@@ -49,7 +49,7 @@ from error_alert import error_alert
 from telegram_bot import send_message, send_message_async
 from health_monitor import send_heartbeat, send_heartbeat_async, HEARTBEAT_INTERVAL
 from utils import liveness
-from loops import monitors, paper_monitor, periodic
+from loops import fault_injection, monitors, paper_monitor, periodic
 
 # Новые модули для контролируемой архитектуры
 from chaos_engine import get_chaos_engine, ChaosType
@@ -2626,301 +2626,6 @@ def _is_running() -> bool:
     return system_state.system_health.is_running
 
 
-async def synthetic_decision_tick_loop():
-    """
-    Synthetic decision tick - периодически выполняет decision pipeline
-    с синтетическим SignalSnapshot для тестирования устойчивости.
-    
-    Используется для:
-    - Тестирования fault injection
-    - Валидации decision pipeline без внешних сигналов
-    - Проверки health handling
-    
-    Без side effects: NO orders, NO persistence, NO Telegram.
-    """
-    if not ENABLE_SYNTHETIC_DECISION_TICK:
-        return  # Не запускаем если ENV не установлен
-    
-    logger.info("Synthetic decision tick loop started (interval: 10s)")
-    
-    from core.signal_snapshot import SignalSnapshot, SignalDecision, RiskLevel, VolatilityLevel
-    from core.market_state import MarketState
-    from core.decision_core import MarketRegime
-    from execution.gatekeeper import get_gatekeeper
-    
-    tick_count = 0
-    # Use shutdown_event for proper cancellation semantics
-    shutdown_evt = get_shutdown_event()
-    
-    while system_state.system_health.is_running and not shutdown_evt.is_set():
-        try:
-            # Sleep с проверкой shutdown каждую секунду для быстрого отклика на SIGTERM
-            remaining = SYNTHETIC_DECISION_TICK_INTERVAL
-            while remaining > 0 and not shutdown_evt.is_set() and system_state.system_health.is_running:
-                await asyncio.sleep(min(1.0, remaining))
-                remaining -= 1.0
-            
-            # Проверяем shutdown после sleep
-            if shutdown_evt.is_set() or not system_state.system_health.is_running:
-                break
-            
-            tick_count += 1
-            
-            # Создаём синтетический SignalSnapshot
-            synthetic_snapshot = SignalSnapshot(
-                timestamp=datetime.now(UTC),
-                symbol="BTCUSDT",  # Используем BTCUSDT как тестовый символ
-                timeframe_anchor="15m",
-                states={
-                    "5m": MarketState.A,
-                    "15m": MarketState.D,
-                    "30m": MarketState.A,
-                    "1h": MarketState.B,
-                    "4h": MarketState.A
-                },
-                market_regime=MarketRegime(
-                    trend_type="TREND",
-                    volatility_level="MEDIUM",
-                    risk_sentiment="RISK_ON",
-                    confidence=0.7
-                ),
-                volatility_level=VolatilityLevel.NORMAL,
-                correlation_level=0.5,
-                score=75,
-                score_max=125,
-                confidence=0.65,
-                entropy=0.35,
-                risk_level=RiskLevel.MEDIUM,
-                recommended_leverage=5.0,
-                entry=50000.0,
-                tp=51000.0,
-                sl=49500.0,
-                decision=SignalDecision.ENTER,
-                decision_reason="SYNTHETIC_DECISION_TICK: synthetic signal for testing",
-                directions={"15m": "UP", "30m": "UP", "1h": "UP", "4h": "UP"},
-                score_details={},
-                reasons=["Synthetic tick for decision pipeline testing"]
-            )
-            
-            logger.info(
-                "SYNTHETIC_DECISION_TICK: executing decision pipeline (tick=%d, symbol=%s)",
-                tick_count, synthetic_snapshot.symbol
-            )
-            
-            # Получаем gatekeeper
-            gatekeeper = get_gatekeeper()
-            
-            # Пропускаем через decision pipeline через gatekeeper
-            # Используем send_signal, но с флагом что это synthetic (не отправляем в Telegram)
-            try:
-                # Создаём минимальные signal_data для gatekeeper
-                signal_data = {
-                    "zone": {
-                        "entry": synthetic_snapshot.entry,
-                        "stop": synthetic_snapshot.sl,
-                        "target": synthetic_snapshot.tp
-                    },
-                    "position_size": 100.0,  # Синтетический размер
-                    "leverage": synthetic_snapshot.recommended_leverage,
-                    "risk": synthetic_snapshot.risk_level.value
-                }
-                
-                # Вызываем внутренние методы gatekeeper для decision pipeline
-                # БЕЗ отправки в Telegram (это synthetic tick)
-                
-                # 1. MetaDecisionBrain (если доступен)
-                meta_result = None
-                if gatekeeper.meta_decision_brain:
-                    meta_result = gatekeeper._check_meta_decision(synthetic_snapshot, system_state)
-                    if meta_result and not meta_result.allow_trading:
-                        logger.info(
-                            "SYNTHETIC_DECISION_TICK: MetaDecisionBrain BLOCKED (reason=%s)",
-                            meta_result.reason
-                        )
-                        continue  # Переходим к следующему tick
-                
-                # 2. DecisionCore.should_i_trade() - здесь может быть fault injection
-                try:
-                    decision_core_result = gatekeeper.decision_core.should_i_trade(
-                        symbol=synthetic_snapshot.symbol,
-                        system_state=system_state
-                    )
-                    
-                    if not decision_core_result.can_trade:
-                        logger.info(
-                            "SYNTHETIC_DECISION_TICK: DecisionCore BLOCKED (reason=%s)",
-                            decision_core_result.reason
-                        )
-                        continue
-                    
-                    logger.debug(
-                        "SYNTHETIC_DECISION_TICK: DecisionCore ALLOWED (reason=%s)",
-                        decision_core_result.reason
-                    )
-                except RuntimeError as e:
-                    # Обработка fault injection
-                    if "FAULT_INJECTION: decision_exception" in str(e):
-                        logger.error(
-                            "SYNTHETIC_DECISION_TICK: FAULT_INJECTION detected - Controlled exception from DecisionCore. Runtime continues. error_type=RuntimeError error_message=%s",
-                            e
-                        )
-                        # Записываем ошибку для health tracking
-                        system_state.record_error("FAULT_INJECTION: decision_exception (synthetic tick)")
-                        
-                        # HARDENING: Проверяем safe-mode активацию через state machine
-                        state_machine = get_state_machine()
-                        if system_state.system_health.consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                            if not state_machine.is_safe_mode:
-                                await state_machine.transition_to(
-                                    SystemStateEnum.SAFE_MODE,
-                                    reason=f"SYNTHETIC_DECISION_TICK: consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
-                                    owner="synthetic_decision_tick_loop",
-                                    metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
-                                )
-                                logger.warning(
-                                    "SYNTHETIC_DECISION_TICK: SAFE-MODE activated - consecutive_errors=%s >= MAX_CONSECUTIVE_ERRORS=%s",
-                                    system_state.system_health.consecutive_errors, MAX_CONSECUTIVE_ERRORS
-                                )
-                    else:
-                        # Другие RuntimeError - пробрасываем
-                        raise
-                
-                # 3. PortfolioBrain
-                portfolio_analysis = gatekeeper._check_portfolio(synthetic_snapshot)
-                if portfolio_analysis:
-                    from core.portfolio_brain import PortfolioDecision
-                    if portfolio_analysis.decision == PortfolioDecision.BLOCK:
-                        logger.info(
-                            "SYNTHETIC_DECISION_TICK: PortfolioBrain BLOCKED (reason=%s)",
-                            portfolio_analysis.reason
-                        )
-                        continue
-                
-                # 4. PositionSizer
-                if gatekeeper.position_sizer:
-                    sizing_result = gatekeeper._calculate_position_size(
-                        synthetic_snapshot,
-                        portfolio_analysis
-                    )
-                    if sizing_result and not sizing_result.position_allowed:
-                        logger.info(
-                            "SYNTHETIC_DECISION_TICK: PositionSizer BLOCKED (reason=%s)",
-                            sizing_result.reason
-                        )
-                        continue
-                
-                logger.debug(
-                    "SYNTHETIC_DECISION_TICK: decision pipeline completed successfully (tick=%d)",
-                    tick_count
-                )
-                
-            except Exception as e:
-                # Обработка ошибок в decision pipeline
-                logger.error(
-                    "SYNTHETIC_DECISION_TICK: error in decision pipeline (tick=%d): %s: %s",
-                    tick_count, type(e).__name__, e,
-                    exc_info=True
-                )
-                # Записываем ошибку
-                system_state.record_error(f"Synthetic tick error: {type(e).__name__}")
-                
-        except asyncio.CancelledError:
-            logger.info("Synthetic decision tick loop cancelled")
-            break
-        except Exception as e:
-            logger.error("Error in synthetic decision tick loop: %s: %s", type(e).__name__, e)
-            # Пауза перед повтором
-            try:
-                await asyncio.wait_for(
-                    asyncio.sleep(30),
-                    timeout=30.0
-                )
-            except asyncio.CancelledError:
-                break
-    
-    logger.info("Synthetic decision tick loop stopped (total ticks: %d)", tick_count)
-
-
-async def loop_stall_injection_task():
-    """
-    Loop stall injection - преднамеренно блокирует event loop для тестирования
-    обнаружения застопорившегося loop.
-    
-    Используется для:
-    - Тестирования обнаружения пропущенных heartbeats
-    - Валидации safe_mode активации
-    - Проверки восстановления после stall
-    
-    ВАЖНО: Использует прямой синхронный time.sleep в async задаче для блокировки
-    event loop. Это плохая практика в production, но допустимо для fault injection.
-    """
-    if not FAULT_INJECT_LOOP_STALL:
-        return  # Не запускаем если ENV не установлен
-    
-    logger.info("Loop stall injection enabled (stall duration: %ss)", LOOP_STALL_DURATION)
-    
-    # Ждем 30 секунд после старта, чтобы система успела инициализироваться
-    # Sleep с проверкой shutdown каждую секунду для быстрого отклика на SIGTERM
-    shutdown_evt = get_shutdown_event()
-    remaining = 30.0
-    while remaining > 0 and not shutdown_evt.is_set() and system_state.system_health.is_running:
-        await asyncio.sleep(min(1.0, remaining))
-        remaining -= 1.0
-    
-    # Проверяем shutdown после sleep
-    if shutdown_evt.is_set() or not system_state.system_health.is_running:
-        return
-    
-    logger.warning(
-        "FAULT_INJECTION: loop_stall starting - Event loop will be blocked for %ss. This is a controlled fault injection for testing.",
-        LOOP_STALL_DURATION
-    )
-    
-    try:
-        # ========== FAULT INJECTION: LOOP STALL ==========
-        #
-        # ВАЖНО: Для fault injection нужно именно блокировать event loop,
-        # чтобы проверить обнаружение stall через пропуск heartbeats.
-        #
-        # ПРОБЛЕМА: time.sleep() блокирует event loop - это антипаттерн.
-        # РЕШЕНИЕ: Используем asyncio.to_thread() для выполнения time.sleep()
-        # в отдельном потоке, но это НЕ блокирует event loop.
-        #
-        # АЛЬТЕРНАТИВА: Использовать await asyncio.sleep() - это не блокирует loop.
-        #
-        # КОМПРОМИСС: Для fault injection используем await asyncio.sleep(),
-        # но с очень маленькими интервалами, чтобы максимально приблизиться
-        # к блокировке loop. Это все равно не будет полностью блокировать loop,
-        # но позволит проверить обнаружение stall через пропуск heartbeats.
-        #
-        # Если нужна ПОЛНАЯ блокировка loop для тестирования, можно использовать
-        # time.sleep() напрямую, но это нарушает правила async-кода.
-        #
-        logger.warning("FAULT_INJECTION: loop_stall active - simulating event loop stall for %ss", LOOP_STALL_DURATION)
-        
-        # Используем await asyncio.sleep() вместо time.sleep() для соблюдения async правил
-        # Это не блокирует event loop полностью, но создает нагрузку, которая может
-        # привести к пропуску heartbeats при высокой нагрузке
-        remaining = LOOP_STALL_DURATION
-        while remaining > 0:
-            # Проверяем shutdown каждую секунду
-            shutdown_evt = get_shutdown_event()
-            if shutdown_evt.is_set() or not system_state.system_health.is_running:
-                break
-            # Используем маленькие интервалы для максимальной нагрузки на loop
-            await asyncio.sleep(min(0.1, remaining))
-            remaining -= 0.1
-        
-        logger.info(
-            "FAULT_INJECTION: loop_stall completed - Event loop should resume. Recovery expected."
-        )
-        
-    except asyncio.CancelledError:
-        logger.info("Loop stall injection cancelled")
-    except Exception as e:
-        logger.error("Error in loop stall injection: %s: %s", type(e).__name__, e)
-
-
 async def _telegram_polling_task(app, shutdown_event):
     """
     Внутренняя задача для запуска Telegram polling.
@@ -4196,7 +3901,9 @@ async def main():
     if ENABLE_SYNTHETIC_DECISION_TICK:
         tasks.append(
             register_task(
-                asyncio.create_task(synthetic_decision_tick_loop(), name="SyntheticDecisionTick"),
+                asyncio.create_task(
+                    fault_injection.synthetic_decision_tick_loop(_state, get_shutdown_event(), ENABLE_SYNTHETIC_DECISION_TICK, SYNTHETIC_DECISION_TICK_INTERVAL, MAX_CONSECUTIVE_ERRORS),
+                    name="SyntheticDecisionTick"),
                 "SyntheticDecisionTick"
             )
         )
@@ -4206,7 +3913,9 @@ async def main():
     if FAULT_INJECT_LOOP_STALL:
         tasks.append(
             register_task(
-                asyncio.create_task(loop_stall_injection_task(), name="LoopStallInjection"),
+                asyncio.create_task(
+                    fault_injection.loop_stall_injection_task(_state, get_shutdown_event(), FAULT_INJECT_LOOP_STALL, LOOP_STALL_DURATION),
+                    name="LoopStallInjection"),
                 "LoopStallInjection"
             )
         )

@@ -117,7 +117,7 @@
 
 ---
 
-## 5. 6.1 — структура кода — 🔄 шаги 1–3: страж корня; периодические циклы — `loops/periodic.py`, контролёры процесса — `loops/monitors.py`, бумажный монитор — `loops/paper_monitor.py`
+## 5. 6.1 — структура кода — 🔄 шаги 1–4: страж корня; периодические циклы — `loops/periodic.py`, контролёры процесса — `loops/monitors.py`, бумажный монитор — `loops/paper_monitor.py`, внедрение сбоев — `loops/fault_injection.py`
 
 **Факты.**
 - В корне 40 модулей. Самые нагруженные по числу импортирующих файлов: `database` — 45, `capital` — 20, `telegram_bot` и `indicators` — по 12. `runner.py` — 5153 строки, 56 функций, 10 фоновых циклов.
@@ -146,6 +146,10 @@
 > Repository Samurai-deus/python-bot (public). History was rewritten with git filter-repo on 2026-09-10 to remove a leaked (already revoked) Telegram bot token. Commits fbe6fa846f1d and 82d6a6ccf324 are still reachable through refs/pull/* of closed pull requests. Please remove the cached views and run garbage collection for these commits.
 
 ---
+
+## Замечено при разборе runner.py
+
+- «Внедрение зависания» (`FAULT_INJECT_LOOP_STALL`) цикл событий на деле не блокирует — спит короткими `asyncio.sleep`, как сказано в его же комментариях. Пропуск heartbeat им не воспроизводится. Инструмент выключен по умолчанию; при переносе поведение сохранено, а не исправлено.
 
 ## Проверки через 3 и 7 дней
 
