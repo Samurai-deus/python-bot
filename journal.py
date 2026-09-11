@@ -18,6 +18,7 @@ import time
 from datetime import UTC, datetime
 from typing import Dict, List, Optional, Sequence
 
+from core import release
 from core.signal_snapshot import SignalSnapshot
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ def record_signal(*, symbol: str, side: Optional[str], entry: Optional[float], s
         "reason": reason,
         "strategy": strategy,
         "score": score,
+        "version": release.version(),
     }
     try:
         from database import log_signal_to_db

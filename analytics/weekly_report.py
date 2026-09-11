@@ -154,21 +154,29 @@ def build_weekly_report(now: Optional[datetime] = None) -> str:
     """Текст отчёта за 7 дней до now по сделкам текущего режима и журналу сигналов."""
     import database
     from capital import get_current_balance
+    from core.release import version
     from trading_mode import sends_real_orders
 
     now = now or datetime.now(UTC)
     since = now - timedelta(days=7)
     on_exchange = sends_real_orders()
-    trades = database.get_closed_trades_since(since.isoformat(), on_exchange=on_exchange)
-    fates = database.get_signal_fates(since.isoformat())
-    verdicts = database.get_ai_verdicts(since.isoformat())
+    # Только текущая версия (Ф0 плана трейдера): результаты разных версий кода и
+    # настроек — разные «боты»; сколько не вошло — отдельной строкой.
+    current = version()
+    trades = database.get_closed_trades_since(since.isoformat(), on_exchange=on_exchange, version=current)
+    fates = database.get_signal_fates(since.isoformat(), version=current)
+    verdicts = database.get_ai_verdicts(since.isoformat(), version=current)
+    other_trades = len(database.get_closed_trades_since(since.isoformat(), on_exchange=on_exchange)) - len(trades)
+    other_signals = len(database.get_signal_fates(since.isoformat())) - len(fates)
+    note = ([f"Другие версии за неделю (в отчёт не вошли): {other_trades} сд., {other_signals} сигналов."]
+            if other_trades or other_signals else [])
     try:
         capital = get_current_balance()
     except Exception:
         capital = None
     header = (f"📈 Неделя {since:%d.%m}–{now:%d.%m} (UTC), "
-              f"{'сделки на бирже' if on_exchange else 'бумажные сделки'}")
-    return "\n".join([header, ""] + trades_section(trades, capital) + [""] + signals_section(fates)
+              f"{'сделки на бирже' if on_exchange else 'бумажные сделки'}, версия {current}")
+    return "\n".join([header] + note + [""] + trades_section(trades, capital) + [""] + signals_section(fates)
                      + [""] + ai_section(verdicts))
 
 
