@@ -161,17 +161,11 @@ def generate_signals_for_symbols(
                 logger.info("%s: снова кандидат — минимальный ордер укладывается в предел позиции", symbol)
 
             # Оценка сетапа — чистая функция strategies/setup.py (Ф1 плана трейдера): тот же код
-            # вызывает проверка на истории. Здесь — только побочные эффекты генератора.
+            # вызывает проверка на истории. Здесь — только побочные эффекты генератора; кэш цены
+            # обновляет цикл анализа по незакрытой свече (генератор видит только закрытые).
             for tf in TIMEFRAMES:
                 if candles_map.get(tf):
                     log_monitor(symbol, tf)
-            if candles_map.get("5m"):
-                # Кэш последней цены (WS-снапшот берёт из него current_price)
-                try:
-                    import price_cache as _pc
-                    _pc.update(symbol, float(candles_map["5m"][-1][4]))
-                except Exception:
-                    logger.error("Failed to update price_cache for %s", symbol, exc_info=True)
             regime_state = system_state.market_regime if system_state and hasattr(system_state, "market_regime") else None
             outcome = evaluate_setup(symbol, candles_map, market_correlations=market_correlations, good_time=good_time,
                                      market_regime=regime_state, strategy_manager=_strategy_manager)

@@ -153,7 +153,7 @@ def test_a_full_cycle_feeds_the_signal_generator_and_counts_success(cycle):
     assert analyse() is True
     assert cycle.candles_loaded == [["SOLUSDT"]]
     (kwargs,) = cycle.generated
-    assert kwargs["all_candles"] is cycle.candles and kwargs["market_correlations"] is cycle.correlations
+    assert kwargs["all_candles"] == cycle.candles and kwargs["market_correlations"] is cycle.correlations
     assert kwargs["decision_core"] is cycle.decision_core and kwargs["gatekeeper"] is cycle.gatekeeper
     assert kwargs["opportunity_awareness"] is cycle.opportunity and kwargs["system_state"] is cycle.state
     assert kwargs["good_time"] is True
