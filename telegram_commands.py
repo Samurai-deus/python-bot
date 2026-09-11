@@ -190,6 +190,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 `/trades` - Открытые сделки
 `/signals [кол-во]` - Последние сигналы
 `/gatekeeper` - Статистика Gatekeeper
+`/ai вопрос` - Вопрос ИИ-трейдеру
+`/ai_stats` - Расход и точность мнений ИИ
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1308,6 +1310,11 @@ def setup_commands(app):
     app.add_handler(CommandHandler("signals", cmd_signals))
     app.add_handler(CommandHandler("gatekeeper", cmd_gatekeeper))
     
+    # ИИ-трейдер: вопрос модели и её статистика (docs/AI_TRADER_PLAN.md)
+    from ai_trader.telegram import cmd_ai, cmd_ai_stats
+    app.add_handler(CommandHandler("ai", cmd_ai))
+    app.add_handler(CommandHandler("ai_stats", cmd_ai_stats))
+
     # Control plane команды
     app.add_handler(CommandHandler("pause", cmd_pause))
     app.add_handler(CommandHandler("resume", cmd_resume))
