@@ -80,9 +80,12 @@ def build_context(series, symbols: List[str], start_ms: int, end_ms: int) -> Lis
     return out
 
 
-def context_at(contexts: List[Context], t_ms: int) -> Optional[Context]:
-    """Последний контекст не позже t (контекст — по уже закрытым 15m)."""
-    i = bisect.bisect_right([c.t_ms for c in contexts], t_ms)
+def context_at(contexts: List[Context], t_ms: int, keys: Optional[List[int]] = None) -> Optional[Context]:
+    """
+    Последний контекст не позже t (контекст — по уже закрытым 15m). keys — готовый список
+    t_ms контекстов: за год их ~35 тыс., и строить его на каждом шаге — пятая часть прогона.
+    """
+    i = bisect.bisect_right(keys if keys is not None else [c.t_ms for c in contexts], t_ms)
     return contexts[i - 1] if i else None
 
 
@@ -132,10 +135,11 @@ def replay_symbol(conn, series, symbol: str, start_ms: int, end_ms: int, context
     """
     from strategies.setup import Setup, evaluate_setup
     events, skips = [], {}
+    keys = [c.t_ms for c in contexts] if contexts else None
     t = start_ms - start_ms % FIVE_MS
     while t < end_ms:
         market = candles_at(series, [symbol], t)[symbol]
-        ctx = context_at(contexts, t) if contexts else None
+        ctx = context_at(contexts, t, keys) if contexts else None
         regime = SimpleNamespace(trend_type=ctx.trend_type) if ctx and ctx.trend_type else None
         result = evaluate_setup(symbol, market, market_correlations=ctx.correlations if ctx else {},
                                 good_time=True, market_regime=regime)

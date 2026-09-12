@@ -13,7 +13,7 @@ import argparse
 import json
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -34,15 +34,23 @@ def _context_chunk(args):
 
 
 def _symbol_setups(args):
-    db, symbol, start, end, contexts, with_micro = args
+    db, symbol, start, end, contexts, with_micro, cache_dir = args
+    cache = Path(cache_dir) / f"setups-{symbol}-{start}-{end}-{int(with_micro)}.json" if cache_dir else None
+    if cache is not None and cache.exists():
+        data = json.loads(cache.read_text(encoding="utf-8"))
+        return symbol, [replay.SetupEvent(**e) for e in data["events"]], data["skips"]
     conn = history.connect(db)
     series = replay.load_series(conn, [symbol])
     events, skips = replay.replay_symbol(conn, series, symbol, start, end, contexts=contexts, with_micro=with_micro)
     conn.close()
+    if cache is not None:
+        tmp = cache.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"events": replay.events_as_dicts(events), "skips": skips}), encoding="utf-8")
+        tmp.replace(cache)
     return symbol, events, skips
 
 
-def run(db, symbols, start_ms, end_ms, workers, equity, risk_pct, with_micro=True, log=print):
+def run(db, symbols, start_ms, end_ms, workers, equity, risk_pct, with_micro=True, log=print, cache_dir=None):
     started = time.monotonic()
     chunk = max(replay.FIFTEEN_MS, (end_ms - start_ms) // (workers * 4))
     chunk -= chunk % replay.FIFTEEN_MS
@@ -54,12 +62,13 @@ def run(db, symbols, start_ms, end_ms, workers, equity, risk_pct, with_micro=Tru
 
     setups, skips = [], {}
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        jobs = [(db, s, start_ms, end_ms, contexts, with_micro) for s in symbols]
-        for symbol, events, symbol_skips in pool.map(_symbol_setups, jobs):
+        jobs = [pool.submit(_symbol_setups, (db, s, start_ms, end_ms, contexts, with_micro, cache_dir)) for s in symbols]
+        for done, job in enumerate(as_completed(jobs), 1):
+            symbol, events, symbol_skips = job.result()
             setups.extend(events)
             for code, n in symbol_skips.items():
                 skips[code] = skips.get(code, 0) + n
-            log(f"{symbol}: сетапов {len(events)}")
+            log(f"{symbol}: сетапов {len(events)} ({done}/{len(symbols)}, {time.monotonic() - started:.0f} с)")
     log(f"сетапы: {len(setups)} за {time.monotonic() - started:.0f} с")
 
     conn = history.connect(db)
@@ -87,7 +96,10 @@ def main(argv=None):
     parser.add_argument("--no-micro", action="store_true", help="без фильтра фандинга и открытого интереса")
     parser.add_argument("--holdout", action="store_true", help="показать отложенный конец (смотреть один раз)")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--cache-dir", default=None, help="кэш сетапов по символам: прерванный прогон продолжится")
     args = parser.parse_args(argv)
+    if args.cache_dir:
+        Path(args.cache_dir).mkdir(parents=True, exist_ok=True)
 
     conn = history.connect(args.db)
     last = conn.execute("SELECT MIN(mx) FROM (SELECT MAX(ts) AS mx FROM candles WHERE interval = '5m' GROUP BY symbol)").fetchone()[0]
@@ -96,7 +108,8 @@ def main(argv=None):
     # первые 20 суток — разгон: окнам 4h нужно 120 закрытых баров
     start_ms = int((datetime.fromtimestamp(end_ms / 1000, UTC) - timedelta(days=30 * args.months - 20)).timestamp() * 1000)
     symbols = args.symbols.split(",")
-    out = run(args.db, symbols, start_ms, end_ms, args.workers, args.equity, args.risk_pct, with_micro=not args.no_micro)
+    out = run(args.db, symbols, start_ms, end_ms, args.workers, args.equity, args.risk_pct, with_micro=not args.no_micro,
+              cache_dir=args.cache_dir)
 
     trades = out.result.trades
     if end_ms - start_ms >= 150 * report.DAY_MS:
