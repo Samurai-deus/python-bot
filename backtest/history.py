@@ -30,7 +30,7 @@ INTERVALS: Dict[str, Tuple[str, int]] = {
     "4h": ("240", 14_400_000),
 }
 KLINE_LIMIT = 1000
-FUNDING_WINDOW_MS = 60 * 86_400_000     # ≤ 200 записей по 8 ч — 66 суток, берём 60
+FUNDING_LIMIT = 200
 OI_LIMIT = 200
 MIN_REQUEST_GAP = 0.12                  # ≈ 8 запросов в секунду — с запасом до лимита Bybit
 RETRIES = 5
@@ -138,20 +138,26 @@ def sync_candles(conn, api: BybitHistory, symbol: str, timeframe: str, start_ms:
 
 
 def sync_funding(conn, api: BybitHistory, symbol: str, start_ms: int, end_ms: int) -> int:
-    have = _latest(conn, "SELECT MAX(ts) FROM funding WHERE symbol = ?", (symbol,))
-    cursor = max(start_ms, have + 1) if have is not None else start_ms
-    added = 0
-    while cursor < end_ms:
-        window_end = min(cursor + FUNDING_WINDOW_MS, end_ms)
+    """
+    Ставки фандинга [start_ms, end_ms]: листаем назад от конца по полученным записям.
+    Биржа отдаёт последние ≤200 записей до endTime, а интервал выплат у монеты бывает 8, 4
+    и 1 ч и меняется со временем — окно фиксированной длины теряло записи. Период берётся
+    целиком каждый раз (запросов мало), так заполняются и старые дыры. Возвращает число новых.
+    """
+    before = conn.total_changes
+    cursor_end = end_ms
+    while True:
         result = api.get("/v5/market/funding/history", {"category": "linear", "symbol": symbol,
-                                                        "startTime": cursor, "endTime": window_end, "limit": 200})
+                                                        "endTime": cursor_end, "limit": FUNDING_LIMIT})
         rows = result.get("list") or []
+        stamps = [int(r["fundingRateTimestamp"]) for r in rows]
         conn.executemany("INSERT OR IGNORE INTO funding VALUES (?, ?, ?)",
-                         [(symbol, int(r["fundingRateTimestamp"]), float(r["fundingRate"])) for r in rows])
+                         [(symbol, ts, float(r["fundingRate"])) for ts, r in zip(stamps, rows) if start_ms <= ts <= end_ms])
         conn.commit()
-        added += len(rows)
-        cursor = window_end + 1
-    return added
+        if len(rows) < FUNDING_LIMIT or min(stamps) <= start_ms:
+            break
+        cursor_end = min(stamps) - 1
+    return conn.total_changes - before
 
 
 def sync_open_interest(conn, api: BybitHistory, symbol: str, interval: str, start_ms: int, end_ms: int) -> int:

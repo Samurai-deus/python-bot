@@ -15,7 +15,8 @@ T0 = 1_725_000_000_000
 class FakeBybit:
     """Свечи 5m от T0 до now_ms (последняя незакрытая), фандинг раз в 8 ч, OI по курсору."""
 
-    def __init__(self, count, rate_limited_first=0, listing_ms=T0):
+    def __init__(self, count, rate_limited_first=0, listing_ms=T0, funding_hours=8):
+        self.funding_step = funding_hours * 3_600_000
         self.series = [listing_ms + i * STEP for i in range(count)]
         self.calls = []
         self.rate_limited = rate_limited_first
@@ -30,8 +31,8 @@ class FakeBybit:
             rows = [t for t in self.series if t >= params["start"]][:params["limit"]]
             return Response(ok({"list": [[str(t), "1", "2", "0.5", "1.5", "10", "15"] for t in reversed(rows)]}))
         if path == "/v5/market/funding/history":
-            stamps = range(T0, T0 + 90 * 86_400_000, 8 * 3_600_000)
-            rows = [t for t in stamps if params["startTime"] <= t <= params["endTime"]][-params["limit"]:]
+            stamps = range(T0, T0 + 90 * 86_400_000, self.funding_step)
+            rows = [t for t in stamps if params.get("startTime", 0) <= t <= params["endTime"]][-params["limit"]:]
             return Response(ok({"list": [{"fundingRateTimestamp": str(t), "fundingRate": "0.0001"}
                                          for t in reversed(rows)]}))
         if path == "/v5/market/open-interest":
@@ -103,12 +104,29 @@ def test_a_symbol_listed_later_starts_from_its_listing(conn):
     assert history.sync_candles(conn, api_over(fake), "NEWUSDT", "5m", T0, T0 + 105 * STEP) == 5
 
 
-def test_funding_is_fetched_in_windows(conn):
+def test_funding_is_complete_and_a_second_sync_adds_nothing(conn):
     fake = FakeBybit(count=0)
     end_ms = T0 + 90 * 86_400_000
-    added = history.sync_funding(conn, api_over(fake), "ADAUSDT", T0, end_ms)
-    assert added == 270, "90 суток по 3 ставки"
+    assert history.sync_funding(conn, api_over(fake), "ADAUSDT", T0, end_ms) == 270, "90 суток по 3 ставки"
     assert history.sync_funding(conn, api_over(fake), "ADAUSDT", T0, end_ms) == 0
+
+
+@pytest.mark.parametrize("hours", [4, 1])
+def test_funding_with_a_short_interval_has_no_holes(conn, hours):
+    # биржа отдаёт последние 200 записей: окно «под 8 ч» теряло начало каждого окна
+    fake = FakeBybit(count=0, funding_hours=hours)
+    end_ms = T0 + 90 * 86_400_000
+    assert history.sync_funding(conn, api_over(fake), "ADAUSDT", T0, end_ms) == 90 * 24 // hours
+    stamps = [r[0] for r in conn.execute("SELECT ts FROM funding ORDER BY ts")]
+    assert stamps[0] == T0 and all(b - a == hours * 3_600_000 for a, b in zip(stamps, stamps[1:]))
+
+
+def test_a_hole_in_cached_funding_is_refilled(conn):
+    fake = FakeBybit(count=0, funding_hours=4)
+    end_ms = T0 + 90 * 86_400_000
+    history.sync_funding(conn, api_over(fake), "ADAUSDT", T0, end_ms)
+    conn.execute("DELETE FROM funding WHERE ts BETWEEN ? AND ?", (T0 + 10 * 86_400_000, T0 + 20 * 86_400_000))
+    assert history.sync_funding(conn, api_over(fake), "ADAUSDT", T0, end_ms) == 61
 
 
 def test_open_interest_follows_the_cursor(conn):
