@@ -72,7 +72,8 @@ def rates_8h(rows: Sequence[Tuple[int, float]]) -> List[Tuple[int, float, float]
     return out
 
 
-def leg(bars: Dict[int, float], fund: Dict, entry_t: int, exit_t: int, side: str) -> Optional[Tuple[float, float, float]]:
+def leg(bars: Dict[int, float], fund: Dict, entry_t: int, exit_t: int, side: str,
+        slippage: float = SLIPPAGE) -> Optional[Tuple[float, float, float]]:
     """
     Нога от open бара entry_t до open бара exit_t: (итог, комиссии, фандинг) в долях номинала
     на входе. Фандинг — выплаты в (entry_t, exit_t]: лонг платит положительную ставку и получает
@@ -82,8 +83,8 @@ def leg(bars: Dict[int, float], fund: Dict, entry_t: int, exit_t: int, side: str
     if o_in is None or o_out is None:
         return None
     d = 1 if side == "LONG" else -1
-    fill_in = o_in * (1 + d * SLIPPAGE)
-    fill_out = o_out * (1 - d * SLIPPAGE)
+    fill_in = o_in * (1 + d * slippage)
+    fill_out = o_out * (1 - d * slippage)
     gross = d * (fill_out / fill_in - 1)
     fees = TAKER_FEE * (1 + fill_out / fill_in)
     funding = 0.0
@@ -127,15 +128,16 @@ def run_variant(symbols: Sequence[str], fund: Dict, bars: Dict, start_ms: int, e
     return events, skipped
 
 
-def evaluate(events: Sequence[Event], start_ms: int, end_ms: int, holdout: bool = False, bootstrap: int = 2000) -> Dict:
-    """Критерии И1 из плана. Видимое — события, закрытые до отложенного конца."""
+def evaluate(events: Sequence, start_ms: int, end_ms: int, holdout: bool = False, bootstrap: int = 2000,
+             alpha: float = ALPHA) -> Dict:
+    """Критерии И1 (и И2 — те же, со своим alpha) из плана. Видимое — события, закрытые до отложенного конца."""
     parts, (hold_start, _) = report.splits(start_ms, end_ms)
     visible = list(events) if holdout else [e for e in events if e.exit_t < hold_start]
     n = len(visible)
     if not n:
         return {"events": 0, "passed": False, "checks": {}}
     mean = sum(e.r for e in visible) / n
-    low, high = report.expectancy_ci(visible, bootstrap, alpha=ALPHA)
+    low, high = report.expectancy_ci(visible, bootstrap, alpha=alpha)
     segments = []
     for part in parts:
         chunk = report.within(visible, part)
@@ -168,6 +170,15 @@ def load(conn, symbols: Sequence[str], start_ms: int, end_ms: int) -> Tuple[Dict
     return fund, bars
 
 
+def period(conn, months: int) -> Tuple[int, int]:
+    """Тот же период, что у backtest.run: конец — последняя общая 5m, первые 20 суток там — разгон окон."""
+    last = conn.execute("SELECT MIN(mx) FROM (SELECT MAX(ts) AS mx FROM candles WHERE interval = '5m'"
+                        " GROUP BY symbol)").fetchone()[0]
+    end_ms = int(last) + FIVE_MS
+    start = datetime.fromtimestamp(end_ms / 1000, UTC) - timedelta(days=30 * months - 20)
+    return int(start.timestamp() * 1000), end_ms
+
+
 def render(horizon_h: int, hedged: bool, stats: Dict, skipped: Dict[str, int]) -> str:
     title = f"{horizon_h:>2} ч {'с защитой' if hedged else 'без защиты'}"
     if not stats["events"]:
@@ -191,11 +202,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     conn = history.connect(args.db)
-    last = conn.execute("SELECT MIN(mx) FROM (SELECT MAX(ts) AS mx FROM candles WHERE interval = '5m'"
-                        " GROUP BY symbol)").fetchone()[0]
-    end_ms = int(last) + FIVE_MS
-    # тот же период, что у backtest.run: первые 20 суток там — разгон окон
-    start_ms = int((datetime.fromtimestamp(end_ms / 1000, UTC) - timedelta(days=30 * args.months - 20)).timestamp() * 1000)
+    start_ms, end_ms = period(conn, args.months)
     symbols = args.symbols.split(",")
     fund, bars = load(conn, symbols, start_ms, end_ms)
     conn.close()
