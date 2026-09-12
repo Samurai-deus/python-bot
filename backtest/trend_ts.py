@@ -156,23 +156,29 @@ def main(argv=None) -> int:
     parser.add_argument("--db", default=str(history.DEFAULT_DB))
     parser.add_argument("--symbols", default=",".join(SYMBOLS))
     parser.add_argument("--holdout", action="store_true", help="показать отложенный конец (смотреть один раз)")
+    parser.add_argument("--start", help="первая ребалансировка ГГГГ-ММ-ДД: явный период (наблюдение вперёд)")
+    parser.add_argument("--end", help="последний выход ГГГГ-ММ-ДД")
+    parser.add_argument("--lookback", type=int, help="один вариант N (дней)")
     args = parser.parse_args(argv)
 
     conn = history.connect(args.db)
-    _, end_ms = fe.period(conn, 12)
-    start_ms = mx.day_ms(START)
-    last = end_ms if args.holdout else end_ms - HOLDOUT_DAYS * DAY_MS
+    if args.start and args.end:
+        start_ms, last, hold = mx.day_ms(args.start), mx.day_ms(args.end), "явный период"
+    else:
+        _, end_ms = fe.period(conn, 12)
+        start_ms = mx.day_ms(START)
+        last = end_ms if args.holdout else end_ms - HOLDOUT_DAYS * DAY_MS
+        hold = "с отложенным концом" if args.holdout else "без отложенного конца"
     weeks_t = mx.mondays(start_ms, last)
     symbols = args.symbols.split(",")
     data = load(conn, symbols, start_ms, last)
     conn.close()
 
     print(f"И4, ребалансировки {datetime.fromtimestamp(weeks_t[0] / 1000, UTC):%d.%m.%Y}–"
-          f"{datetime.fromtimestamp(weeks_t[-1] / 1000, UTC):%d.%m.%Y} "
-          f"({'с отложенным концом' if args.holdout else 'без отложенного конца'}), {len(symbols)} монет, "
+          f"{datetime.fromtimestamp(weeks_t[-1] / 1000, UTC):%d.%m.%Y} ({hold}), {len(symbols)} монет, "
           f"вес 0,15 / (волатильность × K), не больше {100 * CAP:.0f} %")
     passed = False
-    for lookback in LOOKBACKS_D:
+    for lookback in ((args.lookback,) if args.lookback else LOOKBACKS_D):
         weeks = simulate(data, symbols, weeks_t, lookback)
         stats = evaluate(weeks)
         print(render(lookback, stats, weeks))
