@@ -118,14 +118,14 @@ def simulate(data: Dict, symbols: Sequence[str], weeks_t: Sequence[int], lookbac
     return out
 
 
-def evaluate(weeks: Sequence[Week], bootstrap: int = 2000) -> Dict:
-    """Критерии И3 из плана; отрезки — три равные части периода недель."""
+def evaluate(weeks: Sequence[Week], bootstrap: int = 2000, alpha: float = ALPHA) -> Dict:
+    """Критерии И3 из плана; отрезки — три равные части периода недель. alpha — по числу вариантов."""
     n = len(weeks)
     if not n:
         return {"weeks": 0, "passed": False, "checks": {}}
     rs = [w.r for w in weeks]
     mean = sum(rs) / n
-    low, high = report.expectancy_ci(weeks, bootstrap, alpha=ALPHA)
+    low, high = report.expectancy_ci(weeks, bootstrap, alpha=alpha)
     parts, _ = report.splits(weeks[0].entry_t, weeks[-1].exit_t, holdout_days=0)
     segments = []
     for part in parts:
@@ -155,15 +155,16 @@ def load(conn, symbols: Sequence[str], start_ms: int, end_ms: int) -> Dict:
     return data
 
 
-def render(lookback_d: int, stats: Dict) -> str:
+def render(lookback_d: int, stats: Dict, alpha: float = ALPHA) -> str:
     title = f"L = {lookback_d:>2} дн"
     if not stats["weeks"]:
         return f"{title}: недель нет"
     low, high = stats["ci"]
     seg = " / ".join("—" if m is None else f"{100 * m:+.2f}" for m in stats["segments"])
     failed = [k for k, ok in stats["checks"].items() if not ok]
+    level = f"{100 * (1 - alpha):.1f}".replace(".", ",")
     return (f"{title}: {stats['weeks']} нед., средняя {100 * stats['mean']:+.2f} % капитала "
-            f"[{100 * low:+.2f}; {100 * high:+.2f}] (97,5 %), плюсовых недель {100 * stats['win_rate']:.0f} %, "
+            f"[{100 * low:+.2f}; {100 * high:+.2f}] ({level} %), плюсовых недель {100 * stats['win_rate']:.0f} %, "
             f"отрезки {seg} %, просадка {100 * stats['drawdown']:.1f} %; в неделю: до издержек "
             f"{100 * stats['gross']:+.2f} %, издержки {100 * stats['costs']:.2f} %, фандинг {100 * stats['funding']:+.3f} % → "
             f"{'ПРОХОДИТ' if stats['passed'] else 'не проходит: ' + ', '.join(failed)}")
@@ -175,26 +176,41 @@ def main(argv=None) -> int:
     parser.add_argument("--db", default=str(history.DEFAULT_DB))
     parser.add_argument("--symbols", default=",".join(config.SYMBOLS))
     parser.add_argument("--holdout", action="store_true", help="показать отложенный конец (смотреть один раз)")
+    parser.add_argument("--start", help="первая ребалансировка ГГГГ-ММ-ДД: явный период, целиком проверочный (И3б)")
+    parser.add_argument("--end", help="последний выход ГГГГ-ММ-ДД")
+    parser.add_argument("--lookback", type=int, help="один вариант L (дней); интервал — по числу вариантов")
     args = parser.parse_args(argv)
 
+    lookbacks = (args.lookback,) if args.lookback else LOOKBACKS_D
+    alpha = 0.05 / len(lookbacks)
     conn = history.connect(args.db)
-    _, end_ms = fe.period(conn, 12)
-    start_ms = day_ms(START)
-    last = end_ms if args.holdout else end_ms - HOLDOUT_DAYS * DAY_MS
+    if args.start and args.end:
+        start_ms, last, hold = day_ms(args.start), day_ms(args.end), "период целиком проверочный"
+    else:
+        _, end_ms = fe.period(conn, 12)
+        start_ms = day_ms(START)
+        last = end_ms if args.holdout else end_ms - HOLDOUT_DAYS * DAY_MS
+        hold = "с отложенным концом" if args.holdout else "без отложенного конца"
     weeks_t = mondays(start_ms, last)
     symbols = args.symbols.split(",")
     data = load(conn, symbols, start_ms, last)
     conn.close()
 
-    print(f"И3, ребалансировки {datetime.fromtimestamp(weeks_t[0] / 1000, UTC):%d.%m.%Y}–"
-          f"{datetime.fromtimestamp(weeks_t[-1] / 1000, UTC):%d.%m.%Y} "
-          f"({'с отложенным концом' if args.holdout else 'без отложенного конца'}), лонг/шорт по {TOP}, {100 * WEIGHT:.0f} % на позицию")
+    name = "И3б" if args.start and args.end else "И3"
+    print(f"{name}, ребалансировки {datetime.fromtimestamp(weeks_t[0] / 1000, UTC):%d.%m.%Y}–"
+          f"{datetime.fromtimestamp(weeks_t[-1] / 1000, UTC):%d.%m.%Y} ({hold}), лонг/шорт по {TOP}, "
+          f"{100 * WEIGHT:.0f} % на позицию")
     passed = False
-    for lookback in LOOKBACKS_D:
-        stats = evaluate(simulate(data, symbols, weeks_t, lookback))
-        print(render(lookback, stats))
+    for lookback in lookbacks:
+        weeks = simulate(data, symbols, weeks_t, lookback)
+        stats = evaluate(weeks, alpha=alpha)
+        print(render(lookback, stats, alpha))
+        empty = sum(1 for w in weeks if not w.longs)
+        ranked = [len([s for s in symbols if s in data and momentum(data[s]["c4"], w.entry_t, lookback) is not None])
+                  for w in weeks]
+        print(f"  недель без позиций {empty}; символов в ранжировании: от {min(ranked)} до {max(ranked)}")
         passed = passed or stats["passed"]
-    print("Вердикт И3:", "принимается" if passed else "не принимается")
+    print(f"Вердикт {name}:", "принимается" if passed else "не принимается")
     return 0
 
 
