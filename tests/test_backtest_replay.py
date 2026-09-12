@@ -59,6 +59,10 @@ def test_the_context_is_the_last_one_not_after_the_moment():
     assert replay.context_at(contexts, 899_999).t_ms == 0
     assert replay.context_at(contexts, 900_000).t_ms == 900_000
     assert replay.context_at(contexts, -1) is None
+    keys = [c.t_ms for c in contexts]  # готовый список меток — тот же ответ
+    assert replay.context_at(contexts, 899_999, keys).t_ms == 0
+    assert replay.context_at(contexts, 1_800_001, keys).t_ms == 1_800_000
+    assert replay.context_at(contexts, -1, keys) is None
 
 
 def test_phase_a_finds_the_same_setups_as_the_live_generator(conn, monkeypatch):
@@ -87,3 +91,15 @@ def test_phase_a_finds_the_same_setups_as_the_live_generator(conn, monkeypatch):
                      for e in events}
     assert live_setups, "сценарий без сетапов ничего не проверяет"
     assert replayed == live_setups
+
+
+def test_the_setups_cache_gives_the_same_events_without_recomputing(conn, tmp_path, monkeypatch):
+    from backtest import run
+    fill(conn, "BTCUSDT", 10, 0.0012, 0.003, 48 * 140)
+    (tmp_path / "cache").mkdir()
+    start, end = T0 + 48 * 125 * FIVE, T0 + 48 * 139 * FIVE
+    args = (str(tmp_path / "history.db"), "BTCUSDT", start, end, None, False, str(tmp_path / "cache"))
+    symbol, first, skips = run._symbol_setups(args)
+    assert first, "без сетапов кэш ничего не проверяет"
+    monkeypatch.setattr(replay, "replay_symbol", lambda *a, **k: pytest.fail("прогон повторён, кэш не использован"))
+    assert run._symbol_setups(args) == (symbol, first, skips)
