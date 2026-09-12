@@ -83,6 +83,38 @@ def test_three_variants_give_a_98_3_percent_interval():
     assert narrow[0] >= wide[0] and narrow[1] <= wide[1]
 
 
+def _h2b_data(moments_by_symbol):
+    opens = series(100.0, T, T + 30 * ce.HOUR_MS)
+    return {s: {"opens": opens, "fund": {"ts": [], "rate": []}, "moments": m} for s, m in moments_by_symbol.items()}
+
+
+def test_h2b_takes_only_longs_and_at_most_five_open_strongest_oi_drop_first():
+    data = _h2b_data({f"S{i}": [(T, "LONG", -0.02 - i / 100, -0.03)] for i in range(7)})
+    data["SHORTY"] = _h2b_data({"x": [(T, "SHORT", -0.5, 0.05)]})["x"]
+    events, skipped = ce.run_portfolio(list(data), data, 1)
+    assert sorted(e.symbol for e in events) == ["S2", "S3", "S4", "S5", "S6"], "места — самым сильным падениям OI"
+    assert skipped["full"] == 2 and all(e.side == "LONG" for e in events)
+
+
+def test_h2b_frees_a_place_when_a_position_closes_and_keeps_one_per_symbol():
+    data = _h2b_data({f"S{i}": [(T, "LONG", -0.03, -0.03)] for i in range(5)})
+    data["S0"]["moments"].append((T + F, "LONG", -0.03, -0.03))                   # тот же символ, позиция открыта
+    data["LATE"] = _h2b_data({"x": [(T + F, "LONG", -0.03, -0.03), (T + ce.HOUR_MS, "LONG", -0.03, -0.03)]})["x"]
+    events, skipped = ce.run_portfolio(list(data), data, 1)
+    late = [e.t_ms for e in events if e.symbol == "LATE"]
+    assert late == [T + ce.HOUR_MS], "в T+5 мин мест нет, в T+1 ч позиции закрылись — место есть"
+    assert skipped["overlap"] == 1 and skipped["full"] == 1
+
+
+def test_a_period_without_holdout_splits_the_whole_year():
+    day = 86_400_000
+    evs = [fe.Event("X", T + i * day, 0.0, T + i * day, T + i * day + ce.HOUR_MS, 0.01, 0.0, 0.0, False, 0.0, 0.0)
+           for i in range(360)]
+    whole = fe.evaluate(evs, T, T + 365 * day, bootstrap=200, alpha=ce.ALPHA, holdout_days=0)
+    usual = fe.evaluate(evs, T, T + 365 * day, bootstrap=200, alpha=ce.ALPHA)
+    assert whole["events"] == 360 and usual["events"] < 300
+
+
 def test_load_finds_cascades_in_the_history_cache(tmp_path):
     conn = history.connect(tmp_path / "history.db")
     oi, closes = with_cascade(-0.03, -0.03)

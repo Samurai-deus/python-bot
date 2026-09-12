@@ -36,9 +36,10 @@ class FakeBybit:
             return Response(ok({"list": [{"fundingRateTimestamp": str(t), "fundingRate": "0.0001"}
                                          for t in reversed(rows)]}))
         if path == "/v5/market/open-interest":
+            stamps = [T0 + i * STEP for i in range(6) if params["startTime"] <= T0 + i * STEP <= params["endTime"]]
             page = int(params.get("cursor") or 0)
-            rows = [{"timestamp": str(T0 + i * STEP), "openInterest": "100"} for i in range(page * 2, page * 2 + 2)]
-            return Response(ok({"list": rows, "nextPageCursor": str(page + 1) if page < 2 else ""}))
+            rows = [{"timestamp": str(t), "openInterest": "100"} for t in stamps[page * 2:page * 2 + 2]]
+            return Response(ok({"list": rows, "nextPageCursor": str(page + 1) if (page + 1) * 2 < len(stamps) else ""}))
         raise AssertionError(path)
 
 
@@ -132,6 +133,25 @@ def test_a_hole_in_cached_funding_is_refilled(conn):
 def test_open_interest_follows_the_cursor(conn):
     fake = FakeBybit(count=0)
     assert history.sync_open_interest(conn, api_over(fake), "ADAUSDT", "5min", T0, T0 + 10 * STEP) == 6
+
+
+def test_a_longer_period_backfills_candles_before_the_cache(conn, monkeypatch):
+    monkeypatch.setattr(history, "KLINE_LIMIT", 100)
+    fake = FakeBybit(count=250)
+    end_ms = T0 + 250 * STEP
+    assert history.sync_candles(conn, api_over(fake), "ADAUSDT", "5m", T0 + 100 * STEP, end_ms) == 150
+    assert history.sync_candles(conn, api_over(fake), "ADAUSDT", "5m", T0, end_ms) == 100, "начало докачано назад"
+    stamps = [row[0] for row in history.load_candles(conn, "ADAUSDT", "5m", 0, end_ms)]
+    assert stamps[0] == T0 and len(stamps) == 250 and history.find_gaps(conn, "ADAUSDT", "5m") == []
+    assert history.sync_candles(conn, api_over(fake), "ADAUSDT", "5m", T0, end_ms) == 0
+
+
+def test_a_longer_period_backfills_open_interest_before_the_cache(conn):
+    fake = FakeBybit(count=0)
+    assert history.sync_open_interest(conn, api_over(fake), "ADAUSDT", "5min", T0 + 3 * STEP, T0 + 10 * STEP) == 3
+    assert history.sync_open_interest(conn, api_over(fake), "ADAUSDT", "5min", T0, T0 + 10 * STEP) == 3
+    stamps = [r[0] for r in conn.execute("SELECT ts FROM open_interest ORDER BY ts")]
+    assert stamps == [T0 + i * STEP for i in range(6)]
 
 
 def test_gaps_are_reported(conn):

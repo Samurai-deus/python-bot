@@ -129,9 +129,12 @@ def run_variant(symbols: Sequence[str], fund: Dict, bars: Dict, start_ms: int, e
 
 
 def evaluate(events: Sequence, start_ms: int, end_ms: int, holdout: bool = False, bootstrap: int = 2000,
-             alpha: float = ALPHA) -> Dict:
-    """Критерии И1 (и И2 — те же, со своим alpha) из плана. Видимое — события, закрытые до отложенного конца."""
-    parts, (hold_start, _) = report.splits(start_ms, end_ms)
+             alpha: float = ALPHA, holdout_days: int = 75) -> Dict:
+    """
+    Критерии И1 (и И2 — те же, со своим alpha) из плана. Видимое — события, закрытые до
+    отложенного конца. holdout_days=0 — период целиком проверочный (И2б на невиденном годе).
+    """
+    parts, (hold_start, _) = report.splits(start_ms, end_ms, holdout_days=holdout_days)
     visible = list(events) if holdout else [e for e in events if e.exit_t < hold_start]
     n = len(visible)
     if not n:
