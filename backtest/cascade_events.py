@@ -27,6 +27,7 @@ PRICE_MOVE = 0.02
 HORIZONS_H = (1, 4, 24)
 SLIPPAGE = 0.001
 ALPHA = 0.05 / len(HORIZONS_H)     # интервал 98,3 %
+MAX_OPEN = 5                       # И2б: не больше 5 позиций по рынку одновременно
 
 
 @dataclass
@@ -81,6 +82,35 @@ def run_variant(symbols: Sequence[str], data: Dict, horizon_h: int) -> Tuple[Lis
     return events, skipped
 
 
+def run_portfolio(symbols: Sequence[str], data: Dict, horizon_h: int, side: str = "LONG",
+                  max_open: int = MAX_OPEN) -> Tuple[List[Cascade], Dict[str, int]]:
+    """
+    И2б: события всех символов по времени, только сторона side, не больше max_open открытых
+    позиций по рынку; в один момент первыми — с более сильным падением OI. Одна позиция на символ.
+    """
+    moments = sorted(((t, doi, symbol, s, move) for symbol in symbols if symbol in data
+                      for t, s, doi, move in data[symbol]["moments"] if s == side), key=lambda m: (m[0], m[1]))
+    events: List[Cascade] = []
+    skipped = {"overlap": 0, "full": 0, "no_bar": 0}
+    busy: Dict[str, int] = {}  # символ → момент выхода
+    for t, doi, symbol, s, move in moments:
+        if busy.get(symbol, t) > t:
+            skipped["overlap"] += 1
+            continue
+        if sum(1 for exit_t in busy.values() if exit_t > t) >= max_open:
+            skipped["full"] += 1
+            continue
+        exit_t = t + horizon_h * HOUR_MS
+        result = fe.leg(data[symbol]["opens"], data[symbol]["fund"], t, exit_t, s, slippage=SLIPPAGE)
+        if result is None:
+            skipped["no_bar"] += 1
+            continue
+        busy[symbol] = exit_t
+        events.append(Cascade(symbol, t, s, doi, move, t, exit_t, *result))
+    events.sort(key=lambda e: (e.exit_t, e.symbol))
+    return events, skipped
+
+
 def load(conn, symbols: Sequence[str], start_ms: int, end_ms: int) -> Dict:
     data = {}
     tail = (max(HORIZONS_H) + 1) * HOUR_MS
@@ -120,27 +150,41 @@ def main(argv=None) -> int:
     parser.add_argument("--months", type=int, default=12)
     parser.add_argument("--symbols", default=",".join(config.SYMBOLS))
     parser.add_argument("--holdout", action="store_true", help="показать отложенный конец (смотреть один раз)")
+    parser.add_argument("--h2b", action="store_true", help=f"И2б: только LONG, не больше {MAX_OPEN} позиций по рынку")
+    parser.add_argument("--start", help="начало периода ГГГГ-ММ-ДД: период целиком проверочный, без отложенного конца")
+    parser.add_argument("--end", help="конец периода ГГГГ-ММ-ДД")
     args = parser.parse_args(argv)
 
     conn = history.connect(args.db)
-    start_ms, end_ms = fe.period(conn, args.months)
+    if args.start and args.end:
+        start_ms, end_ms, holdout_days = _day_ms(args.start), _day_ms(args.end), 0
+    else:
+        (start_ms, end_ms), holdout_days = fe.period(conn, args.months), 75
     symbols = args.symbols.split(",")
     data = load(conn, symbols, start_ms, end_ms)
     conn.close()
 
-    print(f"И2, период {datetime.fromtimestamp(start_ms / 1000, UTC):%d.%m.%Y}–"
-          f"{datetime.fromtimestamp(end_ms / 1000, UTC):%d.%m.%Y} "
-          f"({'с отложенным концом' if args.holdout else 'без отложенного конца'}), "
-          f"OI за 15 мин ≤ {100 * OI_DROP:.0f} % и |цена| ≥ {100 * PRICE_MOVE:.0f} %")
+    name = "И2б" if args.h2b else "И2"
+    hold = "период целиком проверочный" if not holdout_days else (
+        "с отложенным концом" if args.holdout else "без отложенного конца")
+    print(f"{name}, период {datetime.fromtimestamp(start_ms / 1000, UTC):%d.%m.%Y}–"
+          f"{datetime.fromtimestamp(end_ms / 1000, UTC):%d.%m.%Y} ({hold}), "
+          f"OI за 15 мин ≤ {100 * OI_DROP:.0f} % и |цена| ≥ {100 * PRICE_MOVE:.0f} %"
+          + (f", только LONG, не больше {MAX_OPEN} позиций" if args.h2b else ""))
+    hold_start = fe.report.splits(start_ms, end_ms, holdout_days=holdout_days)[1][0]
     passed = False
     for horizon in HORIZONS_H:
-        events, skipped = run_variant(symbols, data, horizon)
-        stats = fe.evaluate(events, start_ms, end_ms, holdout=args.holdout, alpha=ALPHA)
-        visible = events if args.holdout else [e for e in events if e.exit_t < fe.report.splits(start_ms, end_ms)[1][0]]
+        events, skipped = run_portfolio(symbols, data, horizon) if args.h2b else run_variant(symbols, data, horizon)
+        stats = fe.evaluate(events, start_ms, end_ms, holdout=args.holdout, alpha=ALPHA, holdout_days=holdout_days)
+        visible = events if args.holdout else [e for e in events if e.exit_t < hold_start]
         print(render(horizon, stats, skipped, visible))
         passed = passed or stats["passed"]
-    print("Вердикт И2:", "принимается" if passed else "не принимается")
+    print(f"Вердикт {name}:", "принимается" if passed else "не принимается")
     return 0
+
+
+def _day_ms(day: str) -> int:
+    return int(datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000)
 
 
 if __name__ == "__main__":

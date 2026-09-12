@@ -108,11 +108,9 @@ def _latest(conn, sql: str, params: Sequence) -> Optional[int]:
 # Загрузка
 # ---------------------------------------------------------------------------
 
-def sync_candles(conn, api: BybitHistory, symbol: str, timeframe: str, start_ms: int, end_ms: int) -> int:
-    """Закрытые свечи [start_ms, end_ms) с докачкой; возвращает число новых."""
+def _page_candles(conn, api: BybitHistory, symbol: str, timeframe: str, cursor: int, end_ms: int) -> int:
+    """Закрытые свечи [cursor, end_ms) — вперёд страницами; возвращает число новых."""
     interval, step = INTERVALS[timeframe]
-    have = _latest(conn, "SELECT MAX(ts) FROM candles WHERE symbol = ? AND interval = ?", (symbol, timeframe))
-    cursor = max(start_ms, have + step) if have is not None else start_ms
     added = 0
     while cursor < end_ms:
         result = api.get("/v5/market/kline", {"category": "linear", "symbol": symbol, "interval": interval,
@@ -135,6 +133,20 @@ def sync_candles(conn, api: BybitHistory, symbol: str, timeframe: str, start_ms:
         if len(rows) < KLINE_LIMIT and cursor + step > end_ms:
             break
     return added
+
+
+def sync_candles(conn, api: BybitHistory, symbol: str, timeframe: str, start_ms: int, end_ms: int) -> int:
+    """
+    Закрытые свечи [start_ms, end_ms) с докачкой; возвращает число новых. Если период
+    начинается раньше кэша — сначала докачивается начало (назад до первой свечи кэша).
+    """
+    step = INTERVALS[timeframe][1]
+    first = _latest(conn, "SELECT MIN(ts) FROM candles WHERE symbol = ? AND interval = ?", (symbol, timeframe))
+    have = _latest(conn, "SELECT MAX(ts) FROM candles WHERE symbol = ? AND interval = ?", (symbol, timeframe))
+    if have is None:
+        return _page_candles(conn, api, symbol, timeframe, start_ms, end_ms)
+    added = _page_candles(conn, api, symbol, timeframe, start_ms, first) if start_ms < first else 0
+    return added + _page_candles(conn, api, symbol, timeframe, max(start_ms, have + step), end_ms)
 
 
 def sync_funding(conn, api: BybitHistory, symbol: str, start_ms: int, end_ms: int) -> int:
@@ -160,10 +172,7 @@ def sync_funding(conn, api: BybitHistory, symbol: str, start_ms: int, end_ms: in
     return conn.total_changes - before
 
 
-def sync_open_interest(conn, api: BybitHistory, symbol: str, interval: str, start_ms: int, end_ms: int) -> int:
-    """interval — как у Bybit: 5min, 15min, 30min, 1h, 4h, 1d."""
-    have = _latest(conn, "SELECT MAX(ts) FROM open_interest WHERE symbol = ? AND interval = ?", (symbol, interval))
-    begin = max(start_ms, have + 1) if have is not None else start_ms
+def _page_open_interest(conn, api: BybitHistory, symbol: str, interval: str, begin: int, end_ms: int) -> int:
     added = 0
     cursor = None
     while True:
@@ -181,6 +190,17 @@ def sync_open_interest(conn, api: BybitHistory, symbol: str, interval: str, star
         if not rows or not cursor:
             break
     return added
+
+
+def sync_open_interest(conn, api: BybitHistory, symbol: str, interval: str, start_ms: int, end_ms: int) -> int:
+    """interval — как у Bybit: 5min, 15min, 30min, 1h, 4h, 1d. Период раньше кэша докачивается назад."""
+    sql = "SELECT {}(ts) FROM open_interest WHERE symbol = ? AND interval = ?"
+    first = _latest(conn, sql.format("MIN"), (symbol, interval))
+    have = _latest(conn, sql.format("MAX"), (symbol, interval))
+    if have is None:
+        return _page_open_interest(conn, api, symbol, interval, start_ms, end_ms)
+    added = _page_open_interest(conn, api, symbol, interval, start_ms, first - 1) if start_ms < first else 0
+    return added + _page_open_interest(conn, api, symbol, interval, max(start_ms, have + 1), end_ms)
 
 
 # ---------------------------------------------------------------------------
