@@ -112,6 +112,13 @@ def test_the_criteria_are_the_plan():
     assert mx.ALPHA == pytest.approx(0.025)
 
 
+def test_a_single_variant_gets_a_95_percent_interval_narrower_than_97_5():
+    weeks = [wk(0.01 if i % 3 else -0.01, i) for i in range(90)]
+    wide = mx.evaluate(weeks, bootstrap=400)["ci"]
+    narrow = mx.evaluate(weeks, bootstrap=400, alpha=0.05)["ci"]
+    assert wide[0] < narrow[0] <= narrow[1] < wide[1]
+
+
 def test_load_reads_4h_closes_1h_opens_and_funding(tmp_path):
     conn = history.connect(tmp_path / "history.db")
     conn.executemany("INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
