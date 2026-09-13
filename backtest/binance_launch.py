@@ -89,11 +89,22 @@ def candles(api, symbol: str, start_ms: int, end_ms: int) -> List[Tuple[int, flo
     return [out[k] for k in sorted(out)]
 
 
+INVALID_SYMBOL = "10001"          # Bybit: такого контракта никогда не было — «Symbol Is Invalid»
+
+
 def bybit_symbol(api, base: str, t_ms: int) -> Optional[str]:
     """Контракт Bybit, торговавшийся за PRE_MIN минут до анонса, или None."""
     pre = (t_ms // MIN_MS - PRE_MIN) * MIN_MS
     for sym in dict.fromkeys((f"{base}USDT", f"1000{base}USDT", f"{base.removeprefix('1000')}USDT")):
-        if candles(api, sym, pre, pre):
+        try:
+            found = candles(api, sym, pre, pre)
+        except RuntimeError as exc:
+            # Контракта не было — это «нет события». Любая другая ошибка (сеть, лимит) прерывает
+            # прогон: молча пропущенное событие исказило бы выборку.
+            if f": {INVALID_SYMBOL} " not in str(exc):
+                raise
+            continue
+        if found:
             return sym
     return None
 
