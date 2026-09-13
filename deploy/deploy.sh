@@ -442,6 +442,17 @@ step_smoke() {
     fail=1
   fi
 
+  # Запись стакана (market-bot-recorder): здоровье — по пульсу последнего сообщения биржи.
+  # Сразу после выкладки контейнер ещё в start_period — ждём до 3 минут.
+  i=0
+  rec=""
+  while [ $i -lt 18 ]; do
+    rec=$(docker inspect -f '{{.State.Health.Status}}' market-bot-recorder 2>/dev/null || echo missing)
+    [ "$rec" = healthy ] && break
+    i=$((i + 1)); sleep 10
+  done
+  if [ "$rec" = healthy ]; then echo "  ok  запись стакана: healthy"; else echo "  ОШИБКА запись стакана: $rec"; fail=1; fi
+
   # Ожидаемый режим записывает шаг mode (demo → TESTNET); без файла — бумажная торговля
   expected=$(cat "$APP/trading_mode.expected" 2>/dev/null || echo PAPER_TRADING)
   mode=$(docker exec market-bot python -c "from trading_mode import get_trading_mode; print(get_trading_mode().value)" 2>/dev/null || echo "?")

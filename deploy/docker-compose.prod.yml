@@ -104,8 +104,38 @@ services:
       retries: 5
     logging: *logging
 
+  # Запись стакана и сделок Bybit для будущих гипотез (docs/TRADER_PLAN.md, пункт 2).
+  # Публичный WebSocket без ключей: .env не нужен и не передаётся. Свой том; предел
+  # занятого места держит сама запись (RECORDER_CAP_GB). Выкладка бота от записи не
+  # зависит: ожидание релиза смотрит бот, API и Redis, а запись — smoke и сторож.
+  recorder:
+    image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
+    container_name: market-bot-recorder
+    restart: unless-stopped
+    command: ["python", "-m", "recorder"]
+    environment:
+      RECORDER_DIR: /recorder
+      RECORDER_CAP_GB: "20"
+    volumes:
+      - recorder_data:/recorder
+    networks:
+      - egress
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+    healthcheck:
+      test: ["CMD", "python", "-m", "recorder.health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    logging: *logging
+
 volumes:
   market_data:
+  recorder_data:
 
 networks:
   egress: {}
