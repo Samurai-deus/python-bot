@@ -19,11 +19,11 @@ uvicorn[standard]==0.52.4
 
 # Monitoring (Phase 6)
 prometheus-fastapi-instrumentator==8.1.0
-sentry-sdk[fastapi]==2.68.1
+sentry-sdk[fastapi]==2.69.1
 redis==8.1.0
 
 # PostgreSQL (Phase 6)
-psycopg2-binary==2.9.12
+psycopg2-binary==2.9.13
 
 # Encryption (Phase 6)
 cryptography==50.0.1
