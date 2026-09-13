@@ -24,10 +24,11 @@ RUN pip install -r requirements.txt
 # с хоста от root — контейнер падал с PermissionError на первой записи (аудит, H-19).
 # Теперь /data — именованный том: при первом подключении docker копирует в него
 # этот каталог вместе с владельцем, и права верны без ручного chown на хосте.
+# /recorder — тот же приём для тома записи стакана (контейнер market-bot-recorder).
 RUN groupadd -g 10001 botuser \
     && useradd -u 10001 -g botuser -d /app -s /usr/sbin/nologin botuser \
-    && mkdir -p /data/db /data/logs /data/backups \
-    && chown -R botuser:botuser /app /data
+    && mkdir -p /data/db /data/logs /data/backups /recorder \
+    && chown -R botuser:botuser /app /data /recorder
 
 COPY --chown=botuser:botuser . .
 

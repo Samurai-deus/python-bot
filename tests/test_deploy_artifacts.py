@@ -440,3 +440,34 @@ def test_web_release_carries_only_the_previous_build_not_its_inheritance():
     assert own_list < carry_by_list, "свой список — до переноса чужих, иначе в него попадёт унаследованное"
     assert carry_by_list < carry_all, "полный перенос — только запасной путь для выпусков без списка"
     assert carry_all < web.index('switch_web "$new"')
+
+
+# ---------------------------------------------------------------------------
+# Запись стакана (market-bot-recorder)
+# ---------------------------------------------------------------------------
+
+def test_prod_compose_runs_the_recorder_without_secrets_and_with_limits():
+    """Публичный поток без ключей: .env записи не передаётся; свой том, лимит памяти, проверка здоровья."""
+    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    block = compose.split("  recorder:\n", 1)[1].split("\nvolumes:\n", 1)[0]
+    assert '["python", "-m", "recorder"]' in block and '"recorder.health"' in block
+    assert "env_file" not in block, "секреты записи не нужны"
+    assert "memory:" in block and "recorder_data:/recorder" in block and "market-bot-recorder" in block
+    assert "  recorder_data:" in compose.split("\nvolumes:\n", 1)[1]
+    assert (ROOT / "recorder" / "__main__.py").is_file() and (ROOT / "recorder" / "health.py").is_file()
+
+
+def test_image_prepares_the_recorder_volume_owner():
+    """Как с /data: именованный том при первом подключении копирует каталог образа вместе с владельцем."""
+    dockerfile = read("Dockerfile")
+    assert re.search(r"mkdir -p [^\n]*/recorder", dockerfile)
+    assert "chown -R botuser:botuser /app /data /recorder" in dockerfile
+
+
+def test_release_gate_ignores_the_recorder_but_smoke_and_watchdog_watch_it():
+    """Сбой записи не должен откатывать релиз бота, но о нём обязаны узнать smoke и сторож."""
+    deploy = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
+    assert 'CONTAINERS="market-bot market-bot-api market-bot-redis"' in deploy
+    assert "market-bot-recorder" in step_body(deploy, "step_smoke")
+    watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
+    assert 'CONTAINERS="market-bot market-bot-api market-bot-redis market-bot-recorder"' in watchdog
