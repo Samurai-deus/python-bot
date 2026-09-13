@@ -64,13 +64,26 @@ def daily_budget_usd() -> float:
     return env_float("AI_DAILY_BUDGET_USD", DEFAULT_DAILY_BUDGET_USD)
 
 
+# Оценка новостей (news/, И10) — свой суточный бюджет (решение владельца 13.09): она не
+# должна съедать бюджет оценки сигналов, а сигналы — её.
+NEWS_PURPOSE = "news"
+DEFAULT_NEWS_BUDGET_USD = 0.3
+
+
+def news_daily_budget_usd() -> float:
+    return env_float("AI_NEWS_DAILY_BUDGET_USD", DEFAULT_NEWS_BUDGET_USD)
+
+
 def utc_day(now: Optional[datetime] = None) -> str:
     return (now or datetime.now(UTC)).strftime("%Y-%m-%d")
 
 
-def budget_left_usd(now: Optional[datetime] = None) -> float:
+def budget_left_usd(now: Optional[datetime] = None, purpose: Optional[str] = None) -> float:
+    """Остаток суточного бюджета: для оценки новостей — её собственного, для остального — общего."""
     from database import get_ai_spend
-    return daily_budget_usd() - get_ai_spend(utc_day(now))
+    if purpose == NEWS_PURPOSE:
+        return news_daily_budget_usd() - get_ai_spend(utc_day(now), purpose=NEWS_PURPOSE)
+    return daily_budget_usd() - get_ai_spend(utc_day(now), exclude=NEWS_PURPOSE)
 
 
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
@@ -85,12 +98,12 @@ def complete(purpose: str, system: str, user: str, model: str, max_tokens: int =
     if not key:
         return None
     try:
-        left = budget_left_usd()
+        left = budget_left_usd(purpose=purpose)
     except Exception:
         logger.warning("ai_trader: расход за сутки не прочитан — %s пропущен", purpose, exc_info=True)
         return None
     if left <= 0:
-        logger.info("ai_trader: суточный бюджет %.2f $ исчерпан — %s пропущен", daily_budget_usd(), purpose)
+        logger.info("ai_trader: суточный бюджет исчерпан — %s пропущен", purpose)
         return None
 
     body = {

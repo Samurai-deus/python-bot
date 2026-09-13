@@ -84,7 +84,7 @@ def test_prod_compose_does_not_take_occupied_host_port():
 
 def test_prod_compose_routes_telegram_via_host_gateway():
     compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
-    assert compose.count("host.docker.internal:host-gateway") == 2, "и боту, и API нужен выход к прокси"
+    assert compose.count("host.docker.internal:host-gateway") == 3, "боту, API и сборщику новостей нужен выход к прокси"
 
 
 # ---------------------------------------------------------------------------
@@ -470,4 +470,23 @@ def test_release_gate_ignores_the_recorder_but_smoke_and_watchdog_watch_it():
     assert 'CONTAINERS="market-bot market-bot-api market-bot-redis"' in deploy
     assert "market-bot-recorder" in step_body(deploy, "step_smoke")
     watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
-    assert 'CONTAINERS="market-bot market-bot-api market-bot-redis market-bot-recorder"' in watchdog
+    assert 'market-bot-recorder' in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]
+
+
+def test_prod_compose_runs_the_news_collector_with_the_bot_db_and_proxy():
+    """Сборщику нужны ключ OpenRouter (.env) и прокси хоста; пишет в базу бота — данные И10 в бэкапе."""
+    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    block = compose.split("  news:\n", 1)[1].split("\n  # Запись стакана", 1)[0]
+    assert '["python", "-m", "news"]' in block and '"news.health"' in block
+    assert "/opt/market-bot/.env" in block and "host.docker.internal:host-gateway" in block
+    assert "DB_PATH: /data/db/market_bot.db" in block and "market_data:/data" in block
+    assert "memory:" in block and "market-bot-news" in block
+    assert (ROOT / "news" / "__main__.py").is_file() and (ROOT / "news" / "health.py").is_file()
+
+
+def test_release_gate_ignores_the_news_collector_but_smoke_and_watchdog_watch_it():
+    deploy = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
+    assert 'CONTAINERS="market-bot market-bot-api market-bot-redis"' in deploy
+    assert "market-bot-news" in step_body(deploy, "step_smoke")
+    watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
+    assert "market-bot-news" in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]

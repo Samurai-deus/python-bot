@@ -4,7 +4,7 @@
 #
 # Живёт на хосте, а не в боте: упавший, зависший или пропавший контейнер о себе
 # не расскажет. Что проверяет:
-#   • контейнеры бота, API, Redis и записи стакана запущены и healthy — healthcheck бота видит
+#   • контейнеры бота, API, Redis, записи стакана и сборщика новостей запущены и healthy — healthcheck бота видит
 #     зависший цикл событий и остановившийся цикл анализа (utils/liveness.py);
 #   • бот не перезапускался с прошлой проверки;
 #   • последний бэкап моложе 26 ч, копия вне сервера отправлялась за 26 ч,
@@ -27,7 +27,7 @@ STATE="${WATCHDOG_STATE:-/var/lib/market-bot-watchdog}"
 NOW="${WATCHDOG_NOW:-$(date +%s)}"
 REMIND_SEC=21600
 STALE_SEC=93600
-CONTAINERS="market-bot market-bot-api market-bot-redis market-bot-recorder"
+CONTAINERS="market-bot market-bot-api market-bot-redis market-bot-recorder market-bot-news"
 
 DOMAIN=""
 [ -f "$APP/deploy.conf" ] && . "$APP/deploy.conf"
