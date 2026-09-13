@@ -11,14 +11,23 @@ T0 = 1_700_000_000_000 - 1_700_000_000_000 % MIN + 30_000  # анонс в се�
 
 
 class FakeApi:
-    """Свечи 1m по символу: {symbol: {ts: (open, close)}}; kline отдаёт от новых к старым, как Bybit."""
+    """
+    Свечи 1m по символу: {symbol: {ts: (open, close)}}; kline отдаёт от новых к старым, как Bybit.
+    Символ, которого нет в bars, — как у Bybit: ошибка 10001 «Symbol Is Invalid» (BybitHistory.get
+    превращает её в RuntimeError). error — любая другая ошибка на каждый запрос.
+    """
 
-    def __init__(self, bars):
+    def __init__(self, bars, error=None):
         self.bars = bars
+        self.error = error
         self.calls = 0
 
     def get(self, path, params):
         self.calls += 1
+        if self.error:
+            raise RuntimeError(self.error)
+        if params["symbol"] not in self.bars:
+            raise RuntimeError("Bybit /v5/market/kline: 10001 params error: Symbol Is Invalid")
         rows = [[str(ts), str(o), "0", "0", str(c), "0", "0"]
                 for ts, (o, c) in self.bars.get(params["symbol"], {}).items()
                 if params["start"] <= ts <= params["end"]]
@@ -63,6 +72,15 @@ def test_event_needs_a_bybit_contract_before_the_announcement():
     title = "Binance Futures Will Launch USDⓈ-Margined FOOUSDT, BARUSDT, LATEUSDT and NEWUSDT Perpetual Contracts"
     assert bl.events(api, [{"releaseDate": T0, "title": title}], T0 + bl.DAY_MS) == [
         ("FOOUSDT", T0), ("1000BARUSDT", T0)]
+
+
+def test_never_listed_symbol_is_no_contract_but_other_errors_stop_the_run():
+    pre = (T0 // MIN - bl.PRE_MIN) * MIN
+    api = FakeApi({"1000FOOUSDT": flat(pre, 30)})   # FOOUSDT у Bybit не было никогда — 10001
+    assert bl.bybit_symbol(api, "FOO", T0) == "1000FOOUSDT"
+    assert bl.bybit_symbol(api, "NEW", T0) is None
+    with pytest.raises(RuntimeError, match="не ответил"):
+        bl.bybit_symbol(FakeApi({}, error="Bybit /v5/market/kline: не ответил за 5 попыток"), "FOO", T0)
 
 
 def test_one_event_per_coin_per_day_and_end_excluded():
