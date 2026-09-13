@@ -1376,18 +1376,113 @@ def record_ai_usage(day: str, purpose: str, model: str, prompt_tokens: int,
         conn.close()
 
 
-def get_ai_spend(day: str) -> float:
-    """Расход на модели за сутки (UTC), $."""
+def get_ai_spend(day: str, purpose=None, exclude=None) -> float:
+    """Расход на модели за сутки (UTC), $: весь, только purpose или всё, кроме exclude."""
+    sql, params = "SELECT COALESCE(SUM(cost_usd), 0) AS total FROM ai_usage WHERE day = ?", [day]
+    if purpose is not None:
+        sql, params = sql + " AND purpose = ?", params + [purpose]
+    if exclude is not None:
+        sql, params = sql + " AND purpose <> ?", params + [exclude]
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
         _ensure_ai_tables(cursor)
-        cursor.execute(_q("SELECT COALESCE(SUM(cost_usd), 0) AS total FROM ai_usage WHERE day = ?"), (day,))
+        cursor.execute(_q(sql), tuple(params))
         total = float(cursor.fetchone()["total"] or 0.0)
         conn.commit()
     finally:
         conn.close()
     return total
+
+
+# ========== НОВОСТИ (docs/TRADER_PLAN.md, И10) ==========
+# news_items — заголовок, момент первого взгляда сборщика (seen_ms) и оценки моделью
+# (scored_ms). backlog = 1 — к первому взгляду новости было больше получаса (или время
+# неизвестно): момент реакции неизвестен, модель её не оценивает, в проверку она не входит.
+# news_scores — оценка модели по каждой затронутой монете.
+
+def _ensure_news_tables(cursor) -> None:
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS news_items ("
+        " uid TEXT PRIMARY KEY,"
+        " source TEXT NOT NULL,"
+        " title TEXT NOT NULL,"
+        " url TEXT,"
+        " published_ms BIGINT,"
+        " seen_ms BIGINT NOT NULL,"
+        " backlog INTEGER NOT NULL,"
+        " scored_ms BIGINT,"
+        " score_status TEXT,"
+        " model TEXT,"
+        " prompt_version TEXT)"
+    )
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS news_scores ("
+        " uid TEXT NOT NULL,"
+        " symbol TEXT NOT NULL,"
+        " direction TEXT NOT NULL,"
+        " magnitude INTEGER NOT NULL,"
+        " horizon TEXT NOT NULL,"
+        " confidence DOUBLE PRECISION NOT NULL,"
+        " novelty INTEGER NOT NULL,"
+        " PRIMARY KEY (uid, symbol))"
+    )
+
+
+def save_news_items(items, seen_ms: int, stale_ms: int) -> int:
+    """Записать заголовки; уже виденные (тот же uid) не трогаются. Возвращает число новых."""
+    conn = get_db_connection()
+    added = 0
+    try:
+        cursor = conn.cursor()
+        _ensure_news_tables(cursor)
+        for it in items:
+            published = it.get("published_ms")
+            backlog = 1 if published is None or seen_ms - published > stale_ms else 0
+            cursor.execute(
+                _q(_insert_ignore("INTO news_items (uid, source, title, url, published_ms, seen_ms, backlog) "
+                                  "VALUES (?, ?, ?, ?, ?, ?, ?)")),
+                (it["uid"], it["source"], it["title"], it.get("url"), published, seen_ms, backlog),
+            )
+            added += max(cursor.rowcount, 0)
+        conn.commit()
+    finally:
+        conn.close()
+    return added
+
+
+def get_unscored_news(limit: int):
+    """Свежие (не backlog) неоценённые заголовки, раньше увиденные — первыми."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_news_tables(cursor)
+        cursor.execute(_q("SELECT uid, source, title FROM news_items WHERE backlog = 0 AND scored_ms IS NULL "
+                          "ORDER BY seen_ms, uid LIMIT ?"), (limit,))
+        out = [dict(r) for r in cursor.fetchall()]
+        conn.commit()
+    finally:
+        conn.close()
+    return out
+
+
+def save_news_score(uid: str, scored_ms: int, status: str, model, prompt_version: str, scores) -> None:
+    """Итог оценки заголовка: статус (ok / bad_format), модель, версия подсказки, строки по монетам."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_news_tables(cursor)
+        cursor.execute(_q("UPDATE news_items SET scored_ms = ?, score_status = ?, model = ?, prompt_version = ? "
+                          "WHERE uid = ?"), (scored_ms, status, model, prompt_version, uid))
+        for s in scores:
+            cursor.execute(
+                _q(_insert_ignore("INTO news_scores (uid, symbol, direction, magnitude, horizon, confidence, "
+                                  "novelty) VALUES (?, ?, ?, ?, ?, ?, ?)")),
+                (uid, s["symbol"], s["direction"], s["magnitude"], s["horizon"], s["confidence"], s["novelty"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def save_ai_opinion(signal_ts: str, symbol: str, side, stage, model, decision, size_multiplier,

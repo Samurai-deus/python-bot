@@ -104,6 +104,38 @@ services:
       retries: 5
     logging: *logging
 
+  # Сборщик новостей с оценкой ИИ (docs/TRADER_PLAN.md, И10). Нужны ключ OpenRouter и прокси
+  # хоста (OpenRouter с IP сервера отвечает 403) — поэтому .env и host-gateway, как у бота.
+  # Пишет в базу бота (news_items/news_scores, расход — в ai_usage с назначением news):
+  # данные И10 попадают в тот же бэкап. Выкладка бота от сборщика не зависит.
+  news:
+    image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
+    container_name: market-bot-news
+    restart: unless-stopped
+    command: ["python", "-m", "news"]
+    env_file:
+      - /opt/market-bot/.env
+    environment:
+      DB_PATH: /data/db/market_bot.db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - market_data:/data
+    networks:
+      - egress
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+    healthcheck:
+      test: ["CMD", "python", "-m", "news.health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    logging: *logging
+
   # Запись стакана и сделок Bybit для будущих гипотез (docs/TRADER_PLAN.md, пункт 2).
   # Публичный WebSocket без ключей: .env не нужен и не передаётся. Свой том; предел
   # занятого места держит сама запись (RECORDER_CAP_GB). Выкладка бота от записи не

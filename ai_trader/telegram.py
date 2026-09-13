@@ -40,11 +40,13 @@ def stats_text(days: int = 7) -> str:
     from ai_trader.worker import stage
     import database
 
-    spent = database.get_ai_spend(client.utc_day())
+    spent = database.get_ai_spend(client.utc_day(), exclude=client.NEWS_PURPOSE)
+    news_spent = database.get_ai_spend(client.utc_day(), purpose=client.NEWS_PURPOSE)
     stats = database.get_ai_opinion_stats(days)
     lines = [
         f"🤖 ИИ-трейдер: этап {stage()}",
         f"Расход сегодня: {spent:.3f} $ из {client.daily_budget_usd():.2f} $",
+        f"Оценка новостей: {news_spent:.3f} $ из {client.news_daily_budget_usd():.2f} $",
         f"Модели: оценка — {client.review_model()}, чат — {client.chat_model()}",
         "",
         f"Мнения за {days} дн.:",

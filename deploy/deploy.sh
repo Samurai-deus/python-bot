@@ -453,6 +453,16 @@ step_smoke() {
   done
   if [ "$rec" = healthy ]; then echo "  ok  запись стакана: healthy"; else echo "  ОШИБКА запись стакана: $rec"; fail=1; fi
 
+  # Сборщик новостей (market-bot-news): здоровье — по пульсу последнего удачного опроса лент.
+  i=0
+  nws=""
+  while [ $i -lt 18 ]; do
+    nws=$(docker inspect -f '{{.State.Health.Status}}' market-bot-news 2>/dev/null || echo missing)
+    [ "$nws" = healthy ] && break
+    i=$((i + 1)); sleep 10
+  done
+  if [ "$nws" = healthy ]; then echo "  ok  сборщик новостей: healthy"; else echo "  ОШИБКА сборщик новостей: $nws"; fail=1; fi
+
   # Ожидаемый режим записывает шаг mode (demo → TESTNET); без файла — бумажная торговля
   expected=$(cat "$APP/trading_mode.expected" 2>/dev/null || echo PAPER_TRADING)
   mode=$(docker exec market-bot python -c "from trading_mode import get_trading_mode; print(get_trading_mode().value)" 2>/dev/null || echo "?")
