@@ -109,14 +109,17 @@ def bybit_symbol(api, base: str, t_ms: int) -> Optional[str]:
     return None
 
 
-def events(api, catalog: Sequence[Dict], end_ms: int) -> List[Tuple[str, int]]:
-    """(символ Bybit, момент анонса) по возрастанию времени; одна монета — одно событие в сутки."""
+def events(api, catalog: Sequence[Dict], end_ms: int, parse=None) -> List[Tuple[str, int]]:
+    """
+    (символ Bybit, момент анонса) по возрастанию времени; одна монета — одно событие в сутки.
+    parse — разбор заголовка в монеты (по умолчанию анонсы фьючерсов, bases; И11 — делистинги).
+    """
     out, last = [], {}
     for a in sorted(catalog, key=lambda a: int(a["releaseDate"])):
         t = int(a["releaseDate"])
         if t >= end_ms:
             continue
-        for base in bases(a["title"]):
+        for base in (parse or bases)(a["title"]):
             sym = bybit_symbol(api, base, t)
             if sym is None or t - last.get(sym, -DAY_MS) < DAY_MS:
                 continue
@@ -140,9 +143,13 @@ def trade(symbol: str, t_ms: int, bars: Sequence[Tuple[int, float, float]], hori
     return Trade(symbol, t_ms, entry_t, min(exit_t, last[0] + MIN_MS), entry, exit_price, r)
 
 
-def evaluate(trades: Sequence[Trade], start_ms: int, end_ms: int, holdout_start: int,
-             holdout: bool = False, bootstrap: int = 2000) -> Dict:
-    """Критерии И9б из плана. Видимое — сделки, закрытые до отложенного конца."""
+def evaluate(trades: Sequence, start_ms: int, end_ms: int, holdout_start: int,
+             holdout: bool = False, bootstrap: int = 2000,
+             min_events: int = MIN_EVENTS, min_mean: float = MIN_MEAN) -> Dict:
+    """
+    Критерии из плана (по умолчанию И9б; у И11 свои пороги). Видимое — сделки, закрытые до
+    отложенного конца; holdout_start = end_ms — отложенного конца нет.
+    """
     holdout_days = (end_ms - holdout_start) // DAY_MS
     parts, _ = report.splits(start_ms, end_ms, holdout_days=holdout_days)
     visible = list(trades) if holdout else [t for t in trades if t.exit_t < holdout_start]
@@ -157,9 +164,9 @@ def evaluate(trades: Sequence[Trade], start_ms: int, end_ms: int, holdout_start:
         segments.append(sum(t.r for t in chunk) / len(chunk) if chunk else None)
     drawdown = report.max_drawdown(NOTIONAL_SHARE * t.r for t in visible)
     checks = {
-        "events": n >= MIN_EVENTS,
+        "events": n >= min_events,
         "ci": low > 0,
-        "mean": mean >= MIN_MEAN,
+        "mean": mean >= min_mean,
         "segments": sum(1 for m in segments if m is not None and m > 0) >= 2,
         "drawdown": drawdown <= MAX_DRAWDOWN,
     }
