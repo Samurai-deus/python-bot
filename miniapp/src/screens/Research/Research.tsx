@@ -192,6 +192,7 @@ function CarryRow({ x }: { x: ResearchCarry['positions'][number] }) {
 
 function DataCard({ recorder, news, meta }: { recorder: ResearchRecorder | null; news: ResearchNews; meta: ResearchOverview['program'] }) {
   const fresh = Object.entries(news.fresh)
+  const blind = Object.entries(news.blind ?? {})
   return (
     <Card title="Сбор данных вперёд">
       <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--cyan)', margin: '4px 0' }}>{meta.recorder.title}</p>
@@ -211,6 +212,7 @@ function DataCard({ recorder, news, meta }: { recorder: ResearchRecorder | null;
       <Row label="Заголовков всего" value={String(news.items)} />
       <Row label="Оценено (свежих)" value={fresh.length ? fresh.map(([k, v]) => `${k}: ${v}`).join(', ') : '0'} />
       <Row label="Сигналов по правилу" value={`${news.signals} из ${news.score_rows} оценок`} />
+      <Row label="Без названия монеты (И10б)" value={blind.length ? blind.map(([k, v]) => `${k}: ${v}`).join(', ') : '0'} />
       <Row label="Расход сегодня" value={news.spend_today === null ? '—' : `${news.spend_today.toFixed(3)} $ из ${meta.news.budget_usd} $`} />
       <Row label="Сигнал" value={meta.news.signal} />
       <Row label="Первая проверка" value={meta.news.first_check} />
