@@ -31,6 +31,10 @@ class CarryClient(BybitClient):
     def total_equity(self) -> float:
         return float(self.wallet().get("totalEquity") or 0)
 
+    def available_usd(self) -> float:
+        """Доступно для новых сделок (UTA, cross): спот-покупка и маржа шорта берутся отсюда."""
+        return float(self.wallet().get("totalAvailableBalance") or 0)
+
     def account_mm_rate(self) -> Optional[float]:
         value = self.wallet().get("accountMMRate")
         return float(value) if value not in (None, "") else None

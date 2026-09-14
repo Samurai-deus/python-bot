@@ -23,7 +23,11 @@ from carry.store import Store
 CYCLE_SEC = 3600
 SYNC_BACK_MS = 48 * 3600 * 1000
 MIN_SPOT_USDT = 5.0
-USDT_RESERVE = 1.2                     # USDT на счёте ≥ номинал × пары × 1,2 (спот + маржа шорта)
+# На пару нужно ≈ 2,2 номинала: спот оплачивается полностью (1×), шорт при плече 1× держит маржу
+# в размер номинала (1×), 10 % — запас. 14.09 при 1,2 на пару средств хватило только на BTC —
+# ETH-спот отклонён биржей (170131 Insufficient balance).
+PAIR_USDT_FACTOR = 2.2
+DEMO_APPLY_MAX = 100_000               # Bybit: не больше 100 000 USDT за запрос
 
 logger = logging.getLogger("carry")
 
@@ -44,6 +48,15 @@ def base(symbol: str) -> str:
     return symbol[:-4]
 
 
+def ensure_usdt(cli, store: Store, need: float, now: int) -> None:
+    """Доступного меньше need — запросить демо-средства (демо-деньги, стоимость счёта считается от старта пар)."""
+    avail = cli.available_usd()
+    if avail < need:
+        amount = min(DEMO_APPLY_MAX, need - avail + 1000)
+        cli.apply_demo_usdt(amount)
+        store.event(now, "demo_funds", f"доступно {avail:.0f} < {need:.0f}, запрошено {amount:.0f}")
+
+
 def clean_start(cli, store: Store, syms: List[str], now: int) -> None:
     if store.get("cleaned_at"):
         return
@@ -54,11 +67,7 @@ def clean_start(cli, store: Store, syms: List[str], now: int) -> None:
         if qty * price >= MIN_SPOT_USDT:
             cli.spot_market(s, "Sell", qty)
             store.event(now, "clean_sell", f"{s} {qty}")
-    need = notional() * len(syms) * USDT_RESERVE
-    usdt = cli.coin_balances().get("USDT", 0.0)
-    if usdt < need:
-        cli.apply_demo_usdt(min(100_000, need - usdt + 1000))
-        store.event(now, "demo_funds", f"USDT {usdt:.0f} < {need:.0f}")
+    ensure_usdt(cli, store, notional() * len(syms) * PAIR_USDT_FACTOR, now)
     store.set("cleaned_at", now)
 
 
@@ -69,6 +78,7 @@ def open_pairs(cli, store: Store, syms: List[str], now: int) -> None:
     for s in syms:
         if store.get(f"bought:{s}"):
             continue
+        ensure_usdt(cli, store, notional() * PAIR_USDT_FACTOR, now)   # и восстановление после нехватки
         step = cli.get_qty_step(s)
         qty = engine.pair_qty(notional(), cli.spot_price(s), step, step)
         if not qty:
