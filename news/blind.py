@@ -17,6 +17,10 @@ PROMPT_VERSION = "news-blind-v1"
 BATCH = scorer.BATCH
 MAX_TOKENS = scorer.MAX_TOKENS
 PLACEHOLDER = "[COIN]"
+# Вторая оценка считается, только если сделана не позже чем через MAX_LAG_MS после первой: у более
+# старого заголовка честного момента реакции уже нет — он помечается stale без запроса к модели.
+MAX_LAG_MS = 30 * 60 * 1000
+STALE = "stale"
 
 # Тикер → названия. Все 27 монет бота (config.SYMBOLS) плюс ходовые; порядок замены — от длинных
 # к коротким, чтобы «Binance Coin» ушёл целиком, а «Binance» (биржа) остался.
@@ -109,12 +113,20 @@ def score_pending(transport=None, clock=time.time) -> int:
     import database
 
     done = 0
+    database.mark_late_news_blind_stale(MAX_LAG_MS, STALE)
     while True:
-        batch = database.get_unblinded_news(BATCH)
-        if not batch:
-            return done
-        for it in batch:
+        now_ms = int(clock() * 1000)
+        batch = []
+        for it in database.get_unblinded_news(BATCH):
             it["blind_title"] = anonymize(it["title"])
+            if now_ms - it["scored_ms"] > MAX_LAG_MS:
+                database.save_news_blind(it["uid"], it["blind_title"], now_ms, STALE, None, PROMPT_VERSION, None)
+            else:
+                batch.append(it)
+        if not batch:
+            if database.get_unblinded_news(1):
+                continue  # пачка целиком просрочена и помечена — берём следующую
+            return done
         completion = client.complete(client.NEWS_PURPOSE, SYSTEM, render(batch), scorer.model(),
                                      max_tokens=MAX_TOKENS, transport=transport)
         if completion is None:
