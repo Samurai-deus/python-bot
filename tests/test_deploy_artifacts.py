@@ -490,3 +490,23 @@ def test_release_gate_ignores_the_news_collector_but_smoke_and_watchdog_watch_it
     assert "market-bot-news" in step_body(deploy, "step_smoke")
     watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
     assert "market-bot-news" in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]
+
+
+def test_prod_compose_runs_the_carry_executor_with_its_own_key_and_volume():
+    """И13: отдельный субсчёт — свой ключ из .env, свой том; прокси не нужен (Bybit с сервера напрямую)."""
+    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    block = compose.split("  carry:\n", 1)[1].split("\n  # Сборщик новостей", 1)[0]
+    assert '["python", "-m", "carry"]' in block and '"carry.health"' in block
+    assert "/opt/market-bot/.env" in block and "carry_data:/carry" in block and "market-bot-carry" in block
+    assert "host-gateway" not in block and "memory:" in block
+    assert "  carry_data:" in compose.split("\nvolumes:\n", 1)[1]
+    assert (ROOT / "carry" / "__main__.py").is_file() and (ROOT / "carry" / "health.py").is_file()
+    assert "chown -R botuser:botuser /app /data /recorder /carry" in read("Dockerfile")
+
+
+def test_release_gate_ignores_the_carry_executor_but_smoke_and_watchdog_watch_it():
+    deploy = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
+    assert 'CONTAINERS="market-bot market-bot-api market-bot-redis"' in deploy
+    assert "market-bot-carry" in step_body(deploy, "step_smoke")
+    watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
+    assert "market-bot-carry" in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]
