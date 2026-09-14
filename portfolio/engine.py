@@ -79,14 +79,19 @@ def next_rebalance(now_ms: int) -> int:
     return mx.mondays(now_ms + 1, now_ms + 1 + WEEK_MS)[0]
 
 
+def monday_of(now_ms: int) -> int:
+    """Понедельник 00:00 UTC недели, в которую попадает now_ms."""
+    d = datetime.fromtimestamp(now_ms / 1000, UTC)
+    monday = (d - timedelta(days=d.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(monday.timestamp() * 1000)
+
+
 def due_rebalance(now_ms: int, last_done_t: Optional[int]) -> Optional[int]:
     """
     Момент t понедельника, чью ребалансировку пора выполнить: последний понедельник ≤ now, если
     прошло ≥ REBALANCE_DELAY_MS, тот же день (UTC) ещё идёт и она ещё не сделана. Иначе None.
     """
-    d = datetime.fromtimestamp(now_ms / 1000, UTC)
-    monday = (d - timedelta(days=d.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-    t = int(monday.timestamp() * 1000)
+    t = monday_of(now_ms)
     if now_ms - t < REBALANCE_DELAY_MS or now_ms - t >= mx.DAY_MS or (last_done_t is not None and last_done_t >= t):
         return None
     return t
