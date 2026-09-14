@@ -47,6 +47,13 @@ def trading_halt_reason(system_state=None, state_machine=None, risk_core=None,
     сигнала и проверяет Risk Core тоже.
     """
     try:
+        from utils.env import env_flag
+
+        # Постоянный рубильник (И14, 14.09.2026): демо-счёт отдан портфелю, сигнальные стратегии
+        # бота новых позиций не открывают. В отличие от /pause не снимается авто-возобновлением.
+        if not env_flag("SIGNAL_TRADING_ENABLED", True):
+            return "сигнальная торговля выключена (SIGNAL_TRADING_ENABLED=false) — счёт отдан портфелю И14"
+
         from system_state_machine import SystemState as MachineState
 
         if state_machine is None:

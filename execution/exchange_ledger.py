@@ -232,6 +232,14 @@ def reconcile_on_startup(client=None, tracker=None) -> ReconcileReport:
         ))
         report.tracked.append(symbol)
 
+    from utils.env import env_flag
+    if exchange and not env_flag("ADOPT_EXCHANGE_POSITIONS", True):
+        # И14 (14.09.2026): позиции портфеля на том же счёте — не бота; в журнал и трекер не берутся,
+        # иначе trade_manager вёл бы их как свои (стоп, безубыток, выход по времени).
+        report.messages.append(f"• позиций на бирже не из журнала: {len(exchange)} — не берутся под учёт "
+                               "(ADOPT_EXCHANGE_POSITIONS=false, счёт отдан портфелю И14)")
+        return report
+
     for symbol, live in exchange.items():
         side = _side(live.side)
         database.add_trade(

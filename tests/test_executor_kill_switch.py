@@ -121,3 +121,29 @@ def test_dry_run_does_not_consult_kill_switch(monkeypatch):
     assert executor._dry_run is True
     executor.execute(_request())
     assert consulted == []
+
+
+def test_signal_trading_flag_halts_before_any_state_is_consulted(monkeypatch):
+    """SIGNAL_TRADING_ENABLED=false — причина остановки без обращения к машине состояний (И14)."""
+    from execution.kill_switch import trading_halt_reason
+
+    class Boom:
+        def __getattr__(self, name):
+            raise AssertionError("состояние не должно читаться, флаг решает раньше")
+
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    reason = trading_halt_reason(system_state=Boom(), state_machine=Boom(), include_risk_core=False)
+    assert reason and "SIGNAL_TRADING_ENABLED" in reason
+
+
+def test_signal_trading_flag_unset_or_true_does_not_halt(monkeypatch):
+    from types import SimpleNamespace
+    from execution.kill_switch import trading_halt_reason
+    from system_state_machine import SystemState as MachineState
+
+    machine = SimpleNamespace(state=MachineState.RUNNING, trading_paused=False)
+    system = SimpleNamespace(system_health=SimpleNamespace(trading_paused=False))
+    monkeypatch.delenv("SIGNAL_TRADING_ENABLED", raising=False)
+    assert trading_halt_reason(system_state=system, state_machine=machine, include_risk_core=False) is None
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "true")
+    assert trading_halt_reason(system_state=system, state_machine=machine, include_risk_core=False) is None
