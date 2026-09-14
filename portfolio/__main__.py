@@ -39,10 +39,11 @@ def symbols() -> List[str]:
 
 
 def notify(text: str) -> None:
+    """Сообщение владельцу; у исполнителя нет цикла событий бота — свой (14.09: адаптер бота падал без него)."""
     try:
-        from core.system_guardian import AsyncToSyncAdapter
+        import asyncio
         from telegram_bot import send_message_async
-        AsyncToSyncAdapter.call_async(send_message_async(text, parse_mode=None), timeout=15.0)
+        asyncio.run(send_message_async(text, parse_mode=None))
     except Exception:
         logger.warning("И14: сообщение владельцу не отправлено", exc_info=True)
 
@@ -58,7 +59,10 @@ def ready_to_start(cli, store: Store, now: int) -> bool:
         store.event(now, "waiting", f"сделок бота в журнале {len(open_trades)}, позиций на счёте {len(positions)}")
         return False
     store.set("started_at", now)
-    store.set("start_equity", cli.total_equity())
+    store.set("start_equity", cli.usdt_equity())
+    # Первая ребалансировка — ближайший понедельник ПОСЛЕ запуска (правило И14): текущая неделя
+    # считается сделанной. 14.09 без этого исполнитель ребалансировался в день запуска.
+    store.set("last_rebalance_t", engine.monday_of(now))
     store.event(now, "start", f"первая ребалансировка {engine.next_rebalance(now)}")
     notify("📊 И14 запущен: позиций нет, первая ребалансировка — ближайший понедельник 00:02 UTC")
     return True
@@ -101,7 +105,7 @@ def close_all(cli, store: Store, now: int, reason: str) -> None:
 
 def cycle(cli, store: Store, now: int) -> None:
     if not store.get("halted") and ready_to_start(cli, store, now):
-        equity = cli.total_equity()
+        equity = cli.usdt_equity()
         peak = max(float(store.get("peak_equity") or 0), equity)
         store.set("peak_equity", peak)
         if engine.drawdown_halt(peak, equity, capital()):
@@ -112,7 +116,7 @@ def cycle(cli, store: Store, now: int) -> None:
             if t is not None:
                 rebalance(cli, store, t, now)
     store.add_funding(cli.settlements(now - SYNC_BACK_MS))
-    store.snapshot(now, cli.total_equity(), cli.positions_usdt())
+    store.snapshot(now, cli.usdt_equity(), cli.positions_usdt())
     (root_dir() / "heartbeat").write_text(f"{now / 1000:.0f}\n", encoding="utf-8")
 
 

@@ -123,7 +123,7 @@ class FakeBybitPortfolio:
         self.orders.append((symbol, side, float(qty), reduce_only))
         self.qty[symbol] = self.qty.get(symbol, 0.0) + (float(qty) if side == "Buy" else -float(qty))
 
-    def total_equity(self):
+    def usdt_equity(self):
         return self.equity
 
     def settlements(self, start_ms):
@@ -172,13 +172,37 @@ def test_rebalance_places_orders_to_target_weights_and_only_once(env):
     assert len(cli.orders) == n, "в тот же понедельник второй раз не торгуем"
 
 
+def test_start_on_monday_does_not_rebalance_until_next_monday(env):
+    """Правило И14: первая ребалансировка — ближайший понедельник ПОСЛЕ запуска (14.09 исполнитель нарушил это)."""
+    store, _ = env
+    cli = FakeBybitPortfolio(MONDAY)
+    pm.cycle(cli, store, MONDAY + 10 * 3_600_000)          # старт в понедельник 10:00
+    assert store.get("started_at") and cli.orders == []
+    pm.cycle(cli, store, MONDAY + 11 * 3_600_000)
+    assert cli.orders == [], "в неделю запуска позиций нет"
+    pm.cycle(cli, store, MONDAY + 7 * DAY + 3 * 60_000)
+    assert cli.orders and store.get("last_rebalance_t") == str(MONDAY + 7 * DAY)
+
+
+def test_usdt_equity_ignores_demo_coins(monkeypatch):
+    from portfolio.client import PortfolioClient
+    cli = PortfolioClient(api_key="k", api_secret="s", demo=True)
+    monkeypatch.setattr(cli, "wallet", lambda: {"totalEquity": "2051402.55", "coin": [
+        {"coin": "BTC", "walletBalance": "15", "equity": "1200000"},
+        {"coin": "USDT", "walletBalance": "150000", "unrealisedPnl": "-12.5", "equity": "149990.25"}]})
+    assert cli.usdt_equity() == pytest.approx(149_990.25), "поле equity биржи — первично"
+    monkeypatch.setattr(cli, "wallet", lambda: {"coin": [{"coin": "USDT", "walletBalance": "100", "unrealisedPnl": "-1"}]})
+    assert cli.usdt_equity() == pytest.approx(99.0)
+
+
 def test_failed_orders_are_retried_next_hour_only_for_those_symbols(env):
     store, _ = env
     cli = FakeBybitPortfolio(MONDAY)
     pm.cycle(cli, store, MONDAY - DAY)
     cli.fail_symbols = {"BTCUSDT"}
     pm.cycle(cli, store, MONDAY + 3 * 60_000)
-    assert store.get("last_rebalance_t") is None and not any(o[0] == "BTCUSDT" for o in cli.orders)
+    assert store.get("last_rebalance_t") != str(MONDAY), "неделя не закрыта, пока есть непрошедший ордер"
+    assert not any(o[0] == "BTCUSDT" for o in cli.orders)
     n = len(cli.orders)
     cli.fail_symbols = set()
     pm.cycle(cli, store, MONDAY + 3_600_000 + 3 * 60_000)

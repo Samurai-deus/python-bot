@@ -51,8 +51,18 @@ class PortfolioClient(BybitClient):
         data = self._get("/v5/account/wallet-balance", params={"accountType": "UNIFIED"}, signed=True)
         return (data.get("list") or [{}])[0]
 
-    def total_equity(self) -> float:
-        return float(self.wallet().get("totalEquity") or 0)
+    def usdt_equity(self) -> float:
+        """
+        USDT-часть счёта: баланс USDT + нереализованный результат USDT-контрактов (поле equity монеты
+        USDT в UTA). Весь кошелёк (totalEquity) не годится: на демо-счёте лежат стартовые BTC и ETH,
+        их переоценка — тысячи USDT в минуту (14.09: «просадка 3953 USDT» при позициях на 1356).
+        """
+        for coin in self.wallet().get("coin") or []:
+            if coin.get("coin") == "USDT":
+                if coin.get("equity") not in (None, ""):
+                    return float(coin["equity"])
+                return float(coin.get("walletBalance") or 0) + float(coin.get("unrealisedPnl") or 0)
+        return 0.0
 
     def settlements(self, start_ms: int) -> List[dict]:
         out, cursor = [], ""
