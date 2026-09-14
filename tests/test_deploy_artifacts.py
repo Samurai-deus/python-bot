@@ -84,7 +84,7 @@ def test_prod_compose_does_not_take_occupied_host_port():
 
 def test_prod_compose_routes_telegram_via_host_gateway():
     compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
-    assert compose.count("host.docker.internal:host-gateway") == 3, "боту, API и сборщику новостей нужен выход к прокси"
+    assert compose.count("host.docker.internal:host-gateway") == 4, "боту, API, сборщику новостей и портфелю нужен выход к прокси"
 
 
 # ---------------------------------------------------------------------------
@@ -510,3 +510,30 @@ def test_release_gate_ignores_the_carry_executor_but_smoke_and_watchdog_watch_it
     assert "market-bot-carry" in step_body(deploy, "step_smoke")
     watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
     assert "market-bot-carry" in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]
+
+
+def test_prod_bot_hands_the_demo_account_to_the_portfolio():
+    """И14: бот не открывает сигнальных позиций и не усыновляет позиции портфеля на том же счёте."""
+    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    bot = compose.split("  bot:\n", 1)[1].split("\n  api:\n", 1)[0]
+    assert 'SIGNAL_TRADING_ENABLED: "false"' in bot and 'ADOPT_EXCHANGE_POSITIONS: "false"' in bot
+
+
+def test_prod_compose_runs_the_portfolio_executor_on_the_bot_account():
+    """И14: ключ бота из .env, база бота ради условия старта, свой том, прокси для Telegram."""
+    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    block = compose.split("  portfolio:\n", 1)[1].split("\n  # Исполнитель И13", 1)[0]
+    assert '["python", "-m", "portfolio"]' in block and '"portfolio.health"' in block
+    assert "/opt/market-bot/.env" in block and "DB_PATH: /data/db/market_bot.db" in block
+    assert "portfolio_data:/portfolio" in block and "market_data:/data" in block and "host-gateway" in block
+    assert "  portfolio_data:" in compose.split("\nvolumes:\n", 1)[1]
+    assert (ROOT / "portfolio" / "__main__.py").is_file() and (ROOT / "portfolio" / "health.py").is_file()
+    assert "/carry /portfolio" in read("Dockerfile")
+
+
+def test_release_gate_ignores_the_portfolio_but_smoke_and_watchdog_watch_it():
+    deploy = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
+    assert 'CONTAINERS="market-bot market-bot-api market-bot-redis"' in deploy
+    assert "market-bot-portfolio" in step_body(deploy, "step_smoke")
+    watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
+    assert "market-bot-portfolio" in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]

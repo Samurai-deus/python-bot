@@ -259,3 +259,12 @@ def test_exact_closes_are_never_rewritten(db):
     db.close_trade(tid, 104.0, "EXCHANGE_CLOSE", 0.4)
     assert db.correct_trade_close(tid, 1.0, 99.0, "EXCHANGE_CLOSE", ledger.ESTIMATED_CLOSE_REASONS) is False
     assert trade_row(tid)["pnl"] == pytest.approx(0.4)
+
+
+def test_foreign_positions_are_not_adopted_when_the_flag_is_off(db, fake, client, tracker, monkeypatch):
+    """И14: позиции портфеля на счёте бота — не бота; в журнал и трекер не берутся."""
+    monkeypatch.setenv("ADOPT_EXCHANGE_POSITIONS", "false")
+    fake.positions = [position("XRPUSDT", side="Sell", sl="")]
+    report = ledger.reconcile_on_startup(client, tracker)
+    assert report.adopted == [] and db.get_open_trades() == [] and tracker.active_count() == 0
+    assert "ADOPT_EXCHANGE_POSITIONS" in report.messages[0]

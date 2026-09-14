@@ -29,6 +29,10 @@ services:
     environment:
       DB_PATH: /data/db/market_bot.db
       LOG_TO_FILE: "false"
+      # И14 (решение владельца 14.09): демо-счёт отдан портфелю market-bot-portfolio — сигнальные
+      # стратегии бота новых позиций не открывают, чужие позиции при старте не усыновляются.
+      SIGNAL_TRADING_ENABLED: "false"
+      ADOPT_EXCHANGE_POSITIONS: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -102,6 +106,40 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *logging
+
+  # Исполнитель И14 (docs/TRADER_PLAN.md): портфель тренда И4 + моментума И3 на демо-счёте бота
+  # (тот же ключ из .env), сигнальные стратегии бота выключены. База бота — ради условия старта
+  # (журнал без открытых сделок); прокси хоста — для сообщений в Telegram. Свой том с базой и пульсом.
+  portfolio:
+    image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
+    container_name: market-bot-portfolio
+    restart: unless-stopped
+    command: ["python", "-m", "portfolio"]
+    env_file:
+      - /opt/market-bot/.env
+    environment:
+      DB_PATH: /data/db/market_bot.db
+      PORTFOLIO_DIR: /portfolio
+      PORTFOLIO_CAPITAL_USDT: "1000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - market_data:/data
+      - portfolio_data:/portfolio
+    networks:
+      - egress
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    healthcheck:
+      test: ["CMD", "python", "-m", "portfolio.health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     logging: *logging
 
   # Исполнитель И13 (docs/TRADER_PLAN.md): сбор фандинга на ОТДЕЛЬНОМ демо-субсчёте Bybit — свой
@@ -198,6 +236,7 @@ volumes:
   market_data:
   recorder_data:
   carry_data:
+  portfolio_data:
 
 networks:
   egress: {}

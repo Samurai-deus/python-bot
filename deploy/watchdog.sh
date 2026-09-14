@@ -27,7 +27,7 @@ STATE="${WATCHDOG_STATE:-/var/lib/market-bot-watchdog}"
 NOW="${WATCHDOG_NOW:-$(date +%s)}"
 REMIND_SEC=21600
 STALE_SEC=93600
-CONTAINERS="market-bot market-bot-api market-bot-redis market-bot-recorder market-bot-news market-bot-carry"
+CONTAINERS="market-bot market-bot-api market-bot-redis market-bot-recorder market-bot-news market-bot-carry market-bot-portfolio"
 
 DOMAIN=""
 [ -f "$APP/deploy.conf" ] && . "$APP/deploy.conf"
