@@ -122,6 +122,8 @@ services:
       DB_PATH: /data/db/market_bot.db
       PORTFOLIO_DIR: /portfolio
       PORTFOLIO_CAPITAL_USDT: "1000"
+      # Поправка правила И14 от 14.09: догоняющая ребалансировка в неделю запуска (один раз).
+      PORTFOLIO_START_THIS_WEEK: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

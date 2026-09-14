@@ -184,6 +184,41 @@ def test_start_on_monday_does_not_rebalance_until_next_monday(env):
     assert cli.orders and store.get("last_rebalance_t") == str(MONDAY + 7 * DAY)
 
 
+def rebalance_events(store):
+    return store.conn.execute("SELECT COUNT(*) FROM events WHERE kind = 'rebalance'").fetchone()[0]
+
+
+def test_start_this_week_flag_rebalances_once_with_this_mondays_signals(env, monkeypatch):
+    """Поправка 14.09: с флагом — догоняющая ребалансировка в неделю запуска (один раз), дальше — по понедельникам."""
+    store, _ = env
+    monkeypatch.setenv("PORTFOLIO_START_THIS_WEEK", "true")
+    cli = FakeBybitPortfolio(MONDAY)
+    pm.cycle(cli, store, MONDAY + 12 * 3_600_000)         # старт в понедельник 12:00 — сразу ордера
+    assert cli.orders and store.get("last_rebalance_t") == str(MONDAY) and store.has_rebalance(MONDAY)
+    n = len(cli.orders)
+    pm.cycle(cli, store, MONDAY + 2 * DAY)                 # среда — ничего
+    pm.cycle(cli, store, MONDAY + 3 * DAY)
+    assert len(cli.orders) == n
+    assert rebalance_events(store) == 1, "догоняющая — один раз, а не каждый цикл"
+    pm.cycle(cli, store, MONDAY + 7 * DAY + 3 * 60_000)    # следующий понедельник — штатно
+    assert store.get("last_rebalance_t") == str(MONDAY + 7 * DAY) and rebalance_events(store) == 2
+
+
+def test_start_this_week_flag_is_a_one_off_even_across_restarts(env, monkeypatch):
+    """Состояние с прода 14.09: старт уже был, ребалансировок не было — догоняющая делается; повторно — нет."""
+    store, _ = env
+    monkeypatch.setenv("PORTFOLIO_START_THIS_WEEK", "true")
+    cli = FakeBybitPortfolio(MONDAY)
+    store.set("started_at", MONDAY + 11 * 3_600_000)
+    store.set("start_equity", 2_000_000.0)
+    store.set("last_rebalance_t", MONDAY)
+    pm.cycle(cli, store, MONDAY + 12 * 3_600_000)
+    assert cli.orders, "ребалансировки этой недели не было — догоняем"
+    n = len(cli.orders)
+    pm.cycle(cli, store, MONDAY + 13 * 3_600_000)
+    assert len(cli.orders) == n and rebalance_events(store) == 1, "второй раз не догоняем"
+
+
 def test_usdt_equity_ignores_demo_coins(monkeypatch):
     from portfolio.client import PortfolioClient
     cli = PortfolioClient(api_key="k", api_secret="s", demo=True)

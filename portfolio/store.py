@@ -33,6 +33,9 @@ class Store:
                           (t, done_ms, json.dumps(weights), json.dumps(orders), json.dumps(failed)))
         self.conn.commit()
 
+    def has_rebalance(self, t: int) -> bool:
+        return self.conn.execute("SELECT 1 FROM rebalances WHERE t = ?", (t,)).fetchone() is not None
+
     def snapshot(self, ts: int, equity: float, positions: Dict[str, float]) -> None:
         self.conn.execute("INSERT OR REPLACE INTO snapshots (ts, equity, positions) VALUES (?, ?, ?)",
                           (ts, equity, json.dumps(positions)))
