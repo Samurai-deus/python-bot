@@ -1507,7 +1507,7 @@ def get_unblinded_news(limit: int):
     try:
         cursor = conn.cursor()
         _ensure_news_tables(cursor)
-        cursor.execute(_q("SELECT i.uid, i.source, i.title FROM news_items i "
+        cursor.execute(_q("SELECT i.uid, i.source, i.title, i.scored_ms FROM news_items i "
                           "WHERE i.score_status = 'ok' AND EXISTS (SELECT 1 FROM news_scores s WHERE s.uid = i.uid) "
                           "AND NOT EXISTS (SELECT 1 FROM news_blind b WHERE b.uid = i.uid) "
                           "ORDER BY i.scored_ms, i.uid LIMIT ?"), (limit,))
@@ -1535,6 +1535,21 @@ def save_news_blind(uid: str, blind_title: str, scored_ms: int, status: str, mod
         conn.commit()
     finally:
         conn.close()
+
+
+def mark_late_news_blind_stale(max_lag_ms: int, status: str) -> int:
+    """И10б: обезличенная оценка позже чем через max_lag_ms после первой — stale (в проверку не входит)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_news_tables(cursor)
+        cursor.execute(_q("UPDATE news_blind SET status = ? WHERE status = 'ok' AND scored_ms - "
+                          "(SELECT i.scored_ms FROM news_items i WHERE i.uid = news_blind.uid) > ?"), (status, max_lag_ms))
+        n = max(cursor.rowcount, 0)
+        conn.commit()
+    finally:
+        conn.close()
+    return n
 
 
 def save_ai_opinion(signal_ts: str, symbol: str, side, stage, model, decision, size_multiplier,

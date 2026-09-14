@@ -55,10 +55,33 @@ def test_only_items_scored_with_symbols_are_blinded(db):
 def test_off_schema_blind_answer_is_recorded_and_not_retried(db):
     database.save_news_items([item("a")], NOW, STALE_MS)
     database.save_news_score("a", NOW, "ok", "m", scorer.PROMPT_VERSION, scorer._item_rows(label(1)))
-    assert blind.score_pending(transport=openrouter("не знаю")) == 1
+    assert blind.score_pending(transport=openrouter("не знаю"), clock=lambda: NOW / 1000 + 60) == 1
     row = rows("SELECT status, direction FROM news_blind")[0]
     assert row["status"] == "bad_format" and row["direction"] is None
     assert database.get_unblinded_news(10) == []
+
+
+def test_second_evaluation_only_within_30_minutes_of_the_first(db):
+    database.save_news_items([item("fresh", title="SOL up"), item("late", title="SOL down")], NOW, STALE_MS)
+    database.save_news_score("fresh", NOW, "ok", "m", scorer.PROMPT_VERSION, scorer._item_rows(label(1)))
+    database.save_news_score("late", NOW - blind.MAX_LAG_MS - 1, "ok", "m", scorer.PROMPT_VERSION, scorer._item_rows(label(1)))
+    calls = []
+    answer = json.dumps({"items": [label(1)]})
+    assert blind.score_pending(transport=openrouter(answer, calls=calls), clock=lambda: NOW / 1000) == 1
+    assert len(calls) == 1 and "SOL down" not in json.dumps(calls[0]) and "[COIN] up" in json.dumps(calls[0])
+    status = {r["uid"]: r["status"] for r in rows("SELECT uid, status FROM news_blind")}
+    assert status == {"fresh": "ok", "late": blind.STALE}, "просроченный помечен без запроса и не ждёт следующего цикла"
+    assert rows("SELECT direction FROM news_blind WHERE uid = 'late'")[0]["direction"] is None
+
+
+def test_late_blind_rows_already_stored_are_reclassified(db):
+    database.save_news_items([item("a")], NOW, STALE_MS)
+    database.save_news_score("a", NOW - 2 * blind.MAX_LAG_MS, "ok", "m", scorer.PROMPT_VERSION, scorer._item_rows(label(1)))
+    database.save_news_blind("a", "x", NOW, "ok", "m", blind.PROMPT_VERSION, {"direction": "up", "magnitude": 2,
+                                                                              "horizon": "hours", "confidence": 0.7, "novelty": 1})
+    assert blind.score_pending(transport=openrouter("unused")) == 0
+    row = rows("SELECT status, direction FROM news_blind")[0]
+    assert row["status"] == blind.STALE and row["direction"] == "up", "оценка сохраняется, но в проверку не входит"
 
 
 def test_blind_labels_reject_off_schema_and_ignore_symbols():
