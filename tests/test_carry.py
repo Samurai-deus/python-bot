@@ -21,7 +21,8 @@ class FakeCarry:
     """Демо-субсчёт: кошелёк монет, шорты, цены; ордера исполняются сразу по цене."""
 
     def __init__(self, coins=None, prices=None, mm=0.05):
-        self.coins = dict(coins or {"USDT": 150_000.0, "BTC": 15.0, "ETH": 200.0})
+        self.coins = dict({"USDT": 150_000.0, "BTC": 15.0, "ETH": 200.0} if coins is None else coins)
+        self.margin = 0.0                  # маржа шортов при плече 1× = их номинал
         self.prices = prices or {"BTCUSDT": 80_000.0, "ETHUSDT": 3_000.0}
         self.shorts = {s: 0.0 for s in self.prices}
         self.mm = mm
@@ -39,9 +40,12 @@ class FakeCarry:
     def account_mm_rate(self):
         return self.mm
 
+    def available_usd(self):
+        return self.coins.get("USDT", 0.0) - self.margin
+
     def apply_demo_usdt(self, amount):
         self.funds += amount
-        self.coins["USDT"] += amount
+        self.coins["USDT"] = self.coins.get("USDT", 0.0) + amount
 
     def spot_price(self, s):
         return self.prices[s]
@@ -58,16 +62,21 @@ class FakeCarry:
     def spot_market(self, s, side, qty):
         self.orders.append(("spot", s, side, qty))
         coin, px = s[:-4], self.prices[s]
+        if side == "Buy" and qty * px > self.available_usd():
+            raise RuntimeError("Bybit API error 170131 on /v5/order/create: Insufficient balance.")
         sign = 1 if side == "Buy" else -1
         self.coins[coin] = self.coins.get(coin, 0) + sign * qty
-        self.coins["USDT"] -= sign * qty * px
+        self.coins["USDT"] = self.coins.get("USDT", 0.0) - sign * qty * px
 
     def perp_market(self, s, side, qty, reduce_only=False):
         if side == "Sell" and self.fail_short_once:
             self.fail_short_once = False
             raise RuntimeError("биржа не ответила")
+        if side == "Sell" and qty * self.prices[s] > self.available_usd():
+            raise RuntimeError("Bybit API error 110007: ab not enough for new order")
         self.orders.append(("perp", s, side, qty, reduce_only))
         self.shorts[s] += qty if side == "Sell" else -qty
+        self.margin = max(0.0, self.margin + (1 if side == "Sell" else -1) * qty * self.prices[s])
 
     def short_qty(self, s):
         return self.shorts[s]
@@ -155,6 +164,29 @@ def test_demo_funds_are_requested_when_usdt_is_short(env):
     cli = FakeCarry(coins={"USDT": 1_000.0})
     cm.cycle(cli, store, NOW)
     assert cli.funds >= 24_000 - 1_000
+
+
+def test_empty_subaccount_gets_enough_funds_for_both_pairs(env):
+    """Как на проде 14.09: пустой субсчёт. Спот оплачивается полностью, шорт 1× держит маржу = номинал."""
+    store, _ = env
+    cli = FakeCarry(coins={})
+    cm.cycle(cli, store, NOW)
+    assert cli.shorts["BTCUSDT"] == pytest.approx(0.125) and cli.shorts["ETHUSDT"] == pytest.approx(3.33)
+    assert cli.coins["ETH"] == pytest.approx(3.33) and store.get("opened_at") == str(NOW)
+
+
+def test_recovery_after_insufficient_balance_tops_up_and_opens_the_rest(env):
+    """Состояние прода 14.09: чистый старт был, BTC открыт, на ETH денег не хватило."""
+    store, _ = env
+    cli = FakeCarry(coins={"USDT": 5_000.0, "BTC": 0.125})
+    cli.shorts["BTCUSDT"] = 0.125
+    cli.margin = 10_000.0
+    store.set("cleaned_at", NOW - 1)
+    store.set("bought:BTCUSDT", NOW - 1)
+    cm.cycle(cli, store, NOW)
+    assert cli.shorts["ETHUSDT"] == pytest.approx(3.33) and cli.funds > 0
+    assert len([o for o in cli.orders if o[:3] == ("spot", "BTCUSDT", "Buy")]) == 0, "BTC не докупается"
+    assert store.get("opened_at") == str(NOW)
 
 
 def test_danger_margin_closes_everything_and_halts(env):
