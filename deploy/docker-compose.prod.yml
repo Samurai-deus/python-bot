@@ -104,6 +104,35 @@ services:
       retries: 5
     logging: *logging
 
+  # Исполнитель И13 (docs/TRADER_PLAN.md): сбор фандинга на ОТДЕЛЬНОМ демо-субсчёте Bybit — свой
+  # ключ CARRY_BYBIT_API_KEY/SECRET из .env (без него контейнер падает, ключ бота не берёт), свой том
+  # с базой и пульсом. Bybit доступен с сервера напрямую — прокси не нужен. Выкладка бота от него не зависит.
+  carry:
+    image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
+    container_name: market-bot-carry
+    restart: unless-stopped
+    command: ["python", "-m", "carry"]
+    env_file:
+      - /opt/market-bot/.env
+    environment:
+      CARRY_DIR: /carry
+    volumes:
+      - carry_data:/carry
+    networks:
+      - egress
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+    healthcheck:
+      test: ["CMD", "python", "-m", "carry.health"]
+      interval: 300s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    logging: *logging
+
   # Сборщик новостей с оценкой ИИ (docs/TRADER_PLAN.md, И10). Нужны ключ OpenRouter и прокси
   # хоста (OpenRouter с IP сервера отвечает 403) — поэтому .env и host-gateway, как у бота.
   # Пишет в базу бота (news_items/news_scores, расход — в ai_usage с назначением news):
@@ -168,6 +197,7 @@ services:
 volumes:
   market_data:
   recorder_data:
+  carry_data:
 
 networks:
   egress: {}

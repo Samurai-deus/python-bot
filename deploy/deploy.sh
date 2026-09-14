@@ -463,6 +463,16 @@ step_smoke() {
   done
   if [ "$nws" = healthy ]; then echo "  ok  сборщик новостей: healthy"; else echo "  ОШИБКА сборщик новостей: $nws"; fail=1; fi
 
+  # Исполнитель И13 (market-bot-carry): пульс пишет каждый часовой цикл; первый — сразу после старта.
+  i=0
+  cry=""
+  while [ $i -lt 18 ]; do
+    cry=$(docker inspect -f '{{.State.Health.Status}}' market-bot-carry 2>/dev/null || echo missing)
+    [ "$cry" = healthy ] && break
+    i=$((i + 1)); sleep 10
+  done
+  if [ "$cry" = healthy ]; then echo "  ok  сбор фандинга (И13): healthy"; else echo "  ОШИБКА сбор фандинга (И13): $cry"; fail=1; fi
+
   # Ожидаемый режим записывает шаг mode (demo → TESTNET); без файла — бумажная торговля
   expected=$(cat "$APP/trading_mode.expected" 2>/dev/null || echo PAPER_TRADING)
   mode=$(docker exec market-bot python -c "from trading_mode import get_trading_mode; print(get_trading_mode().value)" 2>/dev/null || echo "?")
