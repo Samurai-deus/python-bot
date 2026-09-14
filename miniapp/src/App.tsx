@@ -13,6 +13,7 @@ import { LoadingSpinner } from './components/LoadingSpinner'
 // Аналитика тянет lightweight-charts — отдельным чанком, только когда экран открыт.
 const Analytics = lazy(() => import('./screens/Analytics/Analytics').then((m) => ({ default: m.Analytics })))
 import { Settings } from './screens/Settings/Settings'
+import { Research } from './screens/Research/Research'
 
 function WsInit() {
   useWebSocket()
@@ -45,6 +46,7 @@ export function App() {
           <Route path="/signals" element={<ErrorBoundary><Signals /></ErrorBoundary>} />
           <Route path="/analytics" element={<ErrorBoundary><Suspense fallback={<LoadingSpinner />}><Analytics /></Suspense></ErrorBoundary>} />
           <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+          <Route path="/research" element={<ErrorBoundary><Research /></ErrorBoundary>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

@@ -215,8 +215,19 @@ def test_sync_is_idempotent_and_report_uses_wallet_change(env):
     assert s["funding"] == pytest.approx(0.8), "по change: +1,0 − 0,2"
     assert s["fees_usdt"] == pytest.approx(2 * 0.000125 * 80_000), "комиссия в BTC пересчитана в USDT"
     assert (tmp / "heartbeat").exists()
-    devs = json.loads(conn.execute("SELECT deviations FROM snapshots ORDER BY ts DESC").fetchone()[0])
-    assert devs["BTCUSDT"] == pytest.approx(0.0)
+    devs, pos = conn.execute("SELECT deviations, positions FROM snapshots ORDER BY ts DESC").fetchone()
+    assert json.loads(devs)["BTCUSDT"] == pytest.approx(0.0)
+    assert json.loads(pos)["BTCUSDT"] == {"spot": pytest.approx(0.125), "short": pytest.approx(0.125), "price": 80_000.0}
+
+
+def test_old_snapshot_table_gets_the_positions_column(tmp_path):
+    p = str(tmp_path / "old.db")
+    c = sqlite3.connect(p)
+    c.execute("CREATE TABLE snapshots (ts INTEGER PRIMARY KEY, equity REAL, mm_rate REAL, deviations TEXT)")
+    c.commit()
+    c.close()
+    Store(p).snapshot(1, 2.0, 0.1, {}, {"BTCUSDT": {"spot": 1, "short": 1, "price": 1}})
+    assert sqlite3.connect(p).execute("SELECT positions FROM snapshots").fetchone()[0].startswith("{")
 
 
 def test_health_by_heartbeat_age(tmp_path):

@@ -537,3 +537,14 @@ def test_release_gate_ignores_the_portfolio_but_smoke_and_watchdog_watch_it():
     assert "market-bot-portfolio" in step_body(deploy, "step_smoke")
     watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
     assert "market-bot-portfolio" in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]
+
+
+def test_api_reads_executor_volumes_read_only():
+    """Мини-апп «Программа»: API видит базы исполнителей и журнал записи, но только на чтение."""
+    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    api = compose.split("  api:\n", 1)[1].split("\n  # Только счётчики", 1)[0]
+    for v in ("portfolio_data:/portfolio:ro", "carry_data:/carry:ro", "recorder_data:/recorder:ro"):
+        assert v in api, v
+    assert "RESEARCH_PORTFOLIO_DB: /portfolio/portfolio.db" in api and "RESEARCH_CARRY_DB: /carry/carry.db" in api
+    assert (ROOT / "api" / "routers" / "research.py").is_file()
+    assert "research.router" in (ROOT / "api" / "main.py").read_text(encoding="utf-8")

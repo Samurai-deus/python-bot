@@ -28,6 +28,9 @@ class Store:
         self.conn = sqlite3.connect(path)
         for sql in SCHEMA:
             self.conn.execute(sql)
+        # База, созданная до 14.09 (без позиций в снимке): колонка добавляется на месте.
+        if "positions" not in {r[1] for r in self.conn.execute("PRAGMA table_info(snapshots)")}:
+            self.conn.execute("ALTER TABLE snapshots ADD COLUMN positions TEXT")
         self.conn.commit()
 
     def get(self, key: str) -> Optional[str]:
@@ -63,9 +66,11 @@ class Store:
         self.conn.commit()
         return added
 
-    def snapshot(self, ts: int, equity: float, mm_rate: Optional[float], deviations: Dict[str, float]) -> None:
-        self.conn.execute("INSERT OR REPLACE INTO snapshots (ts, equity, mm_rate, deviations) VALUES (?, ?, ?, ?)",
-                          (ts, equity, mm_rate, json.dumps(deviations)))
+    def snapshot(self, ts: int, equity: float, mm_rate: Optional[float], deviations: Dict[str, float],
+                 positions: Optional[Dict[str, dict]] = None) -> None:
+        """positions — {символ: {"spot": объём спота, "short": объём шорта, "price": цена}} для мини-аппа."""
+        self.conn.execute("INSERT OR REPLACE INTO snapshots (ts, equity, mm_rate, deviations, positions) VALUES (?, ?, ?, ?, ?)",
+                          (ts, equity, mm_rate, json.dumps(deviations), json.dumps(positions or {})))
         self.conn.commit()
 
     def event(self, ts: int, kind: str, detail: str = "") -> None:
