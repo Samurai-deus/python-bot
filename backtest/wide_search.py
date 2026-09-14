@@ -222,6 +222,9 @@ def weights(data: Dict[str, Series], cfg: dict, t: int, t_next: int) -> Dict[str
     if fam == "reversal":
         scores = {s: r for s in syms if (r := ret(data[s], d, cfg["L"])) is not None}
         return long_short(scores, cfg["frac"], long_high=False)
+    if fam == "continuation":  # И17а: зеркало разворота — доходность за последние L дней без пропуска, лонг лучшим
+        scores = {s: r for s in syms if (r := ret(data[s], d, cfg["L"])) is not None}
+        return long_short(scores, cfg["frac"], long_high=True)
     if fam == "funding":
         scores = {s: f for s in syms if (f := funding_mean(data[s], t, cfg["W"])) is not None}
         return long_short(scores, cfg["frac"], long_high=False)  # шорт тем, кто платит
