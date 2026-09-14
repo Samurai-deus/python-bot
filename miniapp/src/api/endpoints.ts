@@ -2,7 +2,7 @@ import { apiClient } from './client'
 import type {
   SystemHealth, TradeHistory,
   Signal, AnalyticsSummary, EquityCurve, SymbolPnl,
-  MonthlyTarget
+  MonthlyTarget, ResearchOverview
 } from './types'
 
 export const fetchHealth = () =>
@@ -25,3 +25,6 @@ export const fetchBySymbol = (days = 30) =>
 
 export const fetchMonthlyTarget = () =>
   apiClient.get<MonthlyTarget>('/api/analytics/monthly-target').then(r => r.data)
+
+export const fetchResearchOverview = () =>
+  apiClient.get<ResearchOverview>('/api/research/overview').then(r => r.data)

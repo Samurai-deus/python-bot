@@ -62,10 +62,18 @@ services:
     environment:
       DB_PATH: /data/db/market_bot.db
       API_HOST: 0.0.0.0
+      # Мини-апп «Программа»: базы исполнителей и журнал записи — только чтение.
+      RESEARCH_PORTFOLIO_DB: /portfolio/portfolio.db
+      RESEARCH_CARRY_DB: /carry/carry.db
+      RESEARCH_RECORDER_DIR: /recorder
+      PORTFOLIO_CAPITAL_USDT: "1000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - market_data:/data
+      - portfolio_data:/portfolio:ro
+      - carry_data:/carry:ro
+      - recorder_data:/recorder:ro
     ports:
       - "127.0.0.1:8100:8000"
     networks:

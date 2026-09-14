@@ -104,7 +104,7 @@ def create_app() -> FastAPI:
     enforce_security_config()
     _init_sentry()
 
-    from api.routers import analytics, auth, positions, settings, signals, system, ws
+    from api.routers import analytics, auth, positions, research, settings, signals, system, ws
 
     production = is_production()
     app = FastAPI(
@@ -143,6 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics.router)
     app.include_router(settings.router)
     app.include_router(ws.router)
+    app.include_router(research.router)
 
     @app.get("/", include_in_schema=False)
     async def root():
