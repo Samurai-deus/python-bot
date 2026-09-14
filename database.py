@@ -1427,6 +1427,22 @@ def _ensure_news_tables(cursor) -> None:
         " novelty INTEGER NOT NULL,"
         " PRIMARY KEY (uid, symbol))"
     )
+    # news_blind — И10б: вторая оценка того же заголовка без названия монеты (blind_title —
+    # что читала модель); монеты берутся из news_scores первой оценки.
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS news_blind ("
+        " uid TEXT PRIMARY KEY,"
+        " blind_title TEXT NOT NULL,"
+        " scored_ms BIGINT NOT NULL,"
+        " status TEXT NOT NULL,"
+        " model TEXT,"
+        " prompt_version TEXT NOT NULL,"
+        " direction TEXT,"
+        " magnitude INTEGER,"
+        " horizon TEXT,"
+        " confidence DOUBLE PRECISION,"
+        " novelty INTEGER)"
+    )
 
 
 def save_news_items(items, seen_ms: int, stale_ms: int) -> int:
@@ -1480,6 +1496,42 @@ def save_news_score(uid: str, scored_ms: int, status: str, model, prompt_version
                                   "novelty) VALUES (?, ?, ?, ?, ?, ?, ?)")),
                 (uid, s["symbol"], s["direction"], s["magnitude"], s["horizon"], s["confidence"], s["novelty"]),
             )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_unblinded_news(limit: int):
+    """И10б: заголовки, оценённые И10 хотя бы с одной монетой и ещё без обезличенной оценки."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_news_tables(cursor)
+        cursor.execute(_q("SELECT i.uid, i.source, i.title FROM news_items i "
+                          "WHERE i.score_status = 'ok' AND EXISTS (SELECT 1 FROM news_scores s WHERE s.uid = i.uid) "
+                          "AND NOT EXISTS (SELECT 1 FROM news_blind b WHERE b.uid = i.uid) "
+                          "ORDER BY i.scored_ms, i.uid LIMIT ?"), (limit,))
+        out = [dict(r) for r in cursor.fetchall()]
+        conn.commit()
+    finally:
+        conn.close()
+    return out
+
+
+def save_news_blind(uid: str, blind_title: str, scored_ms: int, status: str, model, prompt_version: str,
+                    label) -> None:
+    """И10б: итог обезличенной оценки; label — словарь direction/magnitude/horizon/confidence/novelty или None."""
+    label = label or {}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_news_tables(cursor)
+        cursor.execute(
+            _q(_insert_ignore("INTO news_blind (uid, blind_title, scored_ms, status, model, prompt_version, "
+                              "direction, magnitude, horizon, confidence, novelty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")),
+            (uid, blind_title, scored_ms, status, model, prompt_version, label.get("direction"), label.get("magnitude"),
+             label.get("horizon"), label.get("confidence"), label.get("novelty")),
+        )
         conn.commit()
     finally:
         conn.close()

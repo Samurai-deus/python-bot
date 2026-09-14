@@ -18,7 +18,7 @@ from typing import Tuple
 
 import httpx
 
-from news import scorer, sources
+from news import blind, scorer, sources
 
 POLL_SEC = 120
 STALE_MS = 30 * 60 * 1000
@@ -51,8 +51,9 @@ def main() -> None:
             try:
                 added, ok = poll_once(http, int(time.time() * 1000))
                 scored = scorer.score_pending()
-                logger.info("опрос: источников %d из %d, новых %d, оценено %d",
-                            ok, len(sources.SOURCES), added, scored)
+                blinded = blind.score_pending()  # И10б — после И10, чтобы не отнимать у неё бюджет
+                logger.info("опрос: источников %d из %d, новых %d, оценено %d, без названия %d",
+                            ok, len(sources.SOURCES), added, scored, blinded)
             except Exception:  # база, модель — цикл продолжается, пульс покажет долгий сбой
                 logger.warning("цикл сборщика не удался", exc_info=True)
             stop.wait(POLL_SEC)

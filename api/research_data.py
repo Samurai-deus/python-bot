@@ -42,7 +42,8 @@ PROGRAM: Dict[str, Any] = {
     },
     "recorder": {"title": "Запись стакана и сделок Bybit", "symbols": "BTC, ETH, SOL, XRP, DOGE, BNB, XAU",
                  "hypotheses_from": "2026-10-11", "cap_gb": 20},
-    "news": {"title": "И10 — новости с оценкой ИИ (только вперёд)", "first_check": "2026-12-06",
+    "news": {"title": "И10 / И10б — новости с оценкой ИИ, с названием монеты и без (только вперёд)",
+             "first_check": "2026-12-06",
              "budget_usd": 0.3, "signal": "новизна, сила ≥ 2, уверенность ≥ 0,6, направление; ≥ 100 сигналов"},
     "watch": {"title": "Наблюдение вперёд на бумаге: И4 (тренд, N = 30) и И3 (моментум, L = 28)",
               "start": "2026-09-14", "first_check": "2026-12-14", "every_weeks": 13,
@@ -188,16 +189,21 @@ def read_news(day: str) -> Dict[str, Any]:
         signals = cur.fetchone()["n"]
         cur.execute("SELECT COUNT(*) AS n FROM news_scores")
         rows = cur.fetchone()["n"]
+        try:  # таблицу И10б создаёт сборщик; до его первого цикла на новом релизе её может не быть
+            cur.execute("SELECT status AS s, COUNT(*) AS n FROM news_blind GROUP BY status")
+            blind = {str(r["s"]): r["n"] for r in cur.fetchall()}
+        except Exception:
+            blind = {}
         conn.commit()
     except Exception:
-        return {"items": 0, "fresh": {}, "signals": 0, "score_rows": 0, "spend_today": None}
+        return {"items": 0, "fresh": {}, "signals": 0, "score_rows": 0, "blind": {}, "spend_today": None}
     finally:
         conn.close()
     try:
         spend = database.get_ai_spend(day, purpose="news")
     except Exception:
         spend = None
-    return {"items": total, "fresh": fresh, "signals": signals, "score_rows": rows, "spend_today": spend}
+    return {"items": total, "fresh": fresh, "signals": signals, "score_rows": rows, "blind": blind, "spend_today": spend}
 
 
 def overview(now: Optional[float] = None) -> Dict[str, Any]:

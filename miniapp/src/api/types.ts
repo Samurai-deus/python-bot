@@ -152,6 +152,7 @@ export interface ResearchNews {
   fresh: Record<string, number>
   signals: number
   score_rows: number
+  blind: Record<string, number>
   spend_today: number | null
 }
 
