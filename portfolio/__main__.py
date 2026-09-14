@@ -30,6 +30,11 @@ def capital() -> float:
     return float(os.environ.get("PORTFOLIO_CAPITAL_USDT", "1000"))
 
 
+def start_this_week() -> bool:
+    from utils.env import env_flag
+    return env_flag("PORTFOLIO_START_THIS_WEEK", False)
+
+
 def root_dir() -> Path:
     return Path(os.environ.get("PORTFOLIO_DIR", "/portfolio"))
 
@@ -113,6 +118,11 @@ def cycle(cli, store: Store, now: int) -> None:
         else:
             last = store.get("last_rebalance_t")
             t = engine.due_rebalance(now, int(last) if last else None)
+            if t is None and start_this_week() and not store.has_rebalance(engine.monday_of(now)):
+                # Поправка правила 14.09 (владелец): догоняющая ребалансировка в неделю запуска по
+                # сигналам её понедельника — один раз: запись в rebalances исключает повтор.
+                t = engine.monday_of(now)
+                store.event(now, "catch_up", f"сигналы понедельника {t}")
             if t is not None:
                 rebalance(cli, store, t, now)
     store.add_funding(cli.settlements(now - SYNC_BACK_MS))
