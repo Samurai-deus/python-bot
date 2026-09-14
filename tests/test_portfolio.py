@@ -50,8 +50,49 @@ def test_combined_weights_use_frozen_signals_with_rule_multipliers():
     for s in tt.SYMBOLS:
         mom = engine.K_MOMENTUM * mx.WEIGHT * ((s in longs) - (s in shorts))
         assert w[s] == pytest.approx(engine.K_TREND * trend[s] + mom)
-    assert engine.K_TREND == pytest.approx(2.01) and engine.K_MOMENTUM == pytest.approx(1.01)
+    assert (engine.K_TREND, engine.K_MOMENTUM, engine.K_CONTINUATION) == (pytest.approx(1.61), pytest.approx(0.78), pytest.approx(0.48))
     assert all(abs(w[s]) == pytest.approx(engine.K_MOMENTUM * mx.WEIGHT) for s in longs + shorts if s not in tt.SYMBOLS)
+
+
+def cont_symbol(t, last_day_ret, turn30=5e6, age_d=400):
+    """Кандидат И17а: ровная цена, сутки перед t — рывок last_day_ret."""
+    d = series(t, 35)
+    for ts in d["c4"]:
+        if ts > t - mx.DAY_MS - H4:   # бары последних суток; закрытие предыдущего дня (t − 28 ч) остаётся 100
+            d["c4"][ts] = 100.0 * (1 + last_day_ret)
+    d["turn30"], d["age_d"] = turn30, age_d
+    return d
+
+
+def test_continuation_leg_takes_top30_by_turnover_and_last_day_return():
+    data = {f"C{i:02}USDT": cont_symbol(MONDAY, (i - 20) / 100, turn30=1e7 + i * 1e5) for i in range(40)}
+    data["YOUNGUSDT"] = cont_symbol(MONDAY, 0.5, turn30=9e7, age_d=50)
+    data["THINUSDT"] = cont_symbol(MONDAY, 0.5, turn30=1e6)
+    cands = list(data)
+    uni = engine.continuation_universe(data, cands)
+    assert len(uni) == 30 and "YOUNGUSDT" not in uni and "THINUSDT" not in uni and "C09USDT" not in uni, "top30 по обороту среди старше 100 дней и ≥ 2 млн"
+    w = engine.continuation_weights(data, cands, MONDAY)
+    assert {s for s, v in w.items() if v > 0} == {f"C{i}USDT" for i in range(35, 40)}, "лонг 5 лучших за сутки внутри top30"
+    assert {s for s, v in w.items() if v < 0} == {f"C{i}USDT" for i in range(10, 15)}, "шорт 5 худших внутри top30 (C09 не в top30)"
+    assert all(abs(v) == pytest.approx(engine.CONT_WEIGHT) for v in w.values())
+    total = engine.combined_weights(data, [], [], MONDAY, cands)
+    assert total["C39USDT"] == pytest.approx(engine.K_CONTINUATION * engine.CONT_WEIGHT)
+    assert engine.continuation_weights({k: data[k] for k in cands[:9]}, cands[:9], MONDAY) == {}, "меньше 10 монет — ноги нет"
+    assert engine.combined_weights(data, [], [], MONDAY) == {}, "без кандидатов третьей ноги нет (как до 21.09)"
+
+
+def test_rebalance_trades_the_continuation_leg_from_exchange_candidates(env):
+    store, _ = env
+    cli = FakeBybitPortfolio(MONDAY)
+    cands = [f"C{i:02}USDT" for i in range(12)]
+    cli.continuation_candidates = lambda ages: cands
+    for i, s in enumerate(cands):
+        cli.prices[s] = 100.0
+        cli.steps[s] = 0.01 * (i + 1)          # разный рост за бар → разная доходность за последние сутки
+    pm.cycle(cli, store, MONDAY - 2 * DAY)
+    pm.cycle(cli, store, MONDAY + 3 * 60_000)
+    assert cli.qty.get("C11USDT", 0.0) > 0 and cli.qty.get("C00USDT", 0.0) < 0, "лучшая за сутки — лонг, худшая — шорт"
+    assert cli.qty.get("C06USDT", 0.0) == 0.0, "середина ранжирования не торгуется"
 
 
 def test_orders_reach_targets_and_skip_dust():
@@ -99,8 +140,14 @@ class FakeBybitPortfolio:
         self.fail_symbols = set()
         self.steps = step_by_symbol or {}
 
-    def market_data(self, symbols, t):
-        return {s: series(t, 35, start=100.0, step=self.steps.get(s, 0.01)) for s in symbols}
+    def market_data(self, symbols, t, ages=None):
+        return {s: {**series(t, 35, start=100.0, step=self.steps.get(s, 0.01)), "turn30": 1e7, "age_d": 500} for s in symbols}
+
+    def launch_ages_d(self):
+        return {}
+
+    def continuation_candidates(self, ages):
+        return []
 
     def positions_qty(self):
         return {s: q for s, q in self.qty.items() if q}

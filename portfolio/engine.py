@@ -11,11 +11,20 @@ from backtest import momentum_xs as mx
 from backtest import trend_ts as tt
 from execution.order_executor import round_qty
 
-# Множители ног из правила И14: равный риск (И4 0,665 : И3 0,335) × 3,02 под риск 40 % годовых.
-K_TREND = 2.01
-K_MOMENTUM = 1.01
+# Множители ног из правила И14 (поправка 14.09, с 21.09.2026 — три ноги): равный риск по разбросу
+# недельных результатов 2023 → 16.03.2026 (И4 1,70 %, И3 3,50 %, И17а 5,67 %) × 2,88 под риск 40 % годовых.
+K_TREND = 1.61
+K_MOMENTUM = 0.78
+K_CONTINUATION = 0.48
 TREND_LOOKBACK_D = 30
 MOMENTUM_LOOKBACK_D = 28
+# И17а: 30 контрактов с наибольшим средним дневным оборотом за 30 дней среди крипто-контрактов старше 100 дней;
+# признак — доходность за последние сутки; лонг 5 лучших / шорт 5 худших по 10 % капитала.
+CONT_TOP = 30
+CONT_BASKET = 5
+CONT_WEIGHT = 0.10
+CONT_MIN_TURNOVER = 2_000_000.0
+CONT_MIN_AGE_D = 100
 LEVERAGE = 5
 MAX_DRAWDOWN = 0.25                 # доля капитала — стоп по правилу
 MIN_ORDER_FRACTION = 0.002          # разница меньше 0,2 % капитала (и не меньше MIN_ORDER_FLOOR) — не торгуется
@@ -36,11 +45,33 @@ class Order:
     reduce_only: bool
 
 
+def continuation_universe(data: Mapping[str, dict], candidates: Sequence[str]) -> List[str]:
+    """top30 кандидатов по среднему дневному обороту за 30 дней (data[s]["turn30"]) среди старше 100 дней."""
+    ok = [(d["turn30"], s) for s in candidates if (d := data.get(s)) and d.get("age_d", 0) >= CONT_MIN_AGE_D
+          and d.get("turn30", 0.0) >= CONT_MIN_TURNOVER]
+    ok.sort(reverse=True)
+    return [s for _, s in ok[:CONT_TOP]]
+
+
+def continuation_weights(data: Mapping[str, dict], candidates: Sequence[str], t: int) -> Dict[str, float]:
+    """И17а: доходность за последние сутки по закрытым 4h-барам; лонг 5 лучших / шорт 5 худших по CONT_WEIGHT."""
+    scores = {}
+    for s in continuation_universe(data, candidates):
+        c4 = data[s]["c4"]
+        a, b = c4.get(t - mx.H4_MS - mx.DAY_MS), c4.get(t - mx.H4_MS)
+        if a and b and data[s]["o4"].get(t):
+            scores[s] = b / a - 1
+    if len(scores) < 2 * CONT_BASKET:
+        return {}
+    ranked = sorted(scores, key=scores.get)
+    return {**{s: CONT_WEIGHT for s in ranked[-CONT_BASKET:]}, **{s: -CONT_WEIGHT for s in ranked[:CONT_BASKET]}}
+
+
 def combined_weights(data: Mapping[str, dict], trend_symbols: Sequence[str], momentum_symbols: Sequence[str],
-                     t: int) -> Dict[str, float]:
+                     t: int, continuation_candidates: Sequence[str] = ()) -> Dict[str, float]:
     """
-    Вес монеты в долях капитала: K_TREND × вес И4 + K_MOMENTUM × вес И3. t_next = t — у И4 он
-    нужен только для проверки цены выхода, которой вживую ещё нет.
+    Вес монеты в долях капитала: K_TREND × вес И4 + K_MOMENTUM × вес И3 + K_CONTINUATION × вес И17а.
+    t_next = t — у И4 он нужен только для проверки цены выхода, которой вживую ещё нет.
     """
     weights: Dict[str, float] = {}
     for s, w in tt.targets(data, trend_symbols, t, t, TREND_LOOKBACK_D).items():
@@ -51,6 +82,8 @@ def combined_weights(data: Mapping[str, dict], trend_symbols: Sequence[str], mom
             weights[s] = weights.get(s, 0.0) + K_MOMENTUM * mx.WEIGHT
         for s in pick[1]:
             weights[s] = weights.get(s, 0.0) - K_MOMENTUM * mx.WEIGHT
+    for s, w in continuation_weights(data, continuation_candidates, t).items():
+        weights[s] = weights.get(s, 0.0) + K_CONTINUATION * w
     return {s: w for s, w in weights.items() if abs(w) > 1e-12}
 
 

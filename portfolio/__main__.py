@@ -3,7 +3,7 @@
   • условие старта — журнал бота без открытых сделок и ни одной позиции на счёте (две последние
     сделки бота закрываются сами); пока не выполнено — ждём и пишем событие;
   • понедельник, 00:02–23:59 UTC, ребалансировка ещё не сделана — считаем веса по замороженным
-    сигналам И4/И3 и доводим позиции до целей; не прошедшие ордера повторяются следующим часом;
+    сигналам И4/И3/И17а и доводим позиции до целей; не прошедшие ордера повторяются следующим часом;
   • снимок стоимости и позиций, начисления фандинга за 48 ч, пульс;
   • просадка от пика > 25 % капитала — всё закрыть, остановиться, сообщить владельцу.
 """
@@ -74,9 +74,11 @@ def ready_to_start(cli, store: Store, now: int) -> bool:
 
 
 def rebalance(cli, store: Store, t: int, now: int) -> None:
-    syms = symbols()
-    data = cli.market_data(syms, t)
-    weights = engine.combined_weights(data, list(tt.SYMBOLS), list(config.SYMBOLS), t)
+    ages = cli.launch_ages_d()
+    candidates = cli.continuation_candidates(ages)  # третья нога И17а (поправка И14 от 14.09, с 21.09)
+    syms = sorted(set(symbols()) | set(candidates))
+    data = cli.market_data(syms, t, ages)
+    weights = engine.combined_weights(data, list(tt.SYMBOLS), list(config.SYMBOLS), t, candidates)
     cap = capital()
     targets = {s: w * cap for s, w in weights.items()}
     positions = cli.positions_usdt()
