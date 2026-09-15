@@ -430,7 +430,27 @@ def walk_forward(stats_by_cfg: Dict[str, Dict[int, List[float]]], last_year: int
     return chosen
 
 
-def evaluate(trades: Sequence[Trade], alpha: float = ALPHA, bootstrap: int = 2000) -> Dict:
+def cap_concurrency(trades: Sequence[Trade], max_open: Optional[int]) -> List[Trade]:
+    """
+    Сделки, которые взял бы портфель с не больше max_open одновременных позиций: по времени входа,
+    сделка пропускается, если открытых уже max_open (закрытые к моменту входа освобождают место).
+    Без ограничения 393 контракта × 10 % номинала давали «просадку» 300–1500 % (И16, 14.09).
+    """
+    if not max_open:
+        return list(trades)
+    out: List[Trade] = []
+    open_exits: List[int] = []
+    for t in sorted(trades, key=lambda x: (x.entry_t, x.exit_t)):
+        open_exits = [e for e in open_exits if e > t.entry_t]
+        if len(open_exits) >= max_open:
+            continue
+        out.append(t)
+        open_exits.append(t.exit_t)
+    return out
+
+
+def evaluate(trades: Sequence[Trade], alpha: float = ALPHA, bootstrap: int = 2000, max_open: Optional[int] = None) -> Dict:
+    trades = cap_concurrency(trades, max_open)
     n = len(trades)
     if not n:
         return {"trades": 0, "passed": False, "checks": {}}
@@ -473,7 +493,7 @@ def cfg_name(tf: str, rule: str, g: Tuple[int, int, int]) -> str:
 
 
 def run_timeframe(tf: str, data: Dict[str, Bars], allowed: Dict[str, List[int]], holdout_start: int,
-                  show_holdout: bool, log=None) -> Dict:
+                  show_holdout: bool, log=None, max_open: Optional[int] = None) -> Dict:
     """Все правила таймфрейма: годовая статистика по вариантам, проверка вперёд по семействам."""
     families = {fam: {} for fam in FAMILIES}
     table = {}
@@ -504,8 +524,8 @@ def run_timeframe(tf: str, data: Dict[str, Bars], allowed: Dict[str, List[int]],
         series: List[Trade] = []
         for year, name in chosen.items():
             series += [t for t in keep[name] if year_of(t.entry_t) == year and t.entry_t < holdout_start]
-        st = evaluate(series)
-        entry = {"chosen": chosen, "stats": st}
+        st = evaluate(series, max_open=max_open)
+        entry = {"chosen": chosen, "stats": st, "max_open": max_open}
         if st["passed"] and show_holdout:
             hold_all = walk_forward(families[fam], datetime.now(UTC).year)
             hold = [t for y, name in hold_all.items() for t in keep[name] if year_of(t.entry_t) == y and t.entry_t >= holdout_start]
@@ -556,6 +576,7 @@ def main(argv=None) -> int:
     parser.add_argument("--tf", default="1h,4h,1d")
     parser.add_argument("--holdout", action="store_true")
     parser.add_argument("--out")
+    parser.add_argument("--max-open", type=int, default=None, help="не больше N одновременных позиций (просадка на капитал)")
     args = parser.parse_args(argv)
     conn = history.connect(args.db)
     start_ms = mx.day_ms(START)
@@ -571,7 +592,7 @@ def main(argv=None) -> int:
         data = load_bars(conn, tf)
         allowed = {sym: allowed_bars(b, None if tf == "1h" else universe, sym, weeks_all) for sym, b in data.items()}
         log(f"{tf}: контрактов {len(data)}")
-        out["timeframes"][tf] = run_timeframe(tf, data, allowed, holdout_start, args.holdout, log)
+        out["timeframes"][tf] = run_timeframe(tf, data, allowed, holdout_start, args.holdout, log, args.max_open)
     conn.close()
     print(f"И16: недели {datetime.fromtimestamp(weeks_all[0] / 1000, UTC):%d.%m.%Y}–{datetime.fromtimestamp(weeks_all[-1] / 1000, UTC):%d.%m.%Y}, "
           f"отложенный конец с {datetime.fromtimestamp(holdout_start / 1000, UTC):%d.%m.%Y} ({'открыт' if args.holdout else 'закрыт'})")
