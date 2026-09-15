@@ -88,7 +88,7 @@ def test_portfolio_summary_from_executor_db(env):
     assert p["positions"][1]["side"] == "SHORT"
     assert p["next_rebalance"] == rd._iso(NOW + 4 * rd.DAY_MS)
     assert p["rebalances"] == [{"t": rd._iso(NOW - 3 * rd.DAY_MS), "done_at": rd._iso(NOW - 3 * rd.DAY_MS + 60_000),
-                                "coins": 2, "orders": 1, "failed": 0}]
+                                "coins": 2, "orders": 1, "failed": 0, "runs": 1}]
 
 
 def test_carry_summary_counts_funding_only_since_opening(env):
@@ -154,3 +154,13 @@ def test_btcalts_and_calendar_in_overview(env):
     first = next(c for c in cal if c["date"] == "2026-09-21")
     assert first["days_left"] == (__import__("datetime").date(2026, 9, 21) - __import__("datetime").datetime.fromtimestamp(NOW / 1000, __import__("datetime").UTC).date()).days
     assert o["program"]["btcalts"]["verdict"] == "2027-03-16"
+
+
+def test_reruns_are_counted_from_the_run_log(env):
+    """Второй прогон недели (14.09) виден как runs = 2, запись в rebalances — последняя."""
+    fill_portfolio(env / "portfolio.db")
+    s = PortfolioStore(str(env / "portfolio.db"))
+    s.rebalance(NOW - 3 * rd.DAY_MS, NOW - 3 * rd.DAY_MS + 7_200_000, {"AUSDT": 0.2}, [["AUSDT", "Buy", "2"]], [])
+    s.conn.close()
+    p = rd.read_portfolio(str(env / "portfolio.db"), 1000.0, NOW)
+    assert [r["runs"] for r in p["rebalances"]] == [2] and p["rebalances"][0]["coins"] == 1
