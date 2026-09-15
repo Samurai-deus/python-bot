@@ -156,8 +156,13 @@ export interface ResearchNews {
   spend_today: number | null
 }
 
+export interface ResearchExecutorMeta { title: string; risk: string; start: string; end: string; verdict: string; rebalance: string; criteria: string[]; notes: string[] }
+
+export interface ResearchCalendarItem { date: string; text: string; days_left: number }
+
 export interface ResearchProgram {
-  portfolio: { title: string; risk: string; start: string; end: string; verdict: string; rebalance: string; criteria: string[]; notes: string[] }
+  portfolio: ResearchExecutorMeta
+  btcalts: ResearchExecutorMeta
   carry: { title: string; notional: string; start: string; end: string; verdict: string; criteria: string[] }
   recorder: { title: string; symbols: string; hypotheses_from: string; cap_gb: number }
   news: { title: string; first_check: string; budget_usd: number; signal: string }
@@ -168,6 +173,8 @@ export interface ResearchOverview {
   generated_at: string
   program: ResearchProgram
   portfolio: ResearchPortfolio | null
+  btcalts: ResearchPortfolio | null
+  calendar: ResearchCalendarItem[]
   carry: ResearchCarry | null
   recorder: ResearchRecorder | null
   news: ResearchNews
