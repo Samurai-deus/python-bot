@@ -39,5 +39,6 @@ def test_every_query_is_switched_off_by_auth_expiry():
             blocks += 1
             if not re.search(r"enabled:\s*!authExpired", block):
                 offenders.append(str(path.relative_to(ROOT)))
-    assert blocks >= 8, "не нашёл запросов — тест смотрит не туда"
+    # После мини-аппа v2 (15.09) запросов два: обзор программы и здоровье бота; порог — чтобы тест не молчал на пустом src.
+    assert blocks >= 2, "не нашёл запросов — тест смотрит не туда"
     assert offenders == [], f"запрос не выключается при истёкшей сессии: {offenders}"
