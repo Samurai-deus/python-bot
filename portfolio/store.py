@@ -6,6 +6,9 @@ from typing import Dict, Iterable, Optional
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT)",
     "CREATE TABLE IF NOT EXISTS rebalances (t INTEGER PRIMARY KEY, done_ms INTEGER, weights TEXT, orders TEXT, failed TEXT)",
+    # Журнал всех прогонов: 14.09 второй прогон недели запуска перезаписал запись понедельника (ключ — t).
+    "CREATE TABLE IF NOT EXISTS rebalance_runs (t INTEGER, done_ms INTEGER, weights TEXT, orders TEXT, failed TEXT,"
+    " PRIMARY KEY (t, done_ms))",
     "CREATE TABLE IF NOT EXISTS snapshots (ts INTEGER PRIMARY KEY, equity REAL, positions TEXT)",
     "CREATE TABLE IF NOT EXISTS funding (id TEXT PRIMARY KEY, symbol TEXT, change REAL, ts INTEGER)",
     "CREATE TABLE IF NOT EXISTS events (ts INTEGER, kind TEXT, detail TEXT)",
@@ -34,8 +37,9 @@ class Store:
         self.conn.commit()
 
     def rebalance(self, t: int, done_ms: int, weights: Dict[str, float], orders: list, failed: list) -> None:
-        self.conn.execute("INSERT OR REPLACE INTO rebalances (t, done_ms, weights, orders, failed) VALUES (?, ?, ?, ?, ?)",
-                          (t, done_ms, json.dumps(weights), json.dumps(orders), json.dumps(failed)))
+        row = (t, done_ms, json.dumps(weights), json.dumps(orders), json.dumps(failed))
+        self.conn.execute("INSERT OR REPLACE INTO rebalances (t, done_ms, weights, orders, failed) VALUES (?, ?, ?, ?, ?)", row)
+        self.conn.execute("INSERT OR IGNORE INTO rebalance_runs (t, done_ms, weights, orders, failed) VALUES (?, ?, ?, ?, ?)", row)
         self.conn.commit()
 
     def has_rebalance(self, t: int) -> bool:
