@@ -135,3 +135,16 @@ def test_criteria_and_holdout_rule():
     bad = [trade(t0 + k * br.HOUR_MS * 6, -0.05) for k in range(400)]
     assert not br.evaluate(bad)["checks"]["drawdown"], "400 × −5 % × 10 % номинала = просадка 200 %"
     assert not br.holdout_check(0.004, [trade(t0, -0.01), trade(t0 + 1, -0.01), trade(t0 + 2, -0.012)])["passed"]
+
+
+def test_concurrency_cap_skips_trades_when_the_book_is_full():
+    t0 = mx.day_ms("2023-01-02")
+    h = br.HOUR_MS
+    trades = [br.Trade("A", t0, t0 + 10 * h, 0.01, 1, "time"), br.Trade("B", t0 + h, t0 + 10 * h, 0.01, 1, "time"),
+              br.Trade("C", t0 + 2 * h, t0 + 3 * h, -0.05, 1, "time"), br.Trade("D", t0 + 11 * h, t0 + 12 * h, 0.02, 1, "time")]
+    kept = br.cap_concurrency(trades, 2)
+    assert [t.symbol for t in kept] == ["A", "B", "D"], "C пропущена — две позиции открыты; D взята после их закрытия"
+    assert br.cap_concurrency(trades, None) == trades
+    full = br.evaluate(trades * 100, alpha=0.05)
+    capped = br.evaluate(trades * 100, alpha=0.05, max_open=2)
+    assert capped["trades"] < full["trades"] and capped["drawdown"] <= full["drawdown"]
