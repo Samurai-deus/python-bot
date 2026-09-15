@@ -62,7 +62,7 @@ function PortfolioCard({ p, meta }: { p: ResearchPortfolio | null; meta: Researc
               <Section title="Ребалансировки">
                 {p.rebalances.map((r) => (
                   <p key={`${r.t}`} style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--text-dim)', margin: '2px 0' }}>
-                    {day(r.t)} — монет {r.coins}, ордеров {r.orders}{r.failed ? <span style={{ color: 'var(--amber)' }}>, не прошло {r.failed}</span> : ''}
+                    {day(r.t)} — монет {r.coins}, ордеров {r.orders}{r.failed ? <span style={{ color: 'var(--amber)' }}>, не прошло {r.failed}</span> : ''}{(r.runs ?? 1) > 1 ? `, прогонов ${r.runs}` : ''}
                   </p>
                 ))}
               </Section>

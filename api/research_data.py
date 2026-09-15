@@ -96,6 +96,10 @@ def read_portfolio(path: str, capital: float, now_ms: Optional[int] = None) -> O
         snaps = conn.execute("SELECT ts, equity, positions FROM snapshots ORDER BY ts").fetchall()
         rebs = conn.execute("SELECT t, done_ms, weights, orders, failed FROM rebalances ORDER BY t").fetchall()
         events = conn.execute("SELECT ts, kind, detail FROM events ORDER BY ts DESC LIMIT 10").fetchall()
+        try:  # журнал всех прогонов (15.09); в базах до него таблицы нет
+            runs = dict(conn.execute("SELECT t, COUNT(*) FROM rebalance_runs GROUP BY t").fetchall())
+        except sqlite3.OperationalError:
+            runs = {}
     finally:
         conn.close()
     started = int(state["started_at"]) if state.get("started_at") else None
@@ -122,7 +126,7 @@ def read_portfolio(path: str, capital: float, now_ms: Optional[int] = None) -> O
                       for s, v in sorted(positions.items(), key=lambda kv: -abs(kv[1]))],
         "next_rebalance": _iso(last_reb + WEEK_MS) if last_reb else None,
         "rebalances": [{"t": _iso(t), "done_at": _iso(d), "coins": len(json.loads(w)), "orders": len(json.loads(o)),
-                        "failed": len(json.loads(f))} for t, d, w, o, f in rebs],
+                        "failed": len(json.loads(f)), "runs": runs.get(t, 1)} for t, d, w, o, f in rebs],
         "events": [{"at": _iso(ts), "kind": k, "detail": d} for ts, k, d in events],
     }
 
