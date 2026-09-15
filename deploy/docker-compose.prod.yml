@@ -152,6 +152,38 @@ services:
       start_period: 120s
     logging: *logging
 
+  # Исполнитель И18 (docs/TRADER_PLAN.md): лонг BTC / шорт корзины альтов на ОТДЕЛЬНОМ демо-субсчёте —
+  # свой ключ BTCALTS_BYBIT_API_KEY/SECRET из .env (без него контейнер падает), свой том с базой и пульсом,
+  # прокси хоста для Telegram. Выкладка бота от него не зависит.
+  btcalts:
+    image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
+    container_name: market-bot-btcalts
+    restart: unless-stopped
+    command: ["python", "-m", "btcalts"]
+    env_file:
+      - /opt/market-bot/.env
+    environment:
+      BTCALTS_DIR: /btcalts
+      BTCALTS_CAPITAL_USDT: "5000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - btcalts_data:/btcalts
+    networks:
+      - egress
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    healthcheck:
+      test: ["CMD", "python", "-m", "btcalts.health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    logging: *logging
+
   # Исполнитель И13 (docs/TRADER_PLAN.md): сбор фандинга на ОТДЕЛЬНОМ демо-субсчёте Bybit — свой
   # ключ CARRY_BYBIT_API_KEY/SECRET из .env (без него контейнер падает, ключ бота не берёт), свой том
   # с базой и пульсом. Bybit доступен с сервера напрямую — прокси не нужен. Выкладка бота от него не зависит.
@@ -247,6 +279,7 @@ volumes:
   recorder_data:
   carry_data:
   portfolio_data:
+  btcalts_data:
 
 networks:
   egress: {}

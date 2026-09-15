@@ -27,8 +27,8 @@ RUN pip install -r requirements.txt
 # /recorder — тот же приём для тома записи стакана (контейнер market-bot-recorder).
 RUN groupadd -g 10001 botuser \
     && useradd -u 10001 -g botuser -d /app -s /usr/sbin/nologin botuser \
-    && mkdir -p /data/db /data/logs /data/backups /recorder /carry /portfolio \
-    && chown -R botuser:botuser /app /data /recorder /carry /portfolio
+    && mkdir -p /data/db /data/logs /data/backups /recorder /carry /portfolio /btcalts \
+    && chown -R botuser:botuser /app /data /recorder /carry /portfolio /btcalts
 
 COPY --chown=botuser:botuser . .
 
