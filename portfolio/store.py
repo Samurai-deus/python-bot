@@ -23,6 +23,11 @@ class Store:
         row = self.conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
 
+    def keys(self, prefix: str) -> list:
+        """Ключи состояния с префиксом (например, blocked:) — без префикса."""
+        rows = self.conn.execute("SELECT key FROM state WHERE key LIKE ?", (prefix + "%",)).fetchall()
+        return [r[0][len(prefix):] for r in rows]
+
     def set(self, key: str, value) -> None:
         self.conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                           (key, str(value)))

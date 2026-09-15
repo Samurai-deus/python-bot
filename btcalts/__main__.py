@@ -41,6 +41,21 @@ def start_this_week() -> bool:
     return env_flag("BTCALTS_START_THIS_WEEK", False)
 
 
+BLOCKED_CODE = "110126"      # Bybit: контракт требует подписи соглашения (токенизированные акции) — в корзину не ставим
+
+
+def blocked_symbols(store: Store) -> set:
+    return set(store.keys("blocked:"))
+
+
+def remember_blocked(store: Store, symbol: str, error: str, now: int) -> bool:
+    if BLOCKED_CODE not in error:
+        return False
+    store.set(f"blocked:{symbol}", now)
+    store.event(now, "blocked", f"{symbol}: {error[:120]}")
+    return True
+
+
 def notify(text: str) -> None:
     try:
         import asyncio
@@ -78,7 +93,8 @@ def ready_to_start(cli, store: Store, now: int) -> bool:
 
 def rebalance(cli, store: Store, t: int, now: int) -> None:
     ages = cli.launch_ages_d()
-    candidates = cli.continuation_candidates(ages)
+    blocked = blocked_symbols(store)
+    candidates = [s for s in cli.continuation_candidates(ages) if s not in blocked]
     data = cli.market_data(sorted(set(candidates) | {engine.BTC}), t, ages)
     weights = engine.weights(data, candidates)
     cap = capital()
@@ -95,7 +111,11 @@ def rebalance(cli, store: Store, t: int, now: int) -> None:
             cli.place_order(o.symbol, o.side, o.qty, reduce_only=o.reduce_only)
             done.append([o.symbol, o.side, str(o.qty)])
         except Exception as exc:
-            failed.append([o.symbol, o.side, str(o.qty), f"{type(exc).__name__}: {exc}"[:160]])
+            err = f"{type(exc).__name__}: {exc}"[:160]
+            if remember_blocked(store, o.symbol, err, now):
+                weights.pop(o.symbol, None)      # контракт вне корзины — цель по нему снята, повтора не будет
+                continue
+            failed.append([o.symbol, o.side, str(o.qty), err])
     store.rebalance(t, now, weights, done, failed)
     if not failed:
         store.set("last_rebalance_t", t)
