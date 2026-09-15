@@ -1,0 +1,9 @@
+{
+  "state": "IDLE",
+  "duration_in_state": 5400.0,
+  "consecutive_errors": 0,
+  "trading_paused": true,
+  "balance_usdt": 149886.3,
+  "timestamp": "2026-09-15T11:32:02.371058+00:00",
+  "trading_mode": "TESTNET"
+}

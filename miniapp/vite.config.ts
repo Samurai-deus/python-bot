@@ -7,6 +7,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // `npm run dev:mock` (--mode mock): экраны из фикстур src/api/fixtures без API и Telegram (src/api/mock.ts).
+    // Флаг задаётся здесь, а не в .env.mock: .env.* в .gitignore. В production-сборке mock.ts его не читает.
+    define: { 'import.meta.env.VITE_MOCK': JSON.stringify(mode === 'mock' ? '1' : '') },
     server: {
       proxy: {
         '/api': {
