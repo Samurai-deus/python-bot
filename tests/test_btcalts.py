@@ -105,3 +105,22 @@ def test_calendar_notifies_on_the_day_and_three_days_before_once():
     r = calendar.due(day("2026-12-11") + 9 * 3_600_000, sent.__contains__)
     assert any(k == "remind:2026-12-14" and "Через 3 дня" in txt for k, txt in r)
     assert pe.monday_of(day("2026-09-21")) == day("2026-09-21")
+
+
+def test_start_this_week_flag_rebalances_once_with_this_mondays_signals(env, monkeypatch):
+    store, sent = env
+    monkeypatch.setenv("BTCALTS_START_THIS_WEEK", "true")
+    cli = FakeBtcAlts(MONDAY, usdt=20_000.0)
+    bm.cycle(cli, store, MONDAY + DAY + 7 * 3_600_000)          # вторник 07:00 — окно понедельника закрыто
+    assert cli.qty.get("BTCUSDT", 0.0) > 0 and sum(1 for q in cli.qty.values() if q < 0) == 30
+    assert store.has_rebalance(MONDAY) and any("ребалансировка" in s for s in sent)
+    def rebalances():
+        return store.conn.execute("SELECT COUNT(*) FROM events WHERE kind = 'rebalance'").fetchone()[0]
+    assert rebalances() == 1
+    bm.cycle(cli, store, MONDAY + DAY + 9 * 3_600_000)
+    assert rebalances() == 1, "догоняющая — один раз (считаем события, не ордера: позиции уже у цели)"
+    monkeypatch.delenv("BTCALTS_START_THIS_WEEK")
+    store2 = Store(str(store.conn.execute("PRAGMA database_list").fetchone()[2]).replace("btcalts.db", "b2.db"))
+    cli2 = FakeBtcAlts(MONDAY, usdt=20_000.0)
+    bm.cycle(cli2, store2, MONDAY + DAY + 7 * 3_600_000)
+    assert cli2.orders == [], "без флага — ждём понедельника"
