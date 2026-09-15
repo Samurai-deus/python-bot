@@ -124,3 +124,25 @@ def test_start_this_week_flag_rebalances_once_with_this_mondays_signals(env, mon
     cli2 = FakeBtcAlts(MONDAY, usdt=20_000.0)
     bm.cycle(cli2, store2, MONDAY + DAY + 7 * 3_600_000)
     assert cli2.orders == [], "без флага — ждём понедельника"
+
+
+def test_contract_requiring_agreement_is_blocked_and_replaced_next_time(env):
+    """Bybit 110126 (токенизированная акция в top30, 15.09: SKHYNIX): контракт запоминается, цель по нему снимается,
+    ребалансировка считается сделанной, в следующий раз он не кандидат — корзина берёт следующий по обороту."""
+    store, sent = env
+    cli = FakeBtcAlts(MONDAY, usdt=20_000.0)
+    cli.fail_symbols = {"A34USDT"}
+    orig = cli.place_order
+
+    def place(symbol, side, qty, reduce_only=False, **kw):
+        if symbol in cli.fail_symbols:
+            raise RuntimeError("Bybit API error 110126 on /v5/order/create: You must sign the required agreement before trading this contract.")
+        return orig(symbol, side, qty, reduce_only=reduce_only, **kw)
+    cli.place_order = place
+    bm.cycle(cli, store, MONDAY - 3 * DAY)
+    bm.cycle(cli, store, MONDAY + 3 * 60_000)
+    assert store.keys("blocked:") == ["A34USDT"] and store.get("last_rebalance_t") == str(MONDAY), "не «не прошло», а исключён"
+    assert not any("НЕ ПРОШЛО" in s for s in sent)
+    bm.cycle(cli, store, MONDAY + 7 * DAY + 3 * 60_000)
+    shorts = {s for s, q in cli.qty.items() if q < 0}
+    assert "A34USDT" not in shorts and "A04USDT" in shorts and len(shorts) == 30, "заблокированный вне корзины, взят следующий по обороту"

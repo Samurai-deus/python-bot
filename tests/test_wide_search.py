@@ -40,6 +40,7 @@ def test_grid_has_70_variants_by_family():
 
 def test_non_crypto_contracts_are_excluded():
     assert not ws.is_crypto("XAUUSDT") and not ws.is_crypto("TSLAUSDT") and not ws.is_crypto("SOXLUSDT")
+    assert not ws.is_crypto("SKHYNIXUSDT") and not ws.is_crypto("TSMCUSDT"), "токенизированные акции (Bybit 110126)"
     assert not ws.is_crypto("USDCUSDT") and not ws.is_crypto("PAXGUSDT") and not ws.is_crypto("ETHBTCUSDT"), "стейблы, золото, кросс-курс"
     assert ws.is_crypto("1000PEPEUSDT") and ws.is_crypto("BTCUSDT") and ws.is_crypto("SHIB1000USDT")
     assert ws.is_crypto("SPXUSDT") and ws.is_crypto("STRKUSDT"), "SPX6900 и Starknet — крипта, не индекс и не акция"

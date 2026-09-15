@@ -56,6 +56,7 @@ NON_CRYPTO_BASES = frozenset({
     "SMCI", "ARM", "MU", "QCOM", "IBM", "CSCO", "ADBE", "CRM", "PYPL", "UBER", "ABNB", "SHOP", "SNOW", "RIOT",
     "MARA", "CLSK", "HUT", "BITF", "IREN", "CIFR", "WULF", "BTBT", "SBET", "BMNR", "DFDV", "UPXI", "NAKA", "STRC",
     "STRF", "STRD", "TSLL", "NVDL", "GGLL", "GOLD", "SILVER", "OIL",
+    "SKHYNIX", "TSMC", "TENCENT", "ALIBABA", "XIAOMI", "BYD", "SONY", "TOYOTA", "HYUNDAI", "NINTENDO", "SOFTBANK",
     "USDC", "USDE", "USD1", "PAXG", "XAUT", "ETHBTC",
 })
 
