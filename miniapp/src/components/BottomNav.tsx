@@ -1,70 +1,18 @@
+import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 
+const icon = (children: ReactNode) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
+    {children}
+  </svg>
+)
+
 const tabs = [
-  {
-    path: '/',
-    label: 'Dashboard',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <rect x="3" y="3" width="7" height="7" rx="1.5" />
-        <rect x="14" y="3" width="7" height="7" rx="1.5" />
-        <rect x="3" y="14" width="7" height="7" rx="1.5" />
-        <rect x="14" y="14" width="7" height="7" rx="1.5" />
-      </svg>
-    ),
-  },
-  {
-    path: '/positions',
-    label: 'Positions',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-        <polyline points="16 7 22 7 22 13" />
-      </svg>
-    ),
-  },
-  {
-    path: '/signals',
-    label: 'Signals',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-      </svg>
-    ),
-  },
-  {
-    path: '/analytics',
-    label: 'Analytics',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <line x1="18" y1="20" x2="18" y2="10" />
-        <line x1="12" y1="20" x2="12" y2="4" />
-        <line x1="6" y1="20" x2="6" y2="14" />
-        <line x1="2" y1="20" x2="22" y2="20" />
-      </svg>
-    ),
-  },
-  {
-    path: '/research',
-    label: 'Plan',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
-        <rect x="9" y="3" width="6" height="4" rx="1" />
-        <path d="M9 12h6M9 16h4" />
-      </svg>
-    ),
-  },
-  {
-    path: '/settings',
-    label: 'System',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14M12 2v2M12 20v2M2 12h2M20 12h2" />
-      </svg>
-    ),
-  },
+  { path: '/', label: 'Обзор', icon: icon(<><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>) },
+  { path: '/portfolios', label: 'Портфели', icon: icon(<><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></>) },
+  { path: '/data', label: 'Данные', icon: icon(<><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></>) },
+  { path: '/calendar', label: 'Календарь', icon: icon(<><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4M8 13h3M13 13h3M8 17h3" /></>) },
+  { path: '/system', label: 'Система', icon: icon(<><circle cx="12" cy="12" r="3" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14M12 2v2M12 20v2M2 12h2M20 12h2" /></>) },
 ]
 
 export function BottomNav() {
@@ -86,36 +34,13 @@ export function BottomNav() {
             {({ isActive }) => (
               <div
                 className="flex flex-col items-center py-2.5 gap-1 relative transition-all duration-200"
-                style={{
-                  color: isActive ? 'var(--cyan)' : 'var(--text-dim)',
-                  filter: isActive ? 'drop-shadow(0 0 5px rgba(0,212,255,0.7))' : 'none',
-                }}
+                style={{ color: isActive ? 'var(--cyan)' : 'var(--text-dim)', filter: isActive ? 'drop-shadow(0 0 5px rgba(0,212,255,0.7))' : 'none' }}
               >
-                {/* Active indicator bar at top */}
                 {isActive && (
-                  <span
-                    className="absolute top-0"
-                    style={{
-                      left: '25%',
-                      right: '25%',
-                      height: 2,
-                      borderRadius: 1,
-                      background: 'var(--cyan)',
-                      boxShadow: '0 0 8px var(--cyan), 0 0 16px rgba(0,212,255,0.4)',
-                    }}
-                  />
+                  <span className="absolute top-0" style={{ left: '25%', right: '25%', height: 2, borderRadius: 1, background: 'var(--cyan)', boxShadow: '0 0 8px var(--cyan), 0 0 16px rgba(0,212,255,0.4)' }} />
                 )}
                 {tab.icon}
-                <span
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 600,
-                    letterSpacing: '0.12em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {tab.label}
-                </span>
+                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{tab.label}</span>
               </div>
             )}
           </NavLink>

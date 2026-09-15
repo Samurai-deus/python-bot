@@ -45,11 +45,35 @@ PROGRAM: Dict[str, Any] = {
     "news": {"title": "И10 / И10б — новости с оценкой ИИ, с названием монеты и без (только вперёд)",
              "first_check": "2026-12-06",
              "budget_usd": 0.3, "signal": "новизна, сила ≥ 2, уверенность ≥ 0,6, направление; ≥ 100 сигналов"},
-    "watch": {"title": "Наблюдение вперёд на бумаге: И4 (тренд, N = 30) и И3 (моментум, L = 28)",
+    "btcalts": {
+        "title": "И18 — «альты истекают к BTC»: лонг BTC 50 % / шорт 30 ликвидных альтов 50 %",
+        "risk": "капитал 5 000 USDT, плечо 5×, отдельный демо-субсчёт; на истории +0,36 %/нед, Sharpe 0,84 (подсмотрено — не доказано)",
+        "start": "2026-09-15", "end": "2027-03-16", "verdict": "2027-03-16",
+        "rebalance": "понедельник 00:02 UTC",
+        "criteria": [
+            "26 недель (16.03.2027): средняя ≥ +0,15 %/нед, нижняя граница ≥ −0,10 %, просадка ≤ 15 % — по бумаге",
+            "52 недели (14.09.2027): нижняя граница интервала выше 0",
+            "исполнение не хуже бумаги минус 1,5 % капитала (12 недель, 14.12)",
+            "стоп по правилу не сработал (просадка > 25 % капитала)",
+        ],
+        "notes": ["первая неделя (15–21.09) — догоняющая, вне критерия честности исполнения"],
+    },
+    "watch": {"title": "Наблюдение вперёд на бумаге: И4 (тренд), И3 (моментум), И17а (продолжение), И18 (BTC против альтов)",
               "start": "2026-09-14", "first_check": "2026-12-14", "every_weeks": 13,
               "stop": "средняя < −2 SE или просадка > 15 % (И4) / > 25 % (И3); через 26 недель без остановки и средняя ≥ 0 → демо",
-              "note": "сигналы те же, что у И14; наблюдение судит, есть ли эффект, И14 — доходит ли он до счёта"},
+              "note": "сигналы те же, что у исполнителей; наблюдение судит, есть ли эффект, демо — доходит ли он до счёта"},
 }
+
+
+def calendar_items(now_ms: int) -> List[Dict[str, Any]]:
+    """Контрольные даты плана (portfolio/calendar.py) с числом дней до события (отрицательное — прошло)."""
+    from portfolio.calendar import CHECKPOINTS
+    today = datetime.fromtimestamp(now_ms / 1000, UTC).date()
+    out = []
+    for day, text in CHECKPOINTS:
+        d = datetime.strptime(day, "%Y-%m-%d").date()
+        out.append({"date": day, "text": text, "days_left": (d - today).days})
+    return out
 
 
 def _ro(path: str) -> Optional[sqlite3.Connection]:
@@ -214,6 +238,9 @@ def overview(now: Optional[float] = None) -> Dict[str, Any]:
         "generated_at": datetime.fromtimestamp(now, UTC).isoformat(),
         "program": PROGRAM,
         "portfolio": read_portfolio(os.environ.get("RESEARCH_PORTFOLIO_DB", "/portfolio/portfolio.db"), capital, now_ms),
+        "btcalts": read_portfolio(os.environ.get("RESEARCH_BTCALTS_DB", "/btcalts/btcalts.db"),
+                                  float(os.environ.get("BTCALTS_CAPITAL_USDT", "5000")), now_ms),
+        "calendar": calendar_items(now_ms),
         "carry": read_carry(os.environ.get("RESEARCH_CARRY_DB", "/carry/carry.db"), now_ms),
         "recorder": read_recorder(os.environ.get("RESEARCH_RECORDER_DIR", "/recorder"), now_ms),
         "news": read_news(datetime.fromtimestamp(now, UTC).strftime("%Y-%m-%d")),

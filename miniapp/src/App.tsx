@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { onAuthExpired } from './api/client'
 import { ErrorBanner } from './components/ErrorBanner'
@@ -6,14 +6,11 @@ import { useSystemStore } from './store/useSystemStore'
 import { BottomNav } from './components/BottomNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useWebSocket } from './hooks/useWebSocket'
-import { Dashboard } from './screens/Dashboard/Dashboard'
-import { Positions } from './screens/Positions/Positions'
-import { Signals } from './screens/Signals/Signals'
-import { LoadingSpinner } from './components/LoadingSpinner'
-// Аналитика тянет lightweight-charts — отдельным чанком, только когда экран открыт.
-const Analytics = lazy(() => import('./screens/Analytics/Analytics').then((m) => ({ default: m.Analytics })))
-import { Settings } from './screens/Settings/Settings'
-import { Research } from './screens/Research/Research'
+import { Overview } from './screens/Overview/Overview'
+import { Portfolios } from './screens/Portfolios/Portfolios'
+import { Data } from './screens/Data/Data'
+import { Calendar } from './screens/Calendar/Calendar'
+import { System } from './screens/System/System'
 
 function WsInit() {
   useWebSocket()
@@ -27,6 +24,11 @@ function AuthWatch() {
   return null
 }
 
+/**
+ * Экраны мини-аппа — по исследовательской программе (docs/TRADER_PLAN.md): обзор, портфели
+ * трёх исполнителей, данные и наблюдения, календарь проверок, система. Экраны сигнальной
+ * торговли бота убраны: она выключена по правилу И14 с 14.09.2026.
+ */
 export function App() {
   const authExpired = useSystemStore((s) => s.authExpired)
   return (
@@ -41,12 +43,11 @@ export function App() {
       {/* Нижняя навигация на iPhone выше на safe-area-inset-bottom — контент не должен под неё уходить. */}
       <div style={{ paddingBottom: 'calc(64px + env(safe-area-inset-bottom))' }}>
         <Routes>
-          <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
-          <Route path="/positions" element={<ErrorBoundary><Positions /></ErrorBoundary>} />
-          <Route path="/signals" element={<ErrorBoundary><Signals /></ErrorBoundary>} />
-          <Route path="/analytics" element={<ErrorBoundary><Suspense fallback={<LoadingSpinner />}><Analytics /></Suspense></ErrorBoundary>} />
-          <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
-          <Route path="/research" element={<ErrorBoundary><Research /></ErrorBoundary>} />
+          <Route path="/" element={<ErrorBoundary><Overview /></ErrorBoundary>} />
+          <Route path="/portfolios" element={<ErrorBoundary><Portfolios /></ErrorBoundary>} />
+          <Route path="/data" element={<ErrorBoundary><Data /></ErrorBoundary>} />
+          <Route path="/calendar" element={<ErrorBoundary><Calendar /></ErrorBoundary>} />
+          <Route path="/system" element={<ErrorBoundary><System /></ErrorBoundary>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

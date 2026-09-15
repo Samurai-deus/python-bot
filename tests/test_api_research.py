@@ -32,6 +32,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("RESEARCH_CARRY_DB", str(tmp_path / "carry.db"))
     monkeypatch.setenv("RESEARCH_RECORDER_DIR", str(tmp_path / "recorder"))
     monkeypatch.setenv("PORTFOLIO_CAPITAL_USDT", "1000")
+    monkeypatch.setenv("RESEARCH_BTCALTS_DB", str(tmp_path / "btcalts.db"))
+    monkeypatch.setenv("BTCALTS_CAPITAL_USDT", "5000")
     yield tmp_path
     conn = getattr(database._thread_local, "conn", None)
     if conn is not None:
@@ -139,3 +141,16 @@ def test_overview_endpoint_requires_auth_and_returns_all_blocks(env):
     body = r.json()
     assert body["portfolio"]["status"] == "running" and body["carry"] is None and body["recorder"] is None
     assert body["news"]["items"] == 0 and body["program"]["portfolio"]["verdict"] == "2026-12-14"
+
+
+def test_btcalts_and_calendar_in_overview(env):
+    """И18 читается той же схемой, что И14 (капитал 5 000); календарь — даты плана с днями до события."""
+    fill_portfolio(env / "btcalts.db")
+    o = rd.overview(NOW / 1000)
+    assert o["btcalts"]["capital"] == 5000.0 and o["btcalts"]["status"] == "running" and len(o["btcalts"]["positions"]) == 2
+    assert o["portfolio"] is None, "база И14 в этом тесте не создана — null, не 500"
+    cal = o["calendar"]
+    assert [c["date"] for c in cal][:2] == ["2026-09-21", "2026-10-11"] and all("text" in c for c in cal)
+    first = next(c for c in cal if c["date"] == "2026-09-21")
+    assert first["days_left"] == (__import__("datetime").date(2026, 9, 21) - __import__("datetime").datetime.fromtimestamp(NOW / 1000, __import__("datetime").UTC).date()).days
+    assert o["program"]["btcalts"]["verdict"] == "2027-03-16"
