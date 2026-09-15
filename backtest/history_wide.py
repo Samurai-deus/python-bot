@@ -16,7 +16,7 @@ import time
 from typing import Dict, List, Optional
 
 from backtest import history
-from backtest.wide_search import is_crypto
+from backtest.wide_search import is_crypto, is_crypto_instrument
 
 DAY_MS = 86_400_000
 START_MS = 1_577_836_800_000          # 01.01.2020 — раньше linear USDT perp на Bybit не было
@@ -55,11 +55,11 @@ def turnover24h(api: history.BybitHistory) -> Dict[str, float]:
 
 
 def perps(items: List[Dict], now_ms: int, min_age_days: int) -> List[Dict]:
-    """USDT-perp, торгуется, запущен не позже min_age_days назад; не-крипта (по именам) отбрасывается."""
+    """USDT-perp, торгуется, запущен не позже min_age_days назад; не-крипта (признак биржи и имена) отбрасывается."""
     return [i for i in items
             if i.get("quoteCoin") == "USDT" and i.get("contractType") == "LinearPerpetual" and i.get("status") == "Trading"
             and int(i.get("launchTime") or 0) and now_ms - int(i["launchTime"]) >= min_age_days * DAY_MS
-            and is_crypto(i["symbol"])]
+            and is_crypto_instrument(i)]
 
 
 def save_instruments(conn, items: List[Dict], turnover: Dict[str, float], now_ms: int) -> None:

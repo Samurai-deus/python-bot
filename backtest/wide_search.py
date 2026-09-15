@@ -72,6 +72,19 @@ def is_crypto(symbol: str) -> bool:
     return base_of(symbol) not in NON_CRYPTO_BASES
 
 
+# Признак биржи (15.09.2026, техдолг п. 7): в instruments-info у токенизированных акций / ETF / сырья / валют
+# symbolType = stock / ETF / commodity / forex и marketRegion (US, HK, KR, CN); у крипты symbolType пуст, у «зоны
+# инноваций» — innovation (тоже крипта). На 15.09 в top-60 по обороту сидели SKHY, SPCX (акции), BZ (сырьё), SNXX
+# (ETF), которых в списке имён не было. Имена остаются второй сеткой: кэш бэктестов этого поля не хранит.
+CRYPTO_TYPES = frozenset({"", "innovation"})
+
+
+def is_crypto_instrument(item: dict) -> bool:
+    """Крипто-контракт по полям instruments-info и по имени; неизвестный новый тип — не крипта (безопаснее: ордер бы упал)."""
+    return (str(item.get("symbolType") or "") in CRYPTO_TYPES and not item.get("marketRegion")
+            and is_crypto(item["symbol"]))
+
+
 @dataclass
 class Series:
     close: Dict[int, float] = field(default_factory=dict)     # день (t // DAY_MS) → закрытие последнего 4h-бара дня
