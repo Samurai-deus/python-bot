@@ -17,7 +17,7 @@ from typing import List
 
 import config
 from backtest import trend_ts as tt
-from portfolio import engine
+from portfolio import calendar, engine
 from portfolio.client import PortfolioClient
 from portfolio.store import Store
 
@@ -129,6 +129,9 @@ def cycle(cli, store: Store, now: int) -> None:
                 rebalance(cli, store, t, now)
     store.add_funding(cli.settlements(now - SYNC_BACK_MS))
     store.snapshot(now, cli.usdt_equity(), cli.positions_usdt())
+    for key, text in calendar.due(now, lambda k: store.get(f"notice:{k}") is not None):  # контрольные даты программы
+        notify(text)
+        store.set(f"notice:{key}", now)
     (root_dir() / "heartbeat").write_text(f"{now / 1000:.0f}\n", encoding="utf-8")
 
 

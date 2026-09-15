@@ -236,3 +236,21 @@ def test_health_by_heartbeat_age(tmp_path):
     assert not health.check(hb, 1000.0)
     hb.write_text("1000\n", encoding="utf-8")
     assert health.check(hb, 1000.0 + health.MAX_AGE) and not health.check(hb, 1001.0 + health.MAX_AGE)
+
+
+def test_weekly_summary_is_sent_once_on_monday(tmp_path):
+    """Сводка И13 владельцу — понедельник 01:00–02:00 UTC, один раз в неделю; текст — стоимость, фандинг, хедж."""
+    from carry import __main__ as cm
+    from carry.store import Store
+    from portfolio import engine as pe
+    monday = pe.monday_of(1_789_400_000_000)
+    store = Store(str(tmp_path / "carry.db"))
+    store.set("start_equity", 40_000.0)
+    store.add_funding([{"id": "f1", "symbol": "BTCUSDT", "change": "3.5", "transactionTime": str(monday)}])
+    assert not cm.weekly_summary_due(monday + 30 * 60_000, store), "00:30 — рано"
+    assert cm.weekly_summary_due(monday + 90 * 60_000, store)
+    text = cm.weekly_summary(store, 40_010.0, {"BTCUSDT": 0.004, "ETHUSDT": -0.01}, monday + 90 * 60_000)
+    assert "+10.00 USDT" in text and "+3.50 USDT" in text and "BTC +0.4 %" in text and "ETH -1.0 %" in text
+    store.set(f"weekly:{monday}", monday + 90 * 60_000)
+    assert not cm.weekly_summary_due(monday + 100 * 60_000, store), "уже отправлена"
+    assert cm.weekly_summary_due(monday + 7 * 86_400_000 + 90 * 60_000, store), "следующая неделя — снова"

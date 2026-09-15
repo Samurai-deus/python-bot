@@ -19,6 +19,7 @@ from typing import Dict, List
 from carry import engine
 from carry.client import CarryClient, keys_from_env
 from carry.store import Store
+from portfolio import engine as pe
 
 CYCLE_SEC = 3600
 SYNC_BACK_MS = 48 * 3600 * 1000
@@ -46,6 +47,32 @@ def carry_dir() -> Path:
 
 def base(symbol: str) -> str:
     return symbol[:-4]
+
+
+def notify(text: str) -> None:
+    try:
+        import asyncio
+        from telegram_bot import send_message_async
+        asyncio.run(send_message_async(text, parse_mode=None))
+    except Exception:
+        logger.warning("И13: сообщение владельцу не отправлено", exc_info=True)
+
+
+def weekly_summary_due(now: int, store: Store) -> bool:
+    """Понедельник 01:00–02:00 UTC и сводка за эту неделю ещё не отправлена."""
+    monday = pe.monday_of(now)
+    hour = (now - monday) // 3_600_000
+    return hour == 1 and store.get(f"weekly:{monday}") is None
+
+
+def weekly_summary(store: Store, equity: float, deviations: Dict[str, float], now: int) -> str:
+    start = store.get("start_equity")
+    start_eq = float(start) if start else equity
+    funding = store.conn.execute("SELECT COALESCE(SUM(change), 0) FROM funding").fetchone()[0]
+    dev = ", ".join(f"{base(s)} {100 * d:+.1f} %" for s, d in deviations.items()) or "—"
+    return (f"📊 И13 неделя: стоимость {equity:.2f} против старта {start_eq:.2f} ({equity - start_eq:+.2f} USDT); "
+            f"фандинг всего {float(funding):+.2f} USDT; отклонение хеджа: {dev}"
+            + ("; ОСТАНОВЛЕН: " + store.get("halted") if store.get("halted") else ""))
 
 
 def ensure_usdt(cli, store: Store, need: float, now: int) -> None:
@@ -147,6 +174,9 @@ def cycle(cli, store: Store, now: int) -> None:
     bal = cli.coin_balances()
     positions = {s: {"spot": bal.get(base(s), 0.0), "short": cli.short_qty(s), "price": cli.spot_price(s)} for s in syms}
     store.snapshot(now, equity, cli.account_mm_rate(), deviations, positions)
+    if weekly_summary_due(now, store):
+        notify(weekly_summary(store, equity, deviations, now))
+        store.set(f"weekly:{pe.monday_of(now)}", now)
     (carry_dir() / "heartbeat").write_text(f"{now / 1000:.0f}\n", encoding="utf-8")
 
 

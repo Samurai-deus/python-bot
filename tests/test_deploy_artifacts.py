@@ -84,7 +84,7 @@ def test_prod_compose_does_not_take_occupied_host_port():
 
 def test_prod_compose_routes_telegram_via_host_gateway():
     compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
-    assert compose.count("host.docker.internal:host-gateway") == 4, "боту, API, сборщику новостей и портфелю нужен выход к прокси"
+    assert compose.count("host.docker.internal:host-gateway") == 5, "боту, API, сборщику новостей, портфелю и И18 нужен выход к прокси"
 
 
 # ---------------------------------------------------------------------------
@@ -548,3 +548,20 @@ def test_api_reads_executor_volumes_read_only():
     assert "RESEARCH_PORTFOLIO_DB: /portfolio/portfolio.db" in api and "RESEARCH_CARRY_DB: /carry/carry.db" in api
     assert (ROOT / "api" / "routers" / "research.py").is_file()
     assert "research.router" in (ROOT / "api" / "main.py").read_text(encoding="utf-8")
+
+
+def test_prod_compose_runs_the_btcalts_executor_on_its_own_subaccount():
+    """И18: свой ключ из .env, свой том, прокси для Telegram; smoke и watchdog смотрят, релиз не ждёт."""
+    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    block = compose.split("  btcalts:\n", 1)[1].split("\n  # Исполнитель И13", 1)[0]
+    assert '["python", "-m", "btcalts"]' in block and '"btcalts.health"' in block and "market-bot-btcalts" in block
+    assert "/opt/market-bot/.env" in block and "btcalts_data:/btcalts" in block and "host-gateway" in block
+    assert 'BTCALTS_CAPITAL_USDT: "5000"' in block
+    assert "  btcalts_data:" in compose.split("\nvolumes:\n", 1)[1]
+    assert (ROOT / "btcalts" / "__main__.py").is_file() and (ROOT / "btcalts" / "health.py").is_file()
+    assert "/portfolio /btcalts" in read("Dockerfile")
+    deploy = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
+    assert 'CONTAINERS="market-bot market-bot-api market-bot-redis"' in deploy
+    assert "market-bot-btcalts" in step_body(deploy, "step_smoke")
+    watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
+    assert "market-bot-btcalts" in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]

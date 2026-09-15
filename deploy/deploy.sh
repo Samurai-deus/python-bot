@@ -483,6 +483,16 @@ step_smoke() {
   done
   if [ "$pf" = healthy ]; then echo "  ok  портфель (И14): healthy"; else echo "  ОШИБКА портфель (И14): $pf"; fail=1; fi
 
+  # Исполнитель И18 (market-bot-btcalts): пульс каждый часовой цикл; первый — сразу после старта.
+  i=0
+  ba=""
+  while [ $i -lt 18 ]; do
+    ba=$(docker inspect -f '{{.State.Health.Status}}' market-bot-btcalts 2>/dev/null || echo missing)
+    [ "$ba" = healthy ] && break
+    i=$((i + 1)); sleep 10
+  done
+  if [ "$ba" = healthy ]; then echo "  ok  BTC против альтов (И18): healthy"; else echo "  ОШИБКА BTC против альтов (И18): $ba"; fail=1; fi
+
   # Ожидаемый режим записывает шаг mode (demo → TESTNET); без файла — бумажная торговля
   expected=$(cat "$APP/trading_mode.expected" 2>/dev/null || echo PAPER_TRADING)
   mode=$(docker exec market-bot python -c "from trading_mode import get_trading_mode; print(get_trading_mode().value)" 2>/dev/null || echo "?")
