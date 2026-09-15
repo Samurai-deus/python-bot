@@ -25,7 +25,7 @@
 ## Мини-апп
 
 - После v2 остались неиспользуемые части: зависимость `lightweight-charts`, `fetchMonthlyTarget`/`fetchAnalytics*` в `api/endpoints.ts`, роутеры `analytics`/`positions`/`signals` в API (фронт их не зовёт). Долг: убрать или пометить как «для Telegram-бота».
-- Экраны проверены сборкой, типами и lint; глазами — только из Telegram (авторизация initData). Долг: тестовый режим с `DISABLE_AUTH` для просмотра в браузере на стенде.
+- ~~Экраны глазами — только из Telegram~~ — 15.09: `npm run dev:mock` (vite --mode mock → `VITE_MOCK=1` из vite.config, только dev-сервер) — экраны из фикстур `src/api/fixtures` (живой снимок API); форму фикстуры сверяет `test_miniapp_fixture_has_the_shape_of_the_api_response`. Обхода авторизации на проде нет.
 
 ## Данные
 

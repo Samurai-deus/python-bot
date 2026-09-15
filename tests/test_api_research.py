@@ -3,6 +3,7 @@
 чтение), журнала записи и базы бота; отсутствующая база — null, а не 500; авторизация та же.
 """
 import json
+import pathlib
 import sqlite3
 
 import pytest
@@ -16,6 +17,7 @@ from portfolio.store import Store as PortfolioStore
 from tests.test_api_auth import BOT_TOKEN, OWNER, make_init_data
 
 NOW = 1_789_400_000_000
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture
@@ -154,6 +156,45 @@ def test_btcalts_and_calendar_in_overview(env):
     first = next(c for c in cal if c["date"] == "2026-09-21")
     assert first["days_left"] == (__import__("datetime").date(2026, 9, 21) - __import__("datetime").datetime.fromtimestamp(NOW / 1000, __import__("datetime").UTC).date()).days
     assert o["program"]["btcalts"]["verdict"] == "2027-03-16"
+
+
+def _shape(x):
+    """Форма JSON: у словаря — ключи с формами, у списка — форма первого элемента (пустой — None, подходит к любой)."""
+    if isinstance(x, dict):
+        if not x:
+            return None
+        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in x.values()):
+            return "#"  # счётчики с динамическими ключами (recorder.events, news.fresh, news.blind)
+        return {k: _shape(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_shape(x[0])] if x else None
+    return "·"
+
+
+def _diff(a, b, path=""):
+    if a is None or b is None or a == "·" or b == "·":
+        return []
+    if a == "#" or b == "#":
+        return [] if a == b else [path]
+    if isinstance(a, list) and isinstance(b, list):
+        return _diff(a[0], b[0], path + "[]")
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = [f"{path}.{k}" for k in set(a) ^ set(b)]
+        for k in set(a) & set(b):
+            out += _diff(a[k], b[k], f"{path}.{k}")
+        return out
+    return [path]
+
+
+def test_miniapp_fixture_has_the_shape_of_the_api_response(env):
+    """Фикстура режима `npm run dev:mock` (техдолг п. 8) — те же ключи, что живой ответ; иначе экраны в браузере врут."""
+    fill_portfolio(env / "portfolio.db")
+    fill_portfolio(env / "btcalts.db")
+    fill_carry(env / "carry.db")
+    fill_recorder(env / "recorder")
+    live = rd.overview(NOW / 1000)
+    fixture = json.loads((ROOT / "miniapp" / "src" / "api" / "fixtures" / "overview.json").read_text(encoding="utf-8"))
+    assert _diff(_shape(fixture), _shape(live)) == []
 
 
 def test_reruns_are_counted_from_the_run_log(env):
