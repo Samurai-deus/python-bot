@@ -43,3 +43,28 @@ def test_tests_cannot_reach_external_hosts():
     import httpx
     with pytest.raises(RuntimeError, match="внешнюю сеть"):
         httpx.get("https://api.bybit.com/v5/market/time", timeout=1)
+
+
+def test_program_dates_are_in_the_plan():
+    """PROGRAM в api/research_data.py повторяет сроки плана вручную — каждая дата обязана быть в плане."""
+    import re
+    from api.research_data import PROGRAM
+    plan = (ROOT / "docs" / "TRADER_PLAN.md").read_text(encoding="utf-8")
+    dates = set()
+    for meta in PROGRAM.values():
+        for k, v in meta.items():
+            if isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+                dates.add(v)
+    missing = sorted(d for d in dates if f"{d[8:10]}.{d[5:7]}" not in plan)
+    assert missing == [], f"дат PROGRAM нет в плане: {missing}"
+
+
+def test_notification_section_dates_are_in_the_calendar():
+    """Обратная проверка: даты из раздела «Уведомления владельцу» плана есть в календаре."""
+    import re
+    plan = (ROOT / "docs" / "TRADER_PLAN.md").read_text(encoding="utf-8")
+    section = plan.split("## Уведомления владельцу", 1)[1].split("\n## ", 1)[0]
+    listed = set(re.findall(r"\b(\d{2})\.(\d{2})(?:\.(\d{4}))?\b", section.split("**Контрольные даты**", 1)[1].split("\n", 1)[0]))
+    cal = {(d[8:10], d[5:7]) for d, _ in calendar.CHECKPOINTS}
+    missing = sorted(f"{dd}.{mm}" for dd, mm, _ in listed if (dd, mm) not in cal)
+    assert missing == [], f"в разделе «Уведомления» есть даты вне календаря: {missing}"

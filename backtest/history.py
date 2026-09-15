@@ -149,14 +149,21 @@ def sync_candles(conn, api: BybitHistory, symbol: str, timeframe: str, start_ms:
     return added + _page_candles(conn, api, symbol, timeframe, max(start_ms, have + step), end_ms)
 
 
-def sync_funding(conn, api: BybitHistory, symbol: str, start_ms: int, end_ms: int) -> int:
+def sync_funding(conn, api: BybitHistory, symbol: str, start_ms: int, end_ms: int,
+                 tail_days: Optional[int] = None) -> int:
     """
     Ставки фандинга [start_ms, end_ms]: листаем назад от конца по полученным записям.
     Биржа отдаёт последние ≤200 записей до endTime, а интервал выплат у монеты бывает 8, 4
-    и 1 ч и меняется со временем — окно фиксированной длины теряло записи. Период берётся
-    целиком каждый раз (запросов мало), так заполняются и старые дыры. Возвращает число новых.
+    и 1 ч и меняется со временем — окно фиксированной длины теряло записи. По умолчанию период
+    берётся целиком (закрываются старые дыры); tail_days — при повторе докачивать только хвост
+    от последней записи кэша минус tail_days (на 400 контрактах полный перечит — 45 минут).
+    Возвращает число новых.
     """
     before = conn.total_changes
+    if tail_days:
+        cached = _latest(conn, "SELECT MAX(ts) FROM funding WHERE symbol = ?", (symbol,))
+        if cached is not None:
+            start_ms = max(start_ms, cached - tail_days * 86_400_000)
     cursor_end = end_ms
     while True:
         result = api.get("/v5/market/funding/history", {"category": "linear", "symbol": symbol,
