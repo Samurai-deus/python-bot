@@ -6,7 +6,7 @@ import time
 from typing import Dict, List, Optional, Sequence
 
 from backtest import momentum_xs as mx
-from backtest.wide_search import is_crypto
+from backtest.wide_search import is_crypto, is_crypto_instrument
 from exchange.bybit_client import BybitClient
 
 KLINES = 200                        # 4h × 200 = 33 дня: И4 нужны 31 день, И3 — 29, обороту И17а — 30
@@ -40,7 +40,11 @@ class PortfolioClient(BybitClient):
         return out
 
     def launch_ages_d(self) -> Dict[str, int]:
-        """Возраст контрактов в днях по launchTime (публичный список инструментов, страницами)."""
+        """
+        Возраст крипто-контрактов в днях по launchTime (публичный список инструментов, страницами).
+        Акции, ETF, сырьё и валюты по признаку биржи (symbolType/marketRegion) сюда не попадают — а без
+        возраста контракт не кандидат (continuation_candidates, market_data). Так 110126 не доходит до ордера.
+        """
         out, cursor, now_ms = {}, "", int(time.time() * 1000)
         for _ in range(10):
             params = {"category": "linear", "limit": 1000}
@@ -48,7 +52,7 @@ class PortfolioClient(BybitClient):
                 params["cursor"] = cursor
             data = self._get("/v5/market/instruments-info", params=params, signed=False)
             for i in data.get("list") or []:
-                if i.get("launchTime"):
+                if i.get("launchTime") and is_crypto_instrument(i):
                     out[i["symbol"]] = int((now_ms - int(i["launchTime"])) / mx.DAY_MS)
             cursor = data.get("nextPageCursor") or ""
             if not cursor:

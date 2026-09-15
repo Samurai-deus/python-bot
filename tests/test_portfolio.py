@@ -5,6 +5,7 @@
 """
 import json
 import sqlite3
+import time
 from decimal import Decimal
 
 import pytest
@@ -319,6 +320,27 @@ def test_client_market_data_keeps_only_closed_bars_in_c4(monkeypatch):
     d = cli.market_data(["BTCUSDT"], MONDAY)["BTCUSDT"]
     assert d["c4"] == {MONDAY - 2 * H4: 11.0, MONDAY - H4: 12.0}, "close живого бара в сигнал не идёт"
     assert d["o4"][MONDAY] == 12.0 and d["o1"] == {MONDAY: 12.0}
+
+
+def test_candidates_skip_stocks_etf_commodities_by_exchange_fields(monkeypatch):
+    """Возраст есть только у крипты по признаку биржи; без возраста контракт не кандидат (15.09: SKHYNIX → 110126)."""
+    now = int(time.time() * 1000)
+    items = [{"symbol": "BTCUSDT", "launchTime": str(now - 500 * mx.DAY_MS), "symbolType": "", "marketRegion": ""},
+             {"symbol": "CAPUSDT", "launchTime": str(now - 300 * mx.DAY_MS), "symbolType": "innovation", "marketRegion": ""},
+             {"symbol": "SPCXUSDT", "launchTime": str(now - 300 * mx.DAY_MS), "symbolType": "stock", "marketRegion": "US"},
+             {"symbol": "SNXXUSDT", "launchTime": str(now - 300 * mx.DAY_MS), "symbolType": "ETF", "marketRegion": "US"},
+             {"symbol": "BZUSDT", "launchTime": str(now - 300 * mx.DAY_MS), "symbolType": "commodity", "marketRegion": ""},
+             {"symbol": "TSLAUSDT", "launchTime": str(now - 300 * mx.DAY_MS)},
+             {"symbol": "NOAGEUSDT", "launchTime": ""}]
+    tickers = [{"symbol": s["symbol"], "turnover24h": "2e9" if s["symbol"] == "BTCUSDT" else "1e9"} for s in items]
+    from portfolio.client import PortfolioClient
+    cli = PortfolioClient(api_key="k", api_secret="s", demo=True)
+    monkeypatch.setattr(cli, "_get", lambda path, params=None, signed=False:
+                        {"list": tickers} if path.endswith("/tickers") else {"list": items, "nextPageCursor": ""})
+    ages = cli.launch_ages_d()
+    assert set(ages) == {"BTCUSDT", "CAPUSDT"}, "акции/ETF/сырьё — по признаку биржи, TSLA — по имени; innovation — крипта"
+    assert 499 <= ages["BTCUSDT"] <= 500
+    assert cli.continuation_candidates(ages) == ["BTCUSDT", "CAPUSDT"]
 
 
 def test_client_positions_are_signed(monkeypatch):
