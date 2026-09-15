@@ -35,6 +35,12 @@ def root_dir() -> Path:
     return Path(os.environ.get("BTCALTS_DIR", "/btcalts"))
 
 
+def start_this_week() -> bool:
+    """Поправка 15.09 (владелец: «запускай уже сейчас»): догоняющая ребалансировка в неделю запуска, один раз."""
+    from utils.env import env_flag
+    return env_flag("BTCALTS_START_THIS_WEEK", False)
+
+
 def notify(text: str) -> None:
     try:
         import asyncio
@@ -117,6 +123,9 @@ def cycle(cli, store: Store, now: int) -> None:
         else:
             last = store.get("last_rebalance_t")
             t = pe.due_rebalance(now, int(last) if last else None)
+            if t is None and start_this_week() and not store.has_rebalance(pe.monday_of(now)):
+                t = pe.monday_of(now)     # сигналы понедельника этой недели, вход по текущим ценам — один раз
+                store.event(now, "catch_up", f"сигналы понедельника {t}")
             if t is not None:
                 rebalance(cli, store, t, now)
     store.add_funding(cli.settlements(now - SYNC_BACK_MS))

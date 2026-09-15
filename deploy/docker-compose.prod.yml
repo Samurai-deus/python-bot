@@ -165,6 +165,8 @@ services:
     environment:
       BTCALTS_DIR: /btcalts
       BTCALTS_CAPITAL_USDT: "5000"
+      # Поправка 15.09 (владелец): догоняющая ребалансировка в неделю запуска (один раз).
+      BTCALTS_START_THIS_WEEK: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
