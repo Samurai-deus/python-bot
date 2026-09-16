@@ -61,7 +61,7 @@
 | `market-bot-btcalts` | `btcalts/` | И18 — лонг BTC / шорт корзины альтов на отдельном демо-субсчёте |
 | `market-bot-carry` | `carry/` | И13 — сбор фандинга (спот + шорт) на отдельном демо-субсчёте |
 | `market-bot-recorder` | `recorder/` | запись стакана и сделок Bybit |
-| `market-bot-news` | `news/` | новости с оценкой ИИ (И10/И10б) |
+| `market-bot-news` | `news/` | новости с оценкой ИИ (И10/И10б); раз в неделю — предложение монет с CoinGecko (`coin_supply`, под И18) |
 
 Кэш широкой вселенной для И15–И18 и атласа — `py -m backtest.history_wide universe` (по умолчанию `data/history_wide.db`, вне git, ≈ 430 МБ; повтор докачивает свечи и хвост фандинга).
 
