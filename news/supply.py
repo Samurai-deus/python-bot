@@ -15,11 +15,11 @@ import time
 from typing import Dict, List, Optional, Set
 
 from backtest.wide_search import base_of, is_crypto_instrument
+from market_data.instrument_limits import INSTRUMENTS_URL as BYBIT_INSTRUMENTS_URL
 
 logger = logging.getLogger(__name__)
 
 MARKETS_URL = "https://api.coingecko.com/api/v3/coins/markets"
-BYBIT_INSTRUMENTS_URL = "https://api.bybit.com/v5/market/instruments-info"
 PAGES = 4                   # 4 × 250 = top-1000 по капитализации
 PER_PAGE = 250
 PAGE_PAUSE_S = 2.0

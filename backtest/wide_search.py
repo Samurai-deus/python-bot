@@ -77,12 +77,23 @@ def is_crypto(symbol: str) -> bool:
 # инноваций» — innovation (тоже крипта). На 15.09 в top-60 по обороту сидели SKHY, SPCX (акции), BZ (сырьё), SNXX
 # (ETF), которых в списке имён не было. Имена остаются второй сеткой: кэш бэктестов этого поля не хранит.
 CRYPTO_TYPES = frozenset({"", "innovation"})
+NON_CRYPTO_TYPES = frozenset({"stock", "ETF", "commodity", "forex"})   # известные на 15.09.2026
 
 
 def is_crypto_instrument(item: dict) -> bool:
     """Крипто-контракт по полям instruments-info и по имени; неизвестный новый тип — не крипта (безопаснее: ордер бы упал)."""
     return (str(item.get("symbolType") or "") in CRYPTO_TYPES and not item.get("marketRegion")
             and is_crypto(item["symbol"]))
+
+
+def unknown_types(items) -> dict:
+    """{symbolType: число контрактов} для типов, которых не было на 15.09 — такие исключаются, но об этом надо знать."""
+    out = {}
+    for i in items:
+        t = str(i.get("symbolType") or "")
+        if t not in CRYPTO_TYPES and t not in NON_CRYPTO_TYPES:
+            out[t] = out.get(t, 0) + 1
+    return out
 
 
 @dataclass
