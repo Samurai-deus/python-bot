@@ -1445,6 +1445,61 @@ def _ensure_news_tables(cursor) -> None:
     )
 
 
+# coin_supply — еженедельное предложение монет с CoinGecko (news/supply.py, техдолг п. 9, 15.09.2026):
+# одна строка на монету и неделю; bybit_base — база USDT-perp Bybit, если тикер покрыт (иначе NULL).
+def _ensure_supply_table(cursor) -> None:
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS coin_supply ("
+        " week_ms BIGINT NOT NULL,"
+        " cg_id TEXT NOT NULL,"
+        " symbol TEXT NOT NULL,"
+        " name TEXT,"
+        " rank INTEGER,"
+        " price DOUBLE PRECISION,"
+        " market_cap DOUBLE PRECISION,"
+        " circulating DOUBLE PRECISION,"
+        " total_supply DOUBLE PRECISION,"
+        " max_supply DOUBLE PRECISION,"
+        " bybit_base TEXT,"
+        " fetched_ms BIGINT NOT NULL,"
+        " PRIMARY KEY (week_ms, cg_id))"
+    )
+
+
+def save_coin_supply(week_ms: int, fetched_ms: int, rows) -> int:
+    """Строки недели; уже записанная монета той же недели не трогается. Возвращает число новых."""
+    conn = get_db_connection()
+    added = 0
+    try:
+        cursor = conn.cursor()
+        _ensure_supply_table(cursor)
+        for c in rows:
+            cursor.execute(
+                _q(_insert_ignore("INTO coin_supply (week_ms, cg_id, symbol, name, rank, price, market_cap, circulating,"
+                                  " total_supply, max_supply, bybit_base, fetched_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")),
+                (week_ms, c["cg_id"], c["symbol"], c.get("name"), c.get("rank"), c.get("price"), c.get("market_cap"),
+                 c.get("circulating"), c.get("total_supply"), c.get("max_supply"), c.get("bybit_base"), fetched_ms),
+            )
+            added += max(cursor.rowcount, 0)
+        conn.commit()
+    finally:
+        conn.close()
+    return added
+
+
+def coin_supply_recorded(week_ms: int) -> bool:
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _ensure_supply_table(cursor)
+        cursor.execute(_q("SELECT COUNT(*) AS n FROM coin_supply WHERE week_ms = ?"), (week_ms,))
+        n = cursor.fetchone()["n"]
+        conn.commit()
+    finally:
+        conn.close()
+    return n > 0
+
+
 def save_news_items(items, seen_ms: int, stale_ms: int) -> int:
     """Записать заголовки; уже виденные (тот же uid) не трогаются. Возвращает число новых."""
     conn = get_db_connection()

@@ -7,6 +7,8 @@
 Заголовок, опубликованный раньше чем за STALE_MS до первого взгляда (накопленный в ленте
 к запуску или пришедший с опозданием), помечается backlog: время реакции на него неизвестно,
 модель его не оценивает и в проверку И10 он не входит.
+
+Тот же цикл раз в неделю записывает предложение монет с CoinGecko (news/supply.py).
 """
 import logging
 import os
@@ -18,7 +20,7 @@ from typing import Tuple
 
 import httpx
 
-from news import blind, scorer, sources
+from news import blind, scorer, sources, supply
 
 POLL_SEC = 120
 STALE_MS = 30 * 60 * 1000
@@ -54,6 +56,10 @@ def main() -> None:
                 blinded = blind.score_pending()  # И10б — после И10, чтобы не отнимать у неё бюджет
                 logger.info("опрос: источников %d из %d, новых %d, оценено %d, без названия %d",
                             ok, len(sources.SOURCES), added, scored, blinded)
+                done = supply.maybe_record(http, int(time.time() * 1000))
+                if done:
+                    logger.info("предложение монет за неделю записано: монет %d, контрактов Bybit покрыто %d из %d",
+                                done["coins"], done["matched"], done["bases"])
             except Exception:  # база, модель — цикл продолжается, пульс покажет долгий сбой
                 logger.warning("цикл сборщика не удался", exc_info=True)
             stop.wait(POLL_SEC)
