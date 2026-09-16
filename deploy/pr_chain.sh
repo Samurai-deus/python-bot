@@ -3,6 +3,8 @@
 # Уроки 14.09.2026: (1) `gh pr view <ветка>` «видит» и ЗАКРЫТЫЙ PR — после сброса ветки до main GitHub
 # закрывает PR, а цепочка ждёт CI вечно → создавать новый, если state != OPEN; (2) итог CI брать по
 # прогону для КОММИТА, а не через `gh pr checks --watch` (виснет на незакрытом статусе).
+# Уроки 15–16.09.2026: (3) pytest.ini уже даёт -q, второй -q прячет строку «N passed» — прогон выглядит пустым;
+# (4) код возврата брать у pytest, а не у tail/grep после пайпа; (5) имя ветки со слэшем — не имя файла.
 retry() {
   n=0
   until "$@"; do
@@ -27,6 +29,28 @@ wait_ci() {
     fi
     sleep 20
   done
+}
+
+# run_full_tests: весь pytest, сводка на экран, код возврата — pytest'а. Лог — $PR_CHAIN_LOG (по умолчанию /tmp).
+run_full_tests() {
+  out="${PR_CHAIN_LOG:-/tmp}/pytest-$(git branch --show-current | tr / _).txt"
+  PYTHONIOENCODING=utf-8 py -m pytest tests/ -p no:cacheprovider > "$out" 2>&1
+  rc=$?
+  grep -E "passed|failed|error" "$out" | tail -3
+  [ "$rc" -eq 0 ] || { echo "полный прогон упал (rc=$rc), лог $out"; return 1; }
+}
+
+# ship_branch <ветка> <файл коммита> <файл PR> <заголовок PR> <файлы...>: правки уже в дереве на main →
+# полный прогон → ветка → коммит только этих файлов → PR → CI → слияние.
+ship_branch() {
+  br="$1"; msg="$2"; body="$3"; title="$4"; shift 4
+  test "$(git branch --show-current)" = "main" || { echo "не на main"; return 1; }
+  run_full_tests || return 1
+  git checkout -q -b "$br"
+  git add -- "$@"
+  git commit -q -F "$msg" -- "$@" || return 1
+  git show --stat HEAD | cat | head -20
+  finish_branch "$br" "$title" "$body"
 }
 
 # start_branch <ветка>: с чистого main; если уже на ветке — продолжаем.

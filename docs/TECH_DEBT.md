@@ -32,6 +32,16 @@
 - ~~Разлоки и эмиссия токенов — нет данных о предложении~~ — 15.09: `news/supply.py` раз в неделю пишет `coin_supply` (top-1000 CoinGecko + база контракта Bybit); гипотеза — не раньше 16 недель сбора (план, раздел И18).
   Verify: `docker exec market-bot-news python -c "import database; c = database.get_db_connection(); cur = c.cursor(); cur.execute('SELECT week_ms, COUNT(*), SUM(bybit_base IS NOT NULL) FROM coin_supply GROUP BY week_ms'); print(cur.fetchall())"` — строк по неделям должно прибавляться по понедельникам.
 
+## Сессия 15–16.09: что систематизировано и что осталось
+
+- ~~Поправка учёта исполнителя — разовыми скриптами~~ — `portfolio/adjust.py` (`python -m portfolio.adjust`): start_equity, снимки, peak_equity, событие, защита от повтора; для баз И14/И18/И13.
+- ~~Неизвестный `symbolType` исключается молча~~ — `launch_ages_d` пишет предупреждение с распределением новых типов.
+- ~~Цепочка PR жила в scratchpad (пути, `-qq` прятал сводку, имя ветки со слэшем ломало путь)~~ — `deploy/pr_chain.sh`: `run_full_tests`, `ship_branch`.
+- **URL instruments-info Bybit повторён в четырёх модулях** (`data_loader`, `market_data/instrument_limits`, `backtest/history.BASE_URL`, `exchange/bybit_client`); `news/supply` берёт из `instrument_limits`. Долг: один источник (`exchange/`), остальные — импортом.
+  Verify: `grep -rn "v5/market/instruments-info" --include=*.py . | grep -v tests | wc -l` > 2 → открыт.
+- **Учёт исполнителя не отличает внешний приток от торговли сам** — поправка вручную командой; автоматика (сверка стоимости с журналом сделок и фандинга) не нужна, пока счета демо и пробы редки. Пересмотреть при переходе на реальные деньги (Ф7).
+- Граф знаний (`graphify`) для python-bot не ведётся — навигация по README/плану; заводить не планируется.
+
 ## План закрытия (записан 15.09.2026; порядок — по риску и пользе, каждый пункт — свой PR с тестами)
 
 **Волна 1 — код и тесты, без выкладки (≈ 3 ч):**

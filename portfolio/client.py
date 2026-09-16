@@ -2,12 +2,15 @@
 Клиент И14 поверх BybitClient бота (тот же демо-счёт и ключ из окружения): свечи 4h в форме
 данных бэктестов, подписанные позиции, стоимость счёта, начисления фандинга.
 """
+import logging
 import time
 from typing import Dict, List, Optional, Sequence
 
 from backtest import momentum_xs as mx
-from backtest.wide_search import is_crypto, is_crypto_instrument
+from backtest.wide_search import is_crypto, is_crypto_instrument, unknown_types
 from exchange.bybit_client import BybitClient
+
+logger = logging.getLogger(__name__)
 
 KLINES = 200                        # 4h × 200 = 33 дня: И4 нужны 31 день, И3 — 29, обороту И17а — 30
 TURNOVER_D = 30
@@ -45,18 +48,24 @@ class PortfolioClient(BybitClient):
         Акции, ETF, сырьё и валюты по признаку биржи (symbolType/marketRegion) сюда не попадают — а без
         возраста контракт не кандидат (continuation_candidates, market_data). Так 110126 не доходит до ордера.
         """
-        out, cursor, now_ms = {}, "", int(time.time() * 1000)
+        out, cursor, now_ms, odd = {}, "", int(time.time() * 1000), {}
         for _ in range(10):
             params = {"category": "linear", "limit": 1000}
             if cursor:
                 params["cursor"] = cursor
             data = self._get("/v5/market/instruments-info", params=params, signed=False)
-            for i in data.get("list") or []:
+            items = data.get("list") or []
+            for t, n in unknown_types(items).items():
+                odd[t] = odd.get(t, 0) + n
+            for i in items:
                 if i.get("launchTime") and is_crypto_instrument(i):
                     out[i["symbol"]] = int((now_ms - int(i["launchTime"])) / mx.DAY_MS)
             cursor = data.get("nextPageCursor") or ""
             if not cursor:
                 break
+        if odd:
+            logger.warning("instruments-info: неизвестный symbolType, контракты исключены из кандидатов: %s "
+                           "(если это крипта — добавить в CRYPTO_TYPES)", odd)
         return out
 
     def continuation_candidates(self, ages: Dict[str, int]) -> List[str]:
