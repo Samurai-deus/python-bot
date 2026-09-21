@@ -43,6 +43,14 @@ def test_round_is_held_to_delivery_and_rolled_into_the_best_contract():
     assert res["capital"] == pytest.approx((1 + res["rounds"][0]["realized"]) * (1 + res["rounds"][1]["realized"]))
 
 
+def test_round_is_settled_at_the_delivery_price_not_the_entry_price():
+    """Круг закрывается по фактической цене поставки: рост к поставке меняет издержки продажи спота и поставки."""
+    cs, px = market({"BTC-B": (T0 + 150 * D, 0.03, 180.0)})
+    r = b.simulate(cs, px, T0, T0 + 200 * D)["rounds"][0]
+    assert r["realized"] == pytest.approx(b.realized(103.0, 100.0, 180.0))
+    assert r["realized"] < r["locked"], "поставка дороже входа — издержки на продажу спота выше зафиксированных"
+
+
 def test_no_entry_below_three_percent_a_year():
     cs, px = market({"BTC-A": (T0 + 100 * D, 0.012, 100.0)})
     assert b.locked_yield(101.2, 100.0, 100)[1] < b.MIN_YIELD, "1,2 % за 100 дней после издержек — ~2 % годовых"
