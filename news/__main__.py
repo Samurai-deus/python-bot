@@ -8,7 +8,8 @@
 к запуску или пришедший с опозданием), помечается backlog: время реакции на него неизвестно,
 модель его не оценивает и в проверку И10 он не входит.
 
-Тот же цикл раз в неделю записывает предложение монет с CoinGecko (news/supply.py).
+Тот же цикл раз в неделю записывает предложение монет с CoinGecko (news/supply.py) и раз в час — снимок
+фандинга трёх бирж для И19 (news/xfunding_live.py, своя база).
 """
 import logging
 import os
@@ -20,7 +21,7 @@ from typing import Tuple
 
 import httpx
 
-from news import blind, scorer, sources, supply
+from news import blind, scorer, sources, supply, xfunding_live
 
 POLL_SEC = 120
 STALE_MS = 30 * 60 * 1000
@@ -48,6 +49,7 @@ def main() -> None:
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
+    xconn = xfunding_live.connect()
     with httpx.Client(timeout=20, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as http:
         while not stop.is_set():
             try:
@@ -60,6 +62,10 @@ def main() -> None:
                 if done:
                     logger.info("предложение монет за неделю записано: монет %d, контрактов Bybit покрыто %d из %d",
                                 done["coins"], done["matched"], done["bases"])
+                snap = xfunding_live.maybe_record(xconn, http, int(time.time() * 1000))
+                if snap:
+                    logger.info("И19 снимок фандинга: бирж %d из 3, общих контрактов %d, строк %d",
+                                snap["exchanges"], snap["keys"], snap["rows"])
             except Exception:  # база, модель — цикл продолжается, пульс покажет долгий сбой
                 logger.warning("цикл сборщика не удался", exc_info=True)
             stop.wait(POLL_SEC)
