@@ -63,6 +63,7 @@
 | `market-bot-recorder` | `recorder/` | запись стакана и сделок Bybit |
 | `market-bot-news` | `news/` | новости с оценкой ИИ (И10/И10б); раз в неделю — предложение монет с CoinGecko (`coin_supply`, под И18); раз в час — фандинг Bybit / Bitget / OKX для И19 (`/data/db/xfunding_live.db`) |
 
+Базис срочных фьючерсов (И20) — `py -m backtest.basis download|run|holdout --db <путь>`; шорт листингов (И21) — `py -m backtest.listings run --db <кэш широкой вселенной>`.
 История фандинга и часовых свечей трёх бирж для И19 — `py -m backtest.xfunding download --db <путь>` (~3 месяца, докачка), прогон — `run`.
 Кэш широкой вселенной для И15–И18 и атласа — `py -m backtest.history_wide universe` (по умолчанию `data/history_wide.db`, вне git, ≈ 430 МБ; повтор докачивает свечи и хвост фандинга).
 
