@@ -191,7 +191,8 @@ services:
 
   # Исполнитель И13 (docs/TRADER_PLAN.md): сбор фандинга на ОТДЕЛЬНОМ демо-субсчёте Bybit — свой
   # ключ CARRY_BYBIT_API_KEY/SECRET из .env (без него контейнер падает, ключ бота не берёт), свой том
-  # с базой и пульсом. Bybit доступен с сервера напрямую — прокси не нужен. Выкладка бота от него не зависит.
+  # с базой и пульсом. Bybit доступен с сервера напрямую, а Telegram — только через прокси хоста: без
+  # host-gateway сообщения И13 не уходили вовсе (найдено 21.09.2026). Выкладка бота от него не зависит.
   carry:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
     container_name: market-bot-carry
@@ -201,6 +202,8 @@ services:
       - /opt/market-bot/.env
     environment:
       CARRY_DIR: /carry
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - carry_data:/carry
     networks:

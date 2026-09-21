@@ -49,20 +49,33 @@ def base(symbol: str) -> str:
     return symbol[:-4]
 
 
-def notify(text: str) -> None:
-    try:
-        import asyncio
-        from telegram_bot import send_message_async
-        asyncio.run(send_message_async(text, parse_mode=None))
-    except Exception:
-        logger.warning("И13: сообщение владельцу не отправлено", exc_info=True)
+def notify(text: str) -> bool:
+    """Сообщение владельцу; True — ушло. Отметки «отправлено» ставятся только по True."""
+    from telegram_bot import send_owner_blocking
+    ok = send_owner_blocking(text)
+    if not ok:
+        logger.warning("И13: сообщение владельцу не отправлено: %s", text[:80])
+    return ok
 
 
 def weekly_summary_due(now: int, store: Store) -> bool:
-    """Понедельник 01:00–02:00 UTC и сводка за эту неделю ещё не отправлена."""
+    """
+    Понедельник с 01:00 UTC до конца суток и сводка за эту неделю ещё не отправлена. Окно — сутки, а не час:
+    неудачная отправка повторяется следующим циклом (21.09.2026 сводка не ушла и пропала бы до следующей недели).
+    """
     monday = pe.monday_of(now)
     hour = (now - monday) // 3_600_000
-    return hour == 1 and store.get(f"weekly:{monday}") is None
+    return 1 <= hour < 24 and store.get(f"weekly:{monday}") is None
+
+
+def send_weekly_summary(store: Store, equity: float, deviations: Dict[str, float], now: int) -> bool:
+    """Сводка уходит — ставится отметка недели; не ушла — отметки нет, повтор следующим циклом."""
+    if not weekly_summary_due(now, store):
+        return False
+    if notify(weekly_summary(store, equity, deviations, now)):
+        store.set(f"weekly:{pe.monday_of(now)}", now)
+        return True
+    return False
 
 
 def weekly_summary(store: Store, equity: float, deviations: Dict[str, float], now: int) -> str:
@@ -174,9 +187,7 @@ def cycle(cli, store: Store, now: int) -> None:
     bal = cli.coin_balances()
     positions = {s: {"spot": bal.get(base(s), 0.0), "short": cli.short_qty(s), "price": cli.spot_price(s)} for s in syms}
     store.snapshot(now, equity, cli.account_mm_rate(), deviations, positions)
-    if weekly_summary_due(now, store):
-        notify(weekly_summary(store, equity, deviations, now))
-        store.set(f"weekly:{pe.monday_of(now)}", now)
+    send_weekly_summary(store, equity, deviations, now)
     (carry_dir() / "heartbeat").write_text(f"{now / 1000:.0f}\n", encoding="utf-8")
 
 

@@ -98,15 +98,57 @@ def test_rebalance_trades_the_continuation_leg_from_exchange_candidates(env):
 
 def test_orders_reach_targets_and_skip_dust():
     targets = {"AUSDT": 1000.0, "BUSDT": -500.0, "CUSDT": 0.0, "DUSDT": 12.0}
-    positions = {"AUSDT": 400.0, "BUSDT": 300.0, "CUSDT": -200.0, "EUSDT": 15.0}
+    positions = {"AUSDT": 40.0, "BUSDT": 30.0, "CUSDT": -20.0, "EUSDT": 1.5}     # объём в монетах, цена 10
     marks = {s: 10.0 for s in ("AUSDT", "BUSDT", "CUSDT", "DUSDT", "EUSDT")}
     fl = {s: filters(s) for s in marks}
     assert engine.min_order_usdt(10_000) == 20.0 and engine.min_order_usdt(1_000) == 5.0, "0,2 % капитала, не меньше 5"
     orders = {o.symbol: o for o in engine.orders_to_target(targets, positions, marks, fl, engine.min_order_usdt(10_000))}
     assert orders["AUSDT"].side == "Buy" and orders["AUSDT"].qty == Decimal("60") and not orders["AUSDT"].reduce_only
     assert orders["BUSDT"].side == "Sell" and orders["BUSDT"].qty == Decimal("80"), "флип лонг → шорт одним ордером"
-    assert orders["CUSDT"].side == "Buy" and orders["CUSDT"].reduce_only, "цель 0 — только закрытие"
-    assert "DUSDT" not in orders and "EUSDT" not in orders, "разница меньше 20 USDT не торгуется"
+    assert orders["CUSDT"].side == "Buy" and orders["CUSDT"].reduce_only and orders["CUSDT"].qty == Decimal("20"), "цель 0 — только закрытие"
+    assert "DUSDT" not in orders, "разница меньше 20 USDT не торгуется"
+    assert orders["EUSDT"].qty == Decimal("1.5") and orders["EUSDT"].reduce_only, "выбывшая монета закрывается целиком, даже мелкая"
+
+
+def test_close_uses_exact_position_size_when_price_moved():
+    """21.09: шорт OP, цена выросла с входа — закрытие по «номинал входа / текущая цена» оставляло хвост."""
+    fl = {s: filters(s, step="0.1", min_qty="0.1") for s in ("OPUSDT", "AUSDT")}
+    orders = {o.symbol: o for o in engine.orders_to_target({"AUSDT": 300.0}, {"OPUSDT": -632.3, "AUSDT": 10.0},
+                                                            {"OPUSDT": 0.95, "AUSDT": 20.0}, fl, 5.0)}
+    assert orders["OPUSDT"].side == "Buy" and orders["OPUSDT"].qty == Decimal("632.3") and orders["OPUSDT"].reduce_only
+    assert orders["AUSDT"].side == "Buy" and orders["AUSDT"].qty == Decimal("5"), "есть 10 × 20 = 200 по текущей цене, до 300 — ещё 5"
+
+
+def test_leftovers_close_only_own_symbols_missing_from_last_targets(env):
+    """Хвост прошлой ребалансировки закрывается следующим часом; чужая позиция (бота) не трогается."""
+    store, _ = env
+    cli = FakeBybitPortfolio(MONDAY)
+    pm.cycle(cli, store, MONDAY - 2 * DAY)
+    store.rebalance(MONDAY - 7 * DAY, MONDAY - 7 * DAY + 60_000, {"OLDUSDT": -0.01}, [["OLDUSDT", "Sell", "1"]], [])
+    pm.cycle(cli, store, MONDAY + 3 * 60_000)
+    cli.prices.update({"OLDUSDT": 100.0, "BOTUSDT": 100.0})
+    cli.qty.update({"OLDUSDT": -0.7, "BOTUSDT": 2.0})
+    n = len(cli.orders)
+    pm.cycle(cli, store, MONDAY + 3_600_000 + 3 * 60_000)
+    assert cli.orders[n:] == [("OLDUSDT", "Buy", 0.7, True)], "закрыт ровно хвост, reduce_only"
+    assert cli.qty["OLDUSDT"] == 0 and cli.qty["BOTUSDT"] == 2.0
+    ev = store.conn.execute("SELECT detail FROM events WHERE kind = 'leftover'").fetchall()
+    assert len(ev) == 1 and "OLDUSDT" in ev[0][0]
+    pm.cycle(cli, store, MONDAY + 2 * 3_600_000 + 3 * 60_000)
+    assert len(cli.orders) == n + 1, "закрытое больше не трогается"
+
+
+def test_calendar_notice_is_marked_only_after_it_was_sent(env, monkeypatch):
+    store, _ = env
+    cli = FakeBybitPortfolio(MONDAY)
+    sent = []
+    monkeypatch.setattr(pm, "notify", lambda text: False)
+    at = MONDAY + 9 * 3_600_000                          # 21.09 — контрольная дата, после 08:00 UTC
+    pm.cycle(cli, store, at)
+    assert store.get("notice:today:2026-09-21") is None, "не ушло — не отмечено"
+    monkeypatch.setattr(pm, "notify", lambda text: sent.append(text) or True)
+    pm.cycle(cli, store, at + 3_600_000)
+    assert store.get("notice:today:2026-09-21") and any("Сегодня, 21.09.2026" in s for s in sent)
 
 
 def test_orders_respect_exchange_step():
@@ -182,7 +224,7 @@ class FakeBybitPortfolio:
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("PORTFOLIO_DIR", str(tmp_path))
     monkeypatch.setenv("PORTFOLIO_CAPITAL_USDT", "10000")
-    monkeypatch.setattr(pm, "notify", lambda text: None)
+    monkeypatch.setattr(pm, "notify", lambda text: True)
     import database
     monkeypatch.setattr(database, "get_open_trades", lambda: [])
     return Store(str(tmp_path / "portfolio.db")), tmp_path

@@ -53,7 +53,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("BTCALTS_DIR", str(tmp_path))
     monkeypatch.setenv("BTCALTS_CAPITAL_USDT", "5000")
     sent = []
-    monkeypatch.setattr(bm, "notify", lambda text: sent.append(text))
+    monkeypatch.setattr(bm, "notify", lambda text: sent.append(text) or True)
     return Store(str(tmp_path / "btcalts.db")), sent
 
 

@@ -87,24 +87,47 @@ def combined_weights(data: Mapping[str, dict], trend_symbols: Sequence[str], mom
     return {s: w for s, w in weights.items() if abs(w) > 1e-12}
 
 
-def orders_to_target(targets_usdt: Mapping[str, float], positions_usdt: Mapping[str, float],
+def orders_to_target(targets_usdt: Mapping[str, float], positions_qty: Mapping[str, float],
                      marks: Mapping[str, float], filters: Mapping[str, object], min_order: float) -> List[Order]:
     """
-    Ордера, доводящие позиции (подписанный номинал, USDT) до целей. Цель 0 — закрытие
-    reduce_only; разница меньше min_order или минимума биржи — пропуск.
+    Ордера, доводящие позиции (подписанный ОБЪЁМ в монетах) до целей (подписанный номинал, USDT).
+    Позиция оценивается по текущей цене mark. Цель 0 — закрытие reduce_only ТОЧНЫМ объёмом позиции;
+    иначе разница меньше min_order или минимума биржи — пропуск.
+
+    До 21.09.2026 сюда шёл номинал по цене ВХОДА, а объём ордера считался по текущей цене: при сдвиге
+    цены закрытие выбывшей монеты оставляло хвост (21.09 у И14 — 8 позиций вне целей), а доводка
+    остальных целей ошибалась на изменение цены с момента входа.
     """
     out: List[Order] = []
-    for s in sorted(set(targets_usdt) | set(positions_usdt)):
-        target, have = targets_usdt.get(s, 0.0), positions_usdt.get(s, 0.0)
-        delta = target - have
+    for s in sorted(set(targets_usdt) | set(positions_qty)):
+        target, qty_have = targets_usdt.get(s, 0.0), positions_qty.get(s, 0.0)
         mark, f = marks.get(s), filters.get(s)
+        if abs(target) < 1e-9:
+            if qty_have:
+                out.append(close_order(s, qty_have))
+            continue
+        delta = target - qty_have * (mark or 0.0)
         if not mark or f is None or abs(delta) < max(min_order, float(getattr(f, "min_notional", 0) or 0)):
             continue
         qty, err = round_qty(abs(delta) / mark, f)
         if err or qty <= 0:
             continue
-        out.append(Order(s, "Buy" if delta > 0 else "Sell", qty, reduce_only=(abs(target) < 1e-9)))
+        out.append(Order(s, "Buy" if delta > 0 else "Sell", qty, reduce_only=False))
     return out
+
+
+def close_order(symbol: str, qty_have: float) -> Order:
+    """Закрытие позиции целиком: объём — ровно размер позиции (он уже кратен шагу биржи), reduce_only."""
+    return Order(symbol, "Sell" if qty_have > 0 else "Buy", Decimal(str(abs(qty_have))), reduce_only=True)
+
+
+def leftover_orders(positions_qty: Mapping[str, float], last_weights: Mapping[str, float], traded: set) -> List[Order]:
+    """
+    Хвосты: позиции по монетам, которыми исполнитель торговал раньше, но которых нет в целях последней
+    ребалансировки, — закрыть точным объёмом. Чужие монеты (не из журнала исполнителя) не трогаются:
+    И14 живёт на счёте бота.
+    """
+    return [close_order(s, q) for s, q in sorted(positions_qty.items()) if q and s in traded and s not in last_weights]
 
 
 def next_rebalance(now_ms: int) -> int:
