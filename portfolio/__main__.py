@@ -18,6 +18,7 @@ from typing import List
 import config
 from backtest import trend_ts as tt
 from portfolio import calendar, engine
+from portfolio.leftovers import close_leftovers
 from portfolio.client import PortfolioClient
 from portfolio.store import Store
 
@@ -58,14 +59,13 @@ def remember_blocked(store: Store, symbol: str, error: str, now: int) -> bool:
     return True
 
 
-def notify(text: str) -> None:
-    """Сообщение владельцу; у исполнителя нет цикла событий бота — свой (14.09: адаптер бота падал без него)."""
-    try:
-        import asyncio
-        from telegram_bot import send_message_async
-        asyncio.run(send_message_async(text, parse_mode=None))
-    except Exception:
-        logger.warning("И14: сообщение владельцу не отправлено", exc_info=True)
+def notify(text: str) -> bool:
+    """Сообщение владельцу; True — ушло. Отметки «отправлено» ставятся только по True."""
+    from telegram_bot import send_owner_blocking
+    ok = send_owner_blocking(text)
+    if not ok:
+        logger.warning("И14: сообщение владельцу не отправлено: %s", text[:80])
+    return ok
 
 
 def ready_to_start(cli, store: Store, now: int) -> bool:
@@ -97,7 +97,7 @@ def rebalance(cli, store: Store, t: int, now: int) -> None:
     weights = engine.combined_weights(data, list(tt.SYMBOLS), list(config.SYMBOLS), t, candidates)
     cap = capital()
     targets = {s: w * cap for s, w in weights.items()}
-    positions = cli.positions_usdt()
+    positions = cli.positions_qty()
     marks = {s: cli.get_mark_price(s) for s in set(targets) | set(positions)}
     filters = {s: cli.get_instrument_filters(s) for s in marks}
     orders = engine.orders_to_target(targets, positions, marks, filters, engine.min_order_usdt(cap))
@@ -147,11 +147,12 @@ def cycle(cli, store: Store, now: int) -> None:
                 store.event(now, "catch_up", f"сигналы понедельника {t}")
             if t is not None:
                 rebalance(cli, store, t, now)
+            close_leftovers(cli, store, now, notify, "И14")
     store.add_funding(cli.settlements(now - SYNC_BACK_MS))
     store.snapshot(now, cli.usdt_equity(), cli.positions_usdt())
     for key, text in calendar.due(now, lambda k: store.get(f"notice:{k}") is not None):  # контрольные даты программы
-        notify(text)
-        store.set(f"notice:{key}", now)
+        if notify(text):                 # не ушло — отметки нет, повтор следующим часом (окно — сутки)
+            store.set(f"notice:{key}", now)
     (root_dir() / "heartbeat").write_text(f"{now / 1000:.0f}\n", encoding="utf-8")
 
 

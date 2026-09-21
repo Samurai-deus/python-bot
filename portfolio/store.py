@@ -42,6 +42,18 @@ class Store:
         self.conn.execute("INSERT OR IGNORE INTO rebalance_runs (t, done_ms, weights, orders, failed) VALUES (?, ?, ?, ?, ?)", row)
         self.conn.commit()
 
+    def last_weights(self) -> Optional[Dict[str, float]]:
+        """Цели последнего прогона ребалансировки; None — ребалансировок ещё не было."""
+        row = self.conn.execute("SELECT weights FROM rebalance_runs ORDER BY done_ms DESC LIMIT 1").fetchone()
+        return json.loads(row[0]) if row else None
+
+    def traded_symbols(self) -> set:
+        """Все монеты из целей и ордеров журнала прогонов — чем исполнитель когда-либо торговал."""
+        out = set()
+        for w, o in self.conn.execute("SELECT weights, orders FROM rebalance_runs"):
+            out |= set(json.loads(w)) | {x[0] for x in json.loads(o)}
+        return out
+
     def has_rebalance(self, t: int) -> bool:
         return self.conn.execute("SELECT 1 FROM rebalances WHERE t = ?", (t,)).fetchone() is not None
 

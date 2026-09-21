@@ -82,9 +82,24 @@ def test_prod_compose_does_not_take_occupied_host_port():
     assert not re.search(r'["\s-]8000:8000', compose)
 
 
+def compose_services(text):
+    """{имя сервиса: текст его блока} из docker-compose (без YAML-библиотеки: блоки по отступу в два пробела)."""
+    body = text.split("\nservices:\n", 1)[1]
+    body = re.split(r"\n(?=[a-z])", body, maxsplit=1)[0]
+    return dict(re.findall(r"(?ms)^  ([a-z_]+):\n(.*?)(?=^  [a-z_]+:\n|\Z)", body))
+
+
 def test_prod_compose_routes_telegram_via_host_gateway():
-    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
-    assert compose.count("host.docker.internal:host-gateway") == 5, "боту, API, сборщику новостей, портфелю и И18 нужен выход к прокси"
+    """
+    Всякий сервис на образе бота с .env (там токен Telegram и TELEGRAM_PROXY_URL) должен видеть прокси хоста. Раньше тест
+    считал вхождения (== 5) — и новый сервис И13 без выхода к прокси прошёл незамеченным: его сообщения
+    не уходили с 14.09 по 21.09.2026.
+    """
+    services = compose_services((DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8"))
+    with_env = [n for n, b in services.items() if "/opt/market-bot/.env" in b and "image: market-bot:" in b]
+    assert len(with_env) >= 6, f"разбор compose не нашёл сервисы с .env: {with_env}"
+    missing = [n for n in with_env if "host.docker.internal:host-gateway" not in services[n]]
+    assert missing == [], f"сервисы с .env без выхода к прокси Telegram: {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -493,12 +508,12 @@ def test_release_gate_ignores_the_news_collector_but_smoke_and_watchdog_watch_it
 
 
 def test_prod_compose_runs_the_carry_executor_with_its_own_key_and_volume():
-    """И13: отдельный субсчёт — свой ключ из .env, свой том; прокси не нужен (Bybit с сервера напрямую)."""
+    """И13: отдельный субсчёт — свой ключ из .env, свой том; выход к прокси хоста — для Telegram (21.09: без него сообщения не уходили)."""
     compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
     block = compose.split("  carry:\n", 1)[1].split("\n  # Сборщик новостей", 1)[0]
     assert '["python", "-m", "carry"]' in block and '"carry.health"' in block
     assert "/opt/market-bot/.env" in block and "carry_data:/carry" in block and "market-bot-carry" in block
-    assert "host-gateway" not in block and "memory:" in block
+    assert "host.docker.internal:host-gateway" in block and "memory:" in block
     assert "  carry_data:" in compose.split("\nvolumes:\n", 1)[1]
     assert (ROOT / "carry" / "__main__.py").is_file() and (ROOT / "carry" / "health.py").is_file()
     assert "chown -R botuser:botuser /app /data /recorder /carry" in read("Dockerfile")

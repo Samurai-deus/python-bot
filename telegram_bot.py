@@ -264,6 +264,30 @@ async def send_chart_async(symbol):
 # ===============================
 # Эти функции используются из синхронного кода через asyncio.to_thread()
 
+def send_owner_blocking(text: str, attempts: int = 3) -> bool:
+    """
+    Сообщение владельцу из процесса без своего цикла событий (исполнители И13/И14/И18): True — ушло.
+
+    Свой Bot на КАЖДЫЙ вызов: общий get_bot() привязывает HTTP-клиент к циклу первого asyncio.run, и во
+    втором вызове клиент живёт в закрытом цикле — 21.09.2026 у И14 первая попытка каждой отправки падала
+    «Event loop is closed». Ошибка не глотается молча, как в send_message_async: вызывающий по результату
+    решает, ставить ли отметку «отправлено» (21.09 сводка И13 не ушла, а отметка встала).
+    """
+    async def once():
+        async with Bot(token=_get_token(), request=build_request()) as bot:
+            await bot.send_message(chat_id=_get_chat_id(), text=text)
+
+    for attempt in range(1, attempts + 1):
+        try:
+            asyncio.run(once())
+            return True
+        except Exception as e:
+            logger.warning("Telegram: сообщение владельцу не ушло (попытка %d/%d): %s: %s", attempt, attempts, type(e).__name__, e)
+            if attempt < attempts:
+                _time.sleep(2 * attempt)
+    return False
+
+
 def _cleanup_loop(loop: asyncio.AbstractEventLoop) -> None:
     """Отменяет незавершённые задачи и закрывает event loop."""
     try:

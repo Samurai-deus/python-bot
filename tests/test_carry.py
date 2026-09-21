@@ -254,3 +254,21 @@ def test_weekly_summary_is_sent_once_on_monday(tmp_path):
     store.set(f"weekly:{monday}", monday + 90 * 60_000)
     assert not cm.weekly_summary_due(monday + 100 * 60_000, store), "уже отправлена"
     assert cm.weekly_summary_due(monday + 7 * 86_400_000 + 90 * 60_000, store), "следующая неделя — снова"
+
+
+def test_weekly_summary_not_sent_is_retried_the_same_day(tmp_path, monkeypatch):
+    """21.09.2026: сводка не ушла (у контейнера не было выхода к прокси), а отметка встала — неделя пропала."""
+    from carry import __main__ as cm
+    from carry.store import Store
+    from portfolio import engine as pe
+    monday = pe.monday_of(1_789_400_000_000)
+    store = Store(str(tmp_path / "carry.db"))
+    monkeypatch.setattr(cm, "notify", lambda text: False)
+    assert not cm.send_weekly_summary(store, 1.0, {}, monday + 90 * 60_000)
+    assert store.get(f"weekly:{monday}") is None
+    sent = []
+    monkeypatch.setattr(cm, "notify", lambda text: sent.append(text) or True)
+    assert cm.send_weekly_summary(store, 1.0, {}, monday + 3 * 3_600_000 + 60_000), "03:01 того же дня — повтор"
+    assert store.get(f"weekly:{monday}") and len(sent) == 1
+    assert not cm.send_weekly_summary(store, 1.0, {}, monday + 4 * 3_600_000), "ушла — второй раз нет"
+    assert not cm.weekly_summary_due(monday + 24 * 3_600_000 + 60_000, Store(str(tmp_path / "c2.db"))), "вторник — не день сводки"
