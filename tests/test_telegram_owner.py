@@ -47,3 +47,19 @@ def test_retries_then_reports_failure(monkeypatch):
     assert telegram_bot.send_owner_blocking("x"), "вторая попытка прошла"
     setup(monkeypatch, fail=10)
     assert telegram_bot.send_owner_blocking("x", attempts=3) is False and len(FakeBot.made) == 3
+
+
+def test_bot_client_is_per_event_loop(monkeypatch):
+    """22.09.2026: общий Bot в чужом цикле — «Event loop is closed» на первой попытке каждого уведомления бота."""
+    import asyncio
+    made = []
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "1:x")
+    monkeypatch.setattr(telegram_bot, "_loop_bots", __import__("weakref").WeakKeyDictionary())
+    monkeypatch.setattr(telegram_bot, "Bot", lambda token, request: made.append(object()) or made[-1])
+
+    async def twice():
+        return telegram_bot.get_bot(), telegram_bot.get_bot()
+    a1, a2 = asyncio.run(twice())
+    b1, _ = asyncio.run(twice())
+    assert a1 is a2, "в одном цикле — один клиент"
+    assert a1 is not b1 and len(made) == 2, "в новом цикле — новый клиент"

@@ -82,6 +82,42 @@ MAX_ANALYSIS_TIME = None
 MAX_CONSECUTIVE_ERRORS = None
 METRICS_LOG_INTERVAL = None
 RUNNING_TASKS = None
+
+# Последнее отправленное владельцу вето Decision Core (ключ причины) — повтор той же причины не шлётся.
+_VETO_NOTICE = {"key": None}
+
+
+def veto_notice(can_trade: bool, reason: str, recommendations, signal_trading: bool, state: dict):
+    """
+    Текст сообщения владельцу о вето Decision Core или None. До 22.09.2026 сообщение уходило каждый цикл
+    анализа (5 мин): «DRAWDOWN BREAKER» — 150+ раз в сутки. Теперь: при выключенной сигнальной торговле —
+    никогда (запрещать нечего, вето только в лог); при включённой — при входе в вето, при смене причины
+    (ключ — текст до двоеточия, без меняющихся цифр) и один раз при снятии вето.
+    """
+    if not signal_trading:
+        state["key"] = None
+        return None
+    if can_trade:
+        if state["key"] is None:
+            return None
+        state["key"] = None
+        return "✅ Decision Core: вето снято, торговля снова разрешена"
+    key = (reason or "").split(":", 1)[0].strip()
+    if key == state["key"]:
+        return None
+    state["key"] = key
+    return f"🧠 Decision Core: {reason}\n\nРекомендации:\n" + "\n".join(f"• {r}" for r in recommendations)
+
+
+def _signal_trading_enabled() -> bool:
+    from utils.env import env_flag
+    return env_flag("SIGNAL_TRADING_ENABLED", True)
+
+
+def _send_notice(text: str) -> None:
+    task = asyncio.create_task(send_message_async(text), name="TelegramNotify")
+    RUNNING_TASKS.add(task)
+    task.add_done_callback(RUNNING_TASKS.discard)
 SAFE_MODE_RECOVERY_INTERVAL = None
 evaluate_and_send_alerts = None
 exit_safe_mode_via_recovery = None
@@ -369,14 +405,12 @@ async def run_market_analysis():
                 # Другие RuntimeError - пробрасываем дальше
                 raise
         
+        notice = veto_notice(global_decision.can_trade, global_decision.reason, global_decision.recommendations,
+                             _signal_trading_enabled(), _VETO_NOTICE)
+        if notice:
+            _send_notice(notice)
         if not global_decision.can_trade:
             logger.info("⏸ Decision Core блокирует торговлю: %s", global_decision.reason)
-            _notify_task = asyncio.create_task(
-                send_message_async(f"🧠 Decision Core: {global_decision.reason}\n\nРекомендации:\n" + "\n".join(f"• {r}" for r in global_decision.recommendations)),
-                name="TelegramNotify",
-            )
-            RUNNING_TASKS.add(_notify_task)
-            _notify_task.add_done_callback(RUNNING_TASKS.discard)
             # Анализ отработал (данные, мозги, решение): вето — решение не торговать, а не
             # сбой. Без сброса в SAFE_MODE, где Decision Core всегда накладывает вето,
             # ошибки не обнулялись и восстановление не начиналось (11.09.2026).
