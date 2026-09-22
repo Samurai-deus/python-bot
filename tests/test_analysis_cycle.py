@@ -129,7 +129,7 @@ def cycle(monkeypatch):
         "generate_signals_for_symbols": generate, "update_volatility_state": env.volatility.append,
         "send_message_async": recording_send(env.sent), "error_alert": env.alerts.append,
         "get_state_machine": lambda: env.machine, "RUNNING_TASKS": set(),
-        "MAX_CONSECUTIVE_ERRORS": 5,
+        "MAX_CONSECUTIVE_ERRORS": 5, "_VETO_NOTICE": {"key": None},
     }.items():
         monkeypatch.setattr(analysis, name, value)
     monkeypatch.setattr(runner, "_shutdown_event", None)  # его читает get_shutdown_event runner
@@ -190,6 +190,29 @@ def test_a_decision_core_veto_notifies_and_skips_the_signals(cycle):
     assert len(cycle.sent) == 1 and "drawdown limit" in cycle.sent[0] and "• wait" in cycle.sent[0]
     assert cycle.state.cycles == [], "оборот с вето не считается в статистике оборотов"
     assert cycle.state.resets == 1, "но анализ отработал: без сброса ошибок в SAFE_MODE не начать восстановление"
+
+
+def test_the_same_veto_is_sent_once_and_its_lifting_once(cycle):
+    """22.09.2026: «DRAWDOWN BREAKER» уходил каждые 5 минут — теперь при входе, смене причины и снятии."""
+    cycle.decision = SimpleNamespace(can_trade=False, reason="DRAWDOWN BREAKER: просадка 22.1% >= 20%", recommendations=["wait"])
+    analyse()
+    cycle.decision = SimpleNamespace(can_trade=False, reason="DRAWDOWN BREAKER: просадка 21.7% >= 20%", recommendations=["wait"])
+    analyse()
+    assert len(cycle.sent) == 1, "та же причина с другими цифрами — не повторяется"
+    cycle.decision = SimpleNamespace(can_trade=False, reason="SAFE MODE: система в безопасном режиме", recommendations=[])
+    analyse()
+    assert len(cycle.sent) == 2 and "SAFE MODE" in cycle.sent[1]
+    cycle.decision = SimpleNamespace(can_trade=True, reason="", recommendations=[])
+    analyse()
+    analyse()
+    assert len(cycle.sent) == 3 and "вето снято" in cycle.sent[2], "снятие — одно сообщение"
+
+
+def test_no_veto_messages_while_signal_trading_is_off(cycle, monkeypatch):
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    cycle.decision = SimpleNamespace(can_trade=False, reason="DRAWDOWN BREAKER: просадка 22.1% >= 20%", recommendations=[])
+    assert analyse() is True and cycle.generated == []
+    assert cycle.sent == [], "торговля выключена — вето только в лог"
 
 
 def test_an_injected_decision_fault_enters_safe_mode_at_the_limit(cycle, monkeypatch):

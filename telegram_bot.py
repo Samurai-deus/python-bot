@@ -4,6 +4,7 @@ import time as _time
 import warnings
 import asyncio
 import threading
+import weakref
 
 from dotenv import load_dotenv
 
@@ -93,6 +94,10 @@ async def _apply_rate_limit() -> None:
 # а не socks5: для SOCKS httpx требует пакет socksio, которого в зависимостях нет.
 _bot: "Bot | None" = None
 _bot_lock = threading.Lock()
+# Bot на каждый цикл событий: HTTP-клиент Bot живёт в цикле, где впервые отправил. Бот шлёт и из своего
+# цикла, и из потоков со своими циклами (_send_message_sync) — общий на всех Bot в чужом цикле падал
+# «Event loop is closed» на первой попытке (22.09.2026: каждое уведомление — со второй попытки).
+_loop_bots: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
 
 
 def build_request(connection_pool_size: int = 10) -> HTTPXRequest:
@@ -120,8 +125,19 @@ def build_request(connection_pool_size: int = 10) -> HTTPXRequest:
 
 
 def get_bot() -> Bot:
-    """Возвращает singleton Bot, создавая его при первом обращении."""
+    """Bot текущего цикла событий (в async-коде); вне цикла — общий singleton."""
     global _bot
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        with _bot_lock:
+            bot = _loop_bots.get(loop)
+            if bot is None:
+                bot = Bot(token=_get_token(), request=build_request(connection_pool_size=20))
+                _loop_bots[loop] = bot
+            return bot
     if _bot is not None:
         return _bot
     with _bot_lock:

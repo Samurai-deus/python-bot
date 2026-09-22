@@ -65,6 +65,33 @@ def test_drawdown_is_measured_from_the_highest_equity_seen(real):
     assert capital.get_initial_balance() == pytest.approx(300.0)
 
 
+def add_closed(db, pnls):
+    conn = db.get_db_connection()
+    try:
+        cur = conn.cursor()
+        for p in pnls:
+            cur.execute("INSERT INTO trades (timestamp, symbol, side, entry, stop, target, status, pnl)"
+                        " VALUES ('2026-09-01', 'BTCUSDT', 'LONG', 1, 0.9, 1.1, 'CLOSED', ?)", (p,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_shared_account_drawdown_comes_from_the_bots_own_trades(real, monkeypatch):
+    """22.09.2026: счёт отдан И14 — падение equity кошелька (позиции И14) не просадка бота."""
+    wallet, _ = real
+    capital.get_initial_balance()
+    wallet.equity = 330.0
+    capital.current_drawdown_pct()
+    wallet.equity = 250.0
+    assert capital.current_drawdown_pct() > 20, "счёт бота — просадка по кошельку"
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    monkeypatch.setattr(capital, "_capital_cap", lambda: 1000.0)
+    assert capital.current_drawdown_pct() == 0.0, "сделок бота нет — просадки бота нет"
+    add_closed(database, [50.0, -30.0, 10.0])
+    assert capital.current_drawdown_pct() == pytest.approx(20.0 / 1050.0 * 100), "пик +50, сейчас +30 — от капитала бота 1000 + пик"
+
+
 def test_testnet_and_live_keep_separate_baselines(real):
     wallet, mode = real
     capital.get_initial_balance()

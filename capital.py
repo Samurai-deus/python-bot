@@ -283,8 +283,42 @@ def get_peak_balance() -> float:
     return INITIAL_BALANCE + peak_pnl
 
 
+def account_shared_with_portfolio() -> bool:
+    """
+    Счёт отдан портфелю И14 (правило И14, 14.09.2026: SIGNAL_TRADING_ENABLED=false): equity кошелька
+    двигают позиции И14 и демо-монеты, это не капитал бота.
+    """
+    from utils.env import env_flag
+    return not env_flag("SIGNAL_TRADING_ENABLED", True)
+
+
+def own_trades_drawdown_pct() -> float:
+    """
+    Просадка по закрытым сделкам самого бота (журнал trades) от их пика, в % капитала бота: потолок
+    REAL_CAPITAL_CAP_USDT, а без него — бумажный стартовый баланс. 22.09.2026 просадка И14 на общем
+    счёте (238 USDT) выглядела как «просадка бота 22 %», и Decision Core слал вето каждые 5 минут.
+    """
+    from database import get_db_connection, _q
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(_q("SELECT pnl FROM trades WHERE status = 'CLOSED' ORDER BY id"))
+        pnls = [float(r["pnl"] or 0.0) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+    base = _capital_cap() or INITIAL_BALANCE
+    cum = peak = 0.0
+    for p in pnls:
+        cum += p
+        peak = max(peak, cum)
+    top = base + peak
+    return max(0.0, (peak - cum) / top * 100) if top > 0 else 0.0
+
+
 def current_drawdown_pct() -> float:
-    """Текущий drawdown в % от пикового баланса."""
+    """Текущий drawdown в % от пикового баланса; на счёте, отданном И14, — по сделкам самого бота."""
+    if _real_orders_mode() and account_shared_with_portfolio():
+        return own_trades_drawdown_pct()
     peak = get_peak_balance()
     current = get_current_balance()
     if peak <= 0:
