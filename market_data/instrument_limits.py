@@ -23,8 +23,10 @@ from typing import Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-INSTRUMENTS_URL = "https://api.bybit.com/v5/market/instruments-info"
-TESTNET_INSTRUMENTS_URL = "https://api-testnet.bybit.com/v5/market/instruments-info"
+from exchange.bybit_client import instruments_url      # один источник адреса (23.09.2026)
+
+INSTRUMENTS_URL = instruments_url()
+TESTNET_INSTRUMENTS_URL = instruments_url(testnet=True)
 CACHE_TTL_SECONDS = 6 * 3600
 
 _cache: Dict[str, Tuple[float, dict]] = {}

@@ -388,15 +388,16 @@ def test_candidates_skip_stocks_etf_commodities_by_exchange_fields(monkeypatch, 
     assert cli.continuation_candidates(ages) == ["BTCUSDT", "CAPUSDT"]
 
 
-def test_client_positions_are_signed(monkeypatch):
+def test_client_positions_are_signed_and_valued_at_the_current_price(monkeypatch):
+    """Номинал — по текущей цене: вход + нереализованный результат (до 23.09.2026 был номинал входа)."""
     from types import SimpleNamespace
     from portfolio.client import PortfolioClient
     cli = PortfolioClient(api_key="k", api_secret="s", demo=True)
     monkeypatch.setattr(cli, "get_positions", lambda symbol=None: [
-        SimpleNamespace(symbol="AUSDT", side="Buy", size=2.0, entry_price=10.0),
-        SimpleNamespace(symbol="BUSDT", side="Sell", size=3.0, entry_price=5.0),
-        SimpleNamespace(symbol="CUSDT", side="", size=0.0, entry_price=0.0)])
-    assert cli.positions_usdt() == {"AUSDT": 20.0, "BUSDT": -15.0}
+        SimpleNamespace(symbol="AUSDT", side="Buy", size=2.0, entry_price=10.0, unrealised_pnl=4.0),
+        SimpleNamespace(symbol="BUSDT", side="Sell", size=3.0, entry_price=5.0, unrealised_pnl=-3.0),
+        SimpleNamespace(symbol="CUSDT", side="", size=0.0, entry_price=0.0, unrealised_pnl=0.0)])
+    assert cli.positions_usdt() == {"AUSDT": 24.0, "BUSDT": -18.0}, "лонг вырос до 12, шорт — цена выросла до 6"
     assert cli.positions_qty() == {"AUSDT": 2.0, "BUSDT": -3.0}
 
 

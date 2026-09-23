@@ -151,6 +151,10 @@ def send_spike_alert(symbol: str, spike_analysis: Dict):
     try:
         send_message(message)
         _last_alerts[alert_key] = current_time
+        # Раньше отправка не писала в журнал ни строки: «за 7 дней ни одного сообщения» нельзя было
+        # ни подтвердить, ни опровергнуть по логам (23.09.2026).
+        logger.info("⚡ Резкое движение отправлено владельцу: %s %s %s %.2f%%",
+                    symbol, spike_analysis.get("timeframe", "15m"), direction, spike_pct)
     except Exception as e:
         logger.error("Alert send error: %s", e)
 

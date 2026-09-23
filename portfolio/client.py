@@ -78,12 +78,17 @@ class PortfolioClient(BybitClient):
         return [s for _, s in ok[:CANDIDATES]]
 
     def positions_usdt(self) -> Dict[str, float]:
-        """Подписанный номинал открытых позиций по цене входа: + лонг, − шорт."""
+        """
+        Подписанный номинал открытых позиций по ТЕКУЩЕЙ цене: + лонг, − шорт. Считается без лишних
+        запросов — из цены входа и нереализованного результата: знак × размер × вход + нереализованный
+        (для лонга это размер × цена, для шорта — минус размер × цена). До 23.09.2026 «валовая» в
+        отчётах и мини-аппе была номиналом входа и расходилась с рынком тем сильнее, чем дольше позиция.
+        """
         out = {}
         for p in self.get_positions():
             if p.size > 0:
                 sign = 1 if str(p.side).lower() in ("buy", "long") else -1
-                out[p.symbol] = sign * p.size * p.entry_price
+                out[p.symbol] = sign * p.size * p.entry_price + float(p.unrealised_pnl or 0.0)
         return out
 
     def positions_qty(self) -> Dict[str, float]:

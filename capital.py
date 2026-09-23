@@ -102,12 +102,33 @@ def _capped(snap):
     return (view, max(min(available, view - used), 0.0))
 
 
+def own_capital() -> float:
+    """
+    Капитал самого бота на счёте, отданном портфелю И14: потолок REAL_CAPITAL_CAP_USDT (а без него —
+    бумажный стартовый баланс) плюс результат его закрытых сделок. Equity кошелька тут не годится:
+    её двигают позиции И14 и демо-монеты (22.09.2026 просадка И14 читалась как просадка бота).
+    """
+    from database import get_db_connection, _q
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(_q("SELECT COALESCE(SUM(pnl), 0) AS pnl FROM trades WHERE status = 'CLOSED'"))
+        row = cursor.fetchone()
+        pnl = float(row["pnl"] or 0.0) if row else 0.0
+    finally:
+        conn.close()
+    return max(0.0, (_capital_cap() or INITIAL_BALANCE) + pnl)
+
+
 def get_current_balance():
     """
     Полный капитал в USDT: equity кошелька в реальных режимах, иначе бумажный
     стартовый баланс плюс PnL закрытых бумажных сделок. Замороженное в открытых
-    позициях не вычитается — для этого get_available_capital().
+    позициях не вычитается — для этого get_available_capital(). На счёте, отданном
+    И14, — собственный капитал бота (own_capital).
     """
+    if _real_orders_mode() and account_shared_with_portfolio():
+        return own_capital()
     if _real_orders_mode():
         snap = _wallet_snapshot()
         return _capped(snap)[0] if snap else 0.0

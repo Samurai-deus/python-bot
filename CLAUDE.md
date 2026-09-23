@@ -95,10 +95,12 @@ market_bot/
 │   ├── models.py           # Pydantic v2 response schemas
 │   └── routers/
 │       ├── system.py       # GET /api/system/health, /balance
-│       ├── positions.py    # GET /api/positions/open, /history
-│       ├── signals.py      # GET /api/signals/latest, /history
-│       ├── analytics.py    # GET /api/analytics/summary, /equity-curve, /by-symbol, /pnl-history
+│       ├── research.py     # GET /api/research/overview — снимок исследовательской программы
+│       ├── auth.py         # POST /api/auth/session — обмен initData на токен
+│       ├── settings.py     # GET/PUT /api/settings
 │       └── ws.py           # WS /api/ws (5s push loop)
+│       (роутеры positions/signals/analytics удалены 23.09.2026: мини-апп v2 их не звал,
+│        Telegram-бот ходит в базу напрямую)
 │
 ├── run_api.py              # Launcher: python run_api.py (fixes sys.path для uvicorn)
 │

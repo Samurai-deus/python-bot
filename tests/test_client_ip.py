@@ -96,7 +96,7 @@ def test_whitelist_bypass_scenario_end_to_end():
     ("/metricsfoo", False),
     # Здоровье системы нужно экрану Mini App у всех допущенных пользователей
     ("/api/system/health", False),
-    ("/api/positions", False),
+    ("/api/research/overview", False),
 ])
 def test_is_protected(path, protected):
     assert is_protected(path) is protected

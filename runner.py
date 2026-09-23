@@ -91,6 +91,12 @@ AUTO_RESUME_SUCCESS_CYCLES = int(os.environ.get("AUTO_RESUME_SUCCESS_CYCLES", "3
 
 # Analysis timing limits
 MAX_ANALYSIS_TIME = float(os.environ.get("MAX_ANALYSIS_TIME", "30"))  # секунд - мягкий лимит
+
+
+def _signal_trading_enabled() -> bool:
+    """Сигнальная торговля бота включена. Выключена (счёт у И14) — паузу ставить не от чего."""
+    from utils.env import env_flag
+    return env_flag("SIGNAL_TRADING_ENABLED", True)
 ALERT_ANALYSIS_TIME = float(os.environ.get("ALERT_ANALYSIS_TIME", "60"))  # секунд - порог для алерта
 ALERT_COOLDOWN = int(os.environ.get("ALERT_COOLDOWN", "300"))  # секунд - cooldown между алертами
 METRICS_LOG_INTERVAL = int(os.environ.get("METRICS_LOG_INTERVAL", "600"))  # секунд - интервал логирования метрик
@@ -596,7 +602,7 @@ async def evaluate_and_send_alerts(duration: float):
                 
                 # HARDENING: CRITICAL alerts: приостанавливаем торговлю через manual pause
                 # FIX: используем _metrics_lock для thread-safe мутации (как в pause_trading_manually)
-                if alert.get("pause_trading") and alert["level"] == "CRITICAL":
+                if alert.get("pause_trading") and alert["level"] == "CRITICAL" and _signal_trading_enabled():
                     with _metrics_lock:
                         _control_plane_state["manual_pause_active"] = True
                         _adaptive_system_state["recovery_cycles"] = 0

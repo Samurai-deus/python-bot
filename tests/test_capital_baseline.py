@@ -92,6 +92,19 @@ def test_shared_account_drawdown_comes_from_the_bots_own_trades(real, monkeypatc
     assert capital.current_drawdown_pct() == pytest.approx(20.0 / 1050.0 * 100), "пик +50, сейчас +30 — от капитала бота 1000 + пик"
 
 
+def test_shared_account_capital_is_the_bots_own(real, monkeypatch):
+    """23.09.2026: размер позиций бота считался от equity общего с И14 счёта — теперь от его капитала."""
+    wallet, _ = real
+    capital.get_initial_balance()
+    wallet.equity = 5000.0
+    assert capital.get_current_balance() == pytest.approx(5000.0), "свой счёт — по кошельку"
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    monkeypatch.setattr(capital, "_capital_cap", lambda: 1000.0)
+    assert capital.get_current_balance() == pytest.approx(1000.0), "счёт у И14 — потолок бота без его сделок"
+    add_closed(database, [40.0, -15.0])
+    assert capital.get_current_balance() == pytest.approx(1025.0) and capital.own_capital() == pytest.approx(1025.0)
+
+
 def test_testnet_and_live_keep_separate_baselines(real):
     wallet, mode = real
     capital.get_initial_balance()
