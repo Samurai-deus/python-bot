@@ -114,6 +114,17 @@ def _signal_trading_enabled() -> bool:
     return env_flag("SIGNAL_TRADING_ENABLED", True)
 
 
+async def check_spikes(symbols, raw_candles) -> None:
+    """Проверка резких движений по сырым свечам; её сбой цикл не роняет."""
+    logger.info("🔍 Проверка резких движений...")
+    try:
+        await asyncio.wait_for(asyncio.to_thread(check_all_symbols_for_spikes, symbols, raw_candles), timeout=30.0)
+    except asyncio.TimeoutError:
+        logger.warning("⏱ Таймаут проверки резких движений")
+    except Exception as e:
+        logger.warning("⚠️ Ошибка при проверке резких движений: %s", e)
+
+
 def _send_notice(text: str) -> None:
     task = asyncio.create_task(send_message_async(text), name="TelegramNotify")
     RUNNING_TASKS.add(task)
@@ -303,6 +314,17 @@ async def run_market_analysis():
         raw_candles = all_candles
         all_candles = closed_candles(raw_candles, int(time.time() * 1000), keep=DECISION_BARS)
         _update_price_cache(raw_candles)
+
+        if not _signal_trading_enabled():
+            # Счёт отдан портфелю И14 (правило И14, 14.09.2026): сигнал бота всё равно отбрасывает
+            # выключатель на последнем шаге — 23.09.2026 в журнале 139 из 146 записей за сутки с
+            # причиной halt. Поэтому дальше цикл не идёт: «мозги», корреляции, Decision Core и
+            # генерация сигналов занимали 12–34 с и поднимали тревогу «анализ дольше 30 с».
+            # Остаются свечи (кэш цены) и проверка резких движений — по ним отметка здоровья.
+            await check_spikes(symbols, raw_candles)
+            logger.info("⏸ Сигнальная торговля выключена — короткий цикл: свечи и резкие движения")
+            system_state.reset_errors()
+            return True
         
         # Check budget and yield after data loading (shutdown-aware)
         try:
@@ -426,17 +448,7 @@ async def run_market_analysis():
             logger.info("Iteration cancelled due to shutdown")
             raise
         
-        # Проверка резких движений
-        logger.info("🔍 Проверка резких движений...")
-        try:
-            await asyncio.wait_for(
-                asyncio.to_thread(check_all_symbols_for_spikes, symbols, raw_candles),
-                timeout=30.0
-            )
-        except asyncio.TimeoutError:
-            logger.warning("⏱ Таймаут проверки резких движений")
-        except Exception as e:
-            logger.warning("⚠️ Ошибка при проверке резких движений: %s", e)
+        await check_spikes(symbols, raw_candles)
         
         # Check budget and yield after spike check (shutdown-aware)
         try:

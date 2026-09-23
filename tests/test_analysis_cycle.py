@@ -208,6 +208,19 @@ def test_the_same_veto_is_sent_once_and_its_lifting_once(cycle):
     assert len(cycle.sent) == 3 and "вето снято" in cycle.sent[2], "снятие — одно сообщение"
 
 
+def test_short_cycle_skips_signals_while_signal_trading_is_off(cycle, monkeypatch):
+    """23.09.2026: сигналы бота всё равно отбрасывает выключатель — цикл заканчивается на свечах и спайках."""
+    spikes = []
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    monkeypatch.setattr(analysis, "check_all_symbols_for_spikes", lambda symbols, candles: spikes.append(list(symbols)))
+    calls = []
+    cycle.decision_core.should_i_trade = lambda system_state: calls.append("decision") or cycle.decision
+    assert analyse() is True
+    assert cycle.candles_loaded == [["SOLUSDT"]] and spikes == [["SOLUSDT"]], "свечи и резкие движения остаются"
+    assert cycle.generated == [] and calls == [], "ни генерации сигналов, ни Decision Core"
+    assert cycle.state.resets == 1
+
+
 def test_no_veto_messages_while_signal_trading_is_off(cycle, monkeypatch):
     monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
     cycle.decision = SimpleNamespace(can_trade=False, reason="DRAWDOWN BREAKER: просадка 22.1% >= 20%", recommendations=[])
