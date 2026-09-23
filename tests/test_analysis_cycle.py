@@ -208,6 +208,15 @@ def test_the_same_veto_is_sent_once_and_its_lifting_once(cycle):
     assert len(cycle.sent) == 3 and "вето снято" in cycle.sent[2], "снятие — одно сообщение"
 
 
+def test_critical_alert_does_not_pause_trading_while_signals_are_off(monkeypatch):
+    """23.09.2026: алерт «анализ дольше 30 с» ставил паузу торговли, которой и так нет (счёт у И14)."""
+    import runner
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    assert runner._signal_trading_enabled() is False
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "true")
+    assert runner._signal_trading_enabled() is True
+
+
 def test_full_cycle_also_checks_spikes(cycle, monkeypatch):
     """Проверка резких движений идёт и в полном цикле — мутант «убрать вызов» выживал (23.09.2026)."""
     spikes = []

@@ -6,7 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
 BASE_URL = "https://api.bybit.com/v5/market/kline"
-INSTRUMENTS_URL = "https://api.bybit.com/v5/market/instruments-info"
+from exchange.bybit_client import instruments_url      # один источник адреса (23.09.2026)
+
+INSTRUMENTS_URL = instruments_url()
 
 # Переиспользуем одну Session для всех запросов — избегаем создания нового
 # TCP-соединения на каждый вызов (ThreadPoolExecutor безопасен с requests.Session).

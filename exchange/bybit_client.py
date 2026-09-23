@@ -129,6 +129,15 @@ class InstrumentFilters:
 
 # ========== CLIENT ==========
 
+MAINNET_REST = "https://api.bybit.com"
+TESTNET_REST = "https://api-testnet.bybit.com"
+INSTRUMENTS_PATH = "/v5/market/instruments-info"     # один источник адреса для всех модулей
+
+
+def instruments_url(testnet: bool = False) -> str:
+    return (TESTNET_REST if testnet else MAINNET_REST) + INSTRUMENTS_PATH
+
+
 class BybitClient:
     """
     Тонкий HTTP-клиент для Bybit V5 API.

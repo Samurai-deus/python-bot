@@ -54,7 +54,7 @@ describe('session (2.8)', () => {
   it('a request sent before the exchange finished waits for it', async () => {
     let finish: (value: unknown) => void = () => undefined
     const exchange = startSession(() => new Promise((resolve) => { finish = resolve }))
-    const request = apiClient.get('/api/positions/open')
+    const request = apiClient.get('/api/research/overview')
     await Promise.resolve()
     expect(seen).toHaveLength(0)
     finish({ token: 's1.late' })
