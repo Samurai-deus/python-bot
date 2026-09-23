@@ -15,6 +15,24 @@ logger = logging.getLogger(__name__)
 _last_alerts = {}
 
 
+def spike_threshold_pct() -> float:
+    """Движение считается резким от этого процента (SPIKE_THRESHOLD_PCT)."""
+    from utils.env import env_float
+    return env_float("SPIKE_THRESHOLD_PCT", 1.5)
+
+
+def spike_alert_min_pct() -> float:
+    """Сообщение владельцу — только от этого процента (SPIKE_ALERT_MIN_PCT)."""
+    from utils.env import env_float
+    return env_float("SPIKE_ALERT_MIN_PCT", 2.0)
+
+
+def spike_alert_cooldown_sec() -> float:
+    """Окно повтора по символу и таймфрейму, секунды (SPIKE_ALERT_COOLDOWN_SEC)."""
+    from utils.env import env_float
+    return env_float("SPIKE_ALERT_COOLDOWN_SEC", 1800)
+
+
 def analyze_spike_with_context(symbol: str, candles: List, timeframe: str = "15m") -> Optional[Dict]:
     """
     Анализирует резкое движение и определяет, есть ли видимая причина.
@@ -33,7 +51,7 @@ def analyze_spike_with_context(symbol: str, candles: List, timeframe: str = "15m
         return None
     
     # Проверяем спайк
-    spike_info = check_price_spike(candles, threshold_pct=1.5)
+    spike_info = check_price_spike(candles, threshold_pct=spike_threshold_pct())
     
     if not spike_info.get("has_spike", False):
         return None
@@ -90,7 +108,7 @@ def analyze_spike_with_context(symbol: str, candles: List, timeframe: str = "15m
     
     # Определяем, нужно ли отправлять алерт
     should_alert = False
-    if not has_visible_reason and spike_info.get("spike_pct", 0) > 2.0:
+    if not has_visible_reason and spike_info.get("spike_pct", 0) > spike_alert_min_pct():
         # Резкое движение без видимой причины - отправляем алерт
         should_alert = True
     
@@ -115,8 +133,8 @@ def send_spike_alert(symbol: str, spike_analysis: Dict):
     last_alert_time = _last_alerts.get(alert_key, 0)
     current_time = datetime.now(UTC).timestamp()
     
-    # Не отправляем алерт чаще чем раз в 30 минут
-    if current_time - last_alert_time < 1800:
+    # Не чаще одного сообщения в окно по символу и таймфрейму
+    if current_time - last_alert_time < spike_alert_cooldown_sec():
         return
     
     spike_pct = spike_analysis.get("spike_pct", 0)
