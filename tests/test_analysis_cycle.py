@@ -208,38 +208,31 @@ def test_the_same_veto_is_sent_once_and_its_lifting_once(cycle):
     assert len(cycle.sent) == 3 and "вето снято" in cycle.sent[2], "снятие — одно сообщение"
 
 
-def run_alerts(monkeypatch, duration, trading: str):
-    """evaluate_and_send_alerts на одном длинном обороте; возвращает (отправленные тексты, пауза)."""
+def dispatch(monkeypatch, trading: str, pause_flag: bool = True):
+    """dispatch_alerts на одном CRITICAL-алерте; возвращает (отправленное, состояние ручной паузы)."""
     import asyncio
 
     import runner
     sent = []
     monkeypatch.setenv("SIGNAL_TRADING_ENABLED", trading)
-    monkeypatch.setattr(runner, "get_analysis_metrics", lambda: {"last_analysis_duration": duration, "volatility": 0.0,
-                                                           "start_time": None, "analysis_count": 1,
-                                                           "last_heartbeat": None})
     monkeypatch.setattr(runner, "send_message_async", lambda text: sent.append(text) or asyncio.sleep(0))
-    monkeypatch.setattr(runner, "_alert_last_sent", {})
     monkeypatch.setattr(runner, "_control_plane_state", {"manual_pause_active": False})
     monkeypatch.setattr(runner, "_adaptive_system_state", {"recovery_cycles": 3})
     monkeypatch.setattr(runner, "get_state_machine", lambda: SimpleNamespace(sync_to_system_state=lambda *a, **k: None))
-    asyncio.run(runner.evaluate_and_send_alerts(duration))
+    alert = {"level": "CRITICAL", "type": "analysis_duration", "message": "CRITICAL: анализ дольше предела",
+             "pause_trading": pause_flag}
+    asyncio.run(runner.dispatch_alerts([alert]))
     return sent, runner._control_plane_state["manual_pause_active"]
 
 
 def test_critical_alert_pauses_trading_only_while_signals_are_on(monkeypatch):
     """23.09.2026: алерт «анализ дольше 30 с» ставил паузу торговли, которой и так нет (счёт у И14)."""
-    long_cycle = runner_max_analysis_time() + 5
-    sent, paused = run_alerts(monkeypatch, long_cycle, "false")
-    assert any("CRITICAL" in t for t in sent), "сообщение владельцу уходит в обоих случаях"
-    assert paused is False, "сигналы выключены — паузу ставить не от чего"
-    sent, paused = run_alerts(monkeypatch, long_cycle, "true")
-    assert paused is True, "сигналы включены — пауза по-прежнему ставится"
-
-
-def runner_max_analysis_time() -> float:
-    import runner
-    return runner.MAX_ANALYSIS_TIME
+    sent, paused = dispatch(monkeypatch, "false")
+    assert len(sent) == 1 and paused is False, "сообщение уходит, но паузу ставить не от чего"
+    sent, paused = dispatch(monkeypatch, "true")
+    assert len(sent) == 1 and paused is True, "сигналы включены — пауза по-прежнему ставится"
+    _, paused = dispatch(monkeypatch, "true", pause_flag=False)
+    assert paused is False, "алерт без требования паузы её не ставит"
 
 
 def test_full_cycle_also_checks_spikes(cycle, monkeypatch):

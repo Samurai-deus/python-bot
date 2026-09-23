@@ -432,6 +432,29 @@ def _mark_alert_sent(alert_key: str):
     with _metrics_lock:
         _alert_last_sent[alert_key] = time.monotonic()
 
+async def dispatch_alerts(alerts_to_send) -> None:
+    """
+    Отправляет собранные алерты владельцу и по CRITICAL с pause_trading ставит ручную паузу — только когда
+    сигнальная торговля включена (счёт отдан портфелю И14 — паузу ставить не от чего). Отдельная функция,
+    чтобы ветку проверял тест, а не глобальное состояние модуля: 23.09.2026 тест на порогах проходил
+    локально и падал в CI.
+    """
+    for alert in alerts_to_send:
+        try:
+            await send_message_async(alert["message"])
+            logger.info("Alert sent: %s - %s", alert['level'], alert['type'])
+            if alert.get("pause_trading") and alert["level"] == "CRITICAL" and _signal_trading_enabled():
+                with _metrics_lock:
+                    _control_plane_state["manual_pause_active"] = True
+                    _adaptive_system_state["recovery_cycles"] = 0
+                get_state_machine().sync_to_system_state(system_state, manual_pause_active=True)
+                logger.error("Trading paused due to CRITICAL alert: %s", alert['type'])
+        except asyncio.TimeoutError:
+            logger.warning("Timeout sending alert: %s - %s", alert['level'], alert['type'])
+        except Exception as e:
+            logger.warning("Error sending alert %s - %s: %s: %s", alert['level'], alert['type'], type(e).__name__, e)
+
+
 async def evaluate_and_send_alerts(duration: float):
     """
     Оценивает условия для алертов и отправляет их асинхронно.
@@ -593,27 +616,7 @@ async def evaluate_and_send_alerts(duration: float):
                     _mark_alert_sent(alert_key)
                     logger.error("CRITICAL alert: Scheduler stall detected (missed %d heartbeats)", missed_heartbeats)
         
-        # Отправляем все алерты (неблокирующе)
-        for alert in alerts_to_send:
-            try:
-                # Отправляем через Telegram (неблокирующе)
-                await send_message_async(alert["message"])
-                logger.info("Alert sent: %s - %s", alert['level'], alert['type'])
-                
-                # HARDENING: CRITICAL alerts: приостанавливаем торговлю через manual pause
-                # FIX: используем _metrics_lock для thread-safe мутации (как в pause_trading_manually)
-                if alert.get("pause_trading") and alert["level"] == "CRITICAL" and _signal_trading_enabled():
-                    with _metrics_lock:
-                        _control_plane_state["manual_pause_active"] = True
-                        _adaptive_system_state["recovery_cycles"] = 0
-                    state_machine = get_state_machine()
-                    state_machine.sync_to_system_state(system_state, manual_pause_active=True)
-                    logger.error("Trading paused due to CRITICAL alert: %s", alert['type'])
-                    
-            except asyncio.TimeoutError:
-                logger.warning("Timeout sending alert: %s - %s", alert['level'], alert['type'])
-            except Exception as e:
-                logger.warning("Error sending alert %s - %s: %s: %s", alert['level'], alert['type'], type(e).__name__, e)
+        await dispatch_alerts(alerts_to_send)
                 
     except Exception as e:
         # Не блокируем analysis loop при ошибках в алертах
