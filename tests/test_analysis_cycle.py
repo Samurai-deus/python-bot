@@ -208,6 +208,14 @@ def test_the_same_veto_is_sent_once_and_its_lifting_once(cycle):
     assert len(cycle.sent) == 3 and "вето снято" in cycle.sent[2], "снятие — одно сообщение"
 
 
+def test_full_cycle_also_checks_spikes(cycle, monkeypatch):
+    """Проверка резких движений идёт и в полном цикле — мутант «убрать вызов» выживал (23.09.2026)."""
+    spikes = []
+    monkeypatch.setattr(analysis, "check_all_symbols_for_spikes", lambda symbols, candles: spikes.append(list(symbols)))
+    assert analyse() is True and cycle.generated, "полный цикл: сигналы генерируются"
+    assert spikes == [["SOLUSDT"]]
+
+
 def test_short_cycle_skips_signals_while_signal_trading_is_off(cycle, monkeypatch):
     """23.09.2026: сигналы бота всё равно отбрасывает выключатель — цикл заканчивается на свечах и спайках."""
     spikes = []
