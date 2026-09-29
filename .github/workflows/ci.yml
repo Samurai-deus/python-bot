@@ -81,7 +81,6 @@ jobs:
           python-version: "3.14"
           cache: pip
       - run: pip install --require-hashes -r requirements-dev.lock
-          pip install pytest-timeout
       - name: pytest
         # Переменных окружения нет намеренно: тесты обязаны проходить без них.
         # Таймаут на тест — страховка от зависшего сторожевого потока: раньше

@@ -46,3 +46,14 @@ def test_image_and_ci_install_from_the_lock_with_hashes():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "--require-hashes -r requirements-dev.lock" in ci
     assert not re.search(r"uses: [\w\-/]+@v\d", ci), "действия закреплены по SHA, а не по тегу"
+
+
+def test_ci_steps_are_well_formed():
+    """29.09.2026: замена в ci.yml склеила две команды в одну строку run — тесты в CI не поставились."""
+    import yaml
+    ci = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    for name, job in ci["jobs"].items():
+        for step in job["steps"]:
+            run = step.get("run")
+            if isinstance(run, str) and run.startswith("pip install"):
+                assert run.count("pip install") == 1, (name, run)
