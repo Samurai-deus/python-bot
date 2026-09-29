@@ -38,6 +38,39 @@ find "$DIR" -name 'market_bot-*.db.gz' -mtime +"$KEEP_DAYS" -print -delete
 
 echo "backup ok: $DIR/$name.gz ($(du -h "$DIR/$name.gz" | cut -f1))"
 
+# Базы исполнителей И14/И18/И13 (аудит 29.09.2026: не копировались вовсе). В них пик стоимости,
+# отметка остановки по правилу и дата старта — потеря тома обнулила бы стоп и итоги эксперимента.
+# Та же согласованная копия backup_sqlite.py внутри каждого контейнера (путь базы — через DB_PATH).
+stamp=$(date +%Y%m%d-%H%M%S)
+work="$DIR/executors-$stamp"
+mkdir -p "$work"
+for spec in market-bot-portfolio:/portfolio/portfolio.db market-bot-btcalts:/btcalts/btcalts.db market-bot-carry:/carry/carry.db; do
+  ctr=${spec%%:*}
+  db=${spec#*:}
+  copy="$(dirname "$db")/backup-$stamp.db"
+  docker exec -e DB_PATH="$db" "$ctr" python scripts/backup_sqlite.py "$copy"
+  docker cp "$ctr:$copy" "$work/$(basename "$db")"
+  docker exec "$ctr" rm -f "$copy"
+done
+tar -czf "$work.tar.gz" -C "$work" .
+rm -rf "$work"
+tar -tzf "$work.tar.gz" > /dev/null
+chmod 600 "$work.tar.gz"
+find "$DIR" -name 'executors-*.tar.gz' -mtime +"$KEEP_DAYS" -print -delete
+echo "backup ok: $work.tar.gz ($(du -h "$work.tar.gz" | cut -f1))"
+
+# Форвардная запись И19б (межбиржевой фандинг, вердикт 16.11) — прошлое не перезаписать. Только
+# локальная копия, 3 дня: база растёт ~5 МБ в сутки и скоро перерастёт лимит Telegram (50 МБ).
+xf="xfunding_live-$stamp.db"
+docker exec -e DB_PATH=/data/db/xfunding_live.db market-bot-news python scripts/backup_sqlite.py "/data/backups/$xf"
+docker cp "market-bot-news:/data/backups/$xf" "$DIR/$xf"
+docker exec market-bot-news rm -f "/data/backups/$xf"
+gzip -9 "$DIR/$xf"
+gzip -t "$DIR/$xf.gz"
+chmod 600 "$DIR/$xf.gz"
+find "$DIR" -name 'xfunding_live-*.db.gz' -mtime +2 -print -delete
+echo "backup ok: $DIR/$xf.gz ($(du -h "$DIR/$xf.gz" | cut -f1)), только на сервере"
+
 offsite() {
   src="$1"
   if [ ! -s "$KEY" ]; then
@@ -70,3 +103,4 @@ offsite() {
 }
 
 offsite "$DIR/$name.gz" || exit 1
+offsite "$work.tar.gz" || exit 1

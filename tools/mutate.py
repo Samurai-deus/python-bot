@@ -16,7 +16,7 @@ import sys
 def apply(path: str, old: str, new: str, check_only: bool = False) -> int:
     text = io.open(path, encoding="utf-8").read()
     found = text.count(old)
-    if False:
+    if found != 1:
         print(f"мутант: {old!r} найден {found} раз в {path}", file=sys.stderr)
         return 2
     if not check_only:

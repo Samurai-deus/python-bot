@@ -182,6 +182,7 @@ class FakeBybitPortfolio:
         self.leverage = {}
         self.fail_symbols = set()
         self.steps = step_by_symbol or {}
+        self.equity_reads = []          # очередь ответов кошелька (сбойный ответ, затем нормальный)
 
     def market_data(self, symbols, t, ages=None):
         return {s: {**series(t, 35, start=100.0, step=self.steps.get(s, 0.01)), "turn30": 1e7, "age_d": 500} for s in symbols}
@@ -213,8 +214,8 @@ class FakeBybitPortfolio:
         self.orders.append((symbol, side, float(qty), reduce_only))
         self.qty[symbol] = self.qty.get(symbol, 0.0) + (float(qty) if side == "Buy" else -float(qty))
 
-    def usdt_equity(self):
-        return self.equity
+    def usdt_equity(self, strict=True):
+        return self.equity_reads.pop(0) if self.equity_reads else self.equity
 
     def settlements(self, start_ms):
         return [{"id": "f1", "symbol": "BTCUSDT", "change": "0.5", "transactionTime": str(self.t)}]
@@ -321,6 +322,7 @@ def test_usdt_equity_ignores_demo_coins(monkeypatch):
 
 
 def test_failed_orders_are_retried_next_hour_only_for_those_symbols(env):
+    """Аудит 29.09: повтор пересчитывал все цели по новым ценам и дёргал позиции, сдвинувшиеся больше чем на 5 USDT."""
     store, _ = env
     cli = FakeBybitPortfolio(MONDAY)
     pm.cycle(cli, store, MONDAY - DAY)
@@ -328,12 +330,135 @@ def test_failed_orders_are_retried_next_hour_only_for_those_symbols(env):
     pm.cycle(cli, store, MONDAY + 3 * 60_000)
     assert store.get("last_rebalance_t") != str(MONDAY), "неделя не закрыта, пока есть непрошедший ордер"
     assert not any(o[0] == "BTCUSDT" for o in cli.orders)
+    first = json.loads(store.conn.execute("SELECT weights FROM rebalance_runs").fetchone()[0])
     n = len(cli.orders)
     cli.fail_symbols = set()
+    for sym in cli.prices:
+        cli.prices[sym] *= 1.2                          # за час всё выросло на 20 %
+    cli.steps = {sym: -0.05 for sym in cli.prices}      # и сигналы по новым свечам были бы другими
     pm.cycle(cli, store, MONDAY + 3_600_000 + 3 * 60_000)
     assert store.get("last_rebalance_t") == str(MONDAY)
     new = cli.orders[n:]
-    assert [o[0] for o in new] == ["BTCUSDT"], "повторяется только не прошедшее"
+    assert [o[0] for o in new] == ["BTCUSDT"], "повторяется только не прошедшее, остальные позиции не трогаются"
+    last = json.loads(store.conn.execute("SELECT weights FROM rebalance_runs ORDER BY done_ms DESC").fetchone()[0])
+    assert last == first, "цели повтора — те же, что у первого прогона недели"
+
+
+def test_missing_price_fails_the_symbol_instead_of_silently_skipping_it(env):
+    """Аудит 29.09: get_mark_price при сбое даёт 0, монета выпадала из ребалансировки, а неделя считалась сделанной."""
+    store, _ = env
+    cli = FakeBybitPortfolio(MONDAY)
+    pm.cycle(cli, store, MONDAY - DAY)
+    real = cli.get_mark_price
+    cli.get_mark_price = lambda sym: 0.0 if sym == "ETHUSDT" else real(sym)
+    pm.cycle(cli, store, MONDAY + 3 * 60_000)
+    assert store.get("last_rebalance_t") != str(MONDAY), "неделя не закрыта"
+    failed = json.loads(store.conn.execute("SELECT failed FROM rebalance_runs").fetchone()[0])
+    assert [f[0] for f in failed] == ["ETHUSDT"]
+    cli.get_mark_price = real
+    pm.cycle(cli, store, MONDAY + 3_600_000 + 3 * 60_000)
+    assert cli.qty.get("ETHUSDT", 0.0) != 0.0 and store.get("last_rebalance_t") == str(MONDAY)
+
+
+def test_instrument_error_on_one_symbol_does_not_abort_the_rebalance(env):
+    store, _ = env
+    cli = FakeBybitPortfolio(MONDAY)
+    pm.cycle(cli, store, MONDAY - DAY)
+    real = cli.get_instrument_filters
+
+    def flaky(sym):
+        if sym == "SOLUSDT":
+            raise RuntimeError("нет данных инструмента SOLUSDT")
+        return real(sym)
+    cli.get_instrument_filters = flaky
+    pm.cycle(cli, store, MONDAY + 3 * 60_000)
+    assert cli.qty.get("BTCUSDT", 0.0) != 0.0, "остальные монеты доведены"
+    failed = json.loads(store.conn.execute("SELECT failed FROM rebalance_runs").fetchone()[0])
+    assert [f[0] for f in failed] == ["SOLUSDT"]
+
+
+def test_order_below_exchange_minimum_after_rounding_is_dust():
+    """Шаг 0,1 при цене 40: разница 7 USDT → 0,1 → 4 USDT < 5 — биржа отклонит; такой ордер не ставится."""
+    fl = {"AUSDT": filters("AUSDT", step="0.1", min_qty="0.1", min_notional="5")}
+    assert engine.orders_to_target({"AUSDT": 7.0}, {}, {"AUSDT": 40.0}, fl, 5.0) == []
+    orders = engine.orders_to_target({"AUSDT": 9.0}, {}, {"AUSDT": 40.0}, fl, 5.0)
+    assert [o.qty for o in orders] == [Decimal("0.2")], "0,2 × 40 = 8 ≥ 5 — ставится"
+
+
+def test_rebalance_does_not_touch_foreign_positions(env):
+    """Чужая позиция на счёте (бот) не закрывается ребалансировкой, хоть её и нет в целях И14."""
+    store, _ = env
+    cli = FakeBybitPortfolio(MONDAY)
+    pm.cycle(cli, store, MONDAY - DAY)
+    cli.prices["BOTUSDT"] = 100.0
+    cli.qty["BOTUSDT"] = 3.0
+    pm.cycle(cli, store, MONDAY + 3 * 60_000)
+    assert cli.qty["BOTUSDT"] == 3.0 and not any(o[0] == "BOTUSDT" for o in cli.orders)
+
+
+def test_single_bad_equity_read_does_not_halt(env):
+    """Остановка необратима: один сбойный ответ кошелька (тут — 0) не должен закончить эксперимент."""
+    store, _ = env
+    cli = FakeBybitPortfolio(MONDAY)
+    pm.cycle(cli, store, MONDAY - DAY)
+    pm.cycle(cli, store, MONDAY + 3 * 60_000)
+    cli.equity_reads = [0.0]
+    pm.cycle(cli, store, MONDAY + 3_600_000)
+    assert not store.get("halted") and cli.positions_qty()
+    ev = store.conn.execute("SELECT COUNT(*) FROM events WHERE kind = 'drawdown_unconfirmed'").fetchone()[0]
+    assert ev == 1
+
+
+def test_wallet_without_usdt_is_an_error_not_zero(monkeypatch):
+    from portfolio.client import PortfolioClient
+    cli = PortfolioClient(api_key="k", api_secret="s", demo=True)
+    monkeypatch.setattr(cli, "wallet", lambda: {})
+    with pytest.raises(RuntimeError):
+        cli.usdt_equity()
+    assert cli.usdt_equity(strict=False) == 0.0, "до старта пустого субсчёта И18"
+
+
+def test_portfolio_client_is_pinned_to_demo_whatever_the_bot_mode(monkeypatch):
+    """Аудит 29.09: хост И14 выбирал резолвер режима бота — LIVE_TRADING=true увёл бы его на реальные деньги."""
+    from portfolio.client import demo_client
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    monkeypatch.setenv("BYBIT_DEMO", "false")
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("BYBIT_API_KEY", "k")
+    monkeypatch.setenv("BYBIT_API_SECRET", "s")
+    cli = demo_client()
+    assert cli.environment == "DEMO" and "demo" in cli._base_url
+    monkeypatch.setenv("BYBIT_API_KEY", "")
+    with pytest.raises(RuntimeError):
+        demo_client()
+    import inspect
+    assert "demo_client()" in inspect.getsource(pm.main), "цикл И14 создаёт клиент через demo_client"
+
+
+def test_cycle_runs_at_two_minutes_past_the_hour():
+    from portfolio import executor
+    assert executor.next_cycle_ms(MONDAY) == MONDAY + 2 * 60_000 + 5_000, "понедельник 00:02:05, а не минута старта"
+    assert executor.next_cycle_ms(MONDAY + 13 * 60_000) == MONDAY + 3_600_000 + 2 * 60_000 + 5_000
+    assert executor.next_cycle_ms(MONDAY + 2 * 60_000 + 5_000) == MONDAY + 3_600_000 + 2 * 60_000 + 5_000
+    assert engine.due_rebalance(executor.next_cycle_ms(MONDAY - 1), None) == MONDAY
+
+
+def test_halt_closes_positions_one_by_one_and_retries_the_rest(env, monkeypatch):
+    store, _ = env
+    sent = []
+    cli = FakeBybitPortfolio(MONDAY)
+    pm.cycle(cli, store, MONDAY - DAY)
+    pm.cycle(cli, store, MONDAY + 3 * 60_000)
+    monkeypatch.setattr(pm, "notify", lambda text: sent.append(text) or True)
+    held = sorted(cli.positions_qty())
+    cli.fail_symbols = {held[0]}
+    cli.equity = 2_000_000.0 - 2_600.0
+    pm.cycle(cli, store, MONDAY + DAY)
+    assert store.get("halted") and set(cli.positions_qty()) == {held[0]}, "остальные закрыты, несмотря на сбой первой"
+    assert any("НЕ ЗАКРЫТО 1" in t for t in sent)
+    cli.fail_symbols = set()
+    pm.cycle(cli, store, MONDAY + DAY + 3_600_000)
+    assert cli.positions_qty() == {} and any("Все позиции закрыты" in t for t in sent[1:])
 
 
 def test_drawdown_halt_closes_everything_and_stops(env):
@@ -399,6 +524,14 @@ def test_client_positions_are_signed_and_valued_at_the_current_price(monkeypatch
         SimpleNamespace(symbol="CUSDT", side="", size=0.0, entry_price=0.0, unrealised_pnl=0.0)])
     assert cli.positions_usdt() == {"AUSDT": 24.0, "BUSDT": -18.0}, "лонг вырос до 12, шорт — цена выросла до 6"
     assert cli.positions_qty() == {"AUSDT": 2.0, "BUSDT": -3.0}
+
+
+def test_launch_week_catch_up_flags_are_off_in_prod_compose():
+    """Разовые поправки 14–15.09: флаги остались включёнными — пропущенный понедельник догонялся бы по устаревшим сигналам."""
+    import re
+    from pathlib import Path
+    compose = (Path(__file__).resolve().parent.parent / "deploy" / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    assert not re.search(r'_START_THIS_WEEK:\s*"?(true|1|yes)', compose, re.I)
 
 
 def test_health_by_heartbeat_age(tmp_path):
