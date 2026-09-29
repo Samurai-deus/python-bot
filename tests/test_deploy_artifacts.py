@@ -96,7 +96,7 @@ def test_prod_compose_routes_telegram_via_host_gateway():
     не уходили с 14.09 по 21.09.2026.
     """
     services = compose_services((DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8"))
-    with_env = [n for n, b in services.items() if "/opt/market-bot/.env" in b and "image: market-bot:" in b]
+    with_env = [n for n, b in services.items() if "/opt/market-bot/env/" in b and "image: market-bot:" in b]
     assert len(with_env) >= 6, f"разбор compose не нашёл сервисы с .env: {with_env}"
     missing = [n for n in with_env if "host.docker.internal:host-gateway" not in services[n]]
     assert missing == [], f"сервисы с .env без выхода к прокси Telegram: {missing}"
@@ -520,7 +520,7 @@ def test_prod_compose_runs_the_news_collector_with_the_bot_db_and_proxy():
     compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
     block = compose.split("  news:\n", 1)[1].split("\n  # Запись стакана", 1)[0]
     assert '["python", "-m", "news"]' in block and '"news.health"' in block
-    assert "/opt/market-bot/.env" in block and "host.docker.internal:host-gateway" in block
+    assert "/opt/market-bot/env/news.env" in block and "host.docker.internal:host-gateway" in block
     assert "DB_PATH: /data/db/market_bot.db" in block and "market_data:/data" in block
     assert "memory:" in block and "market-bot-news" in block
     assert (ROOT / "news" / "__main__.py").is_file() and (ROOT / "news" / "health.py").is_file()
@@ -539,7 +539,7 @@ def test_prod_compose_runs_the_carry_executor_with_its_own_key_and_volume():
     compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
     block = compose.split("  carry:\n", 1)[1].split("\n  # Сборщик новостей", 1)[0]
     assert '["python", "-m", "carry"]' in block and '"carry.health"' in block
-    assert "/opt/market-bot/.env" in block and "carry_data:/carry" in block and "market-bot-carry" in block
+    assert "/opt/market-bot/env/carry.env" in block and "carry_data:/carry" in block and "market-bot-carry" in block
     assert "host.docker.internal:host-gateway" in block and "memory:" in block
     assert "  carry_data:" in compose.split("\nvolumes:\n", 1)[1]
     assert (ROOT / "carry" / "__main__.py").is_file() and (ROOT / "carry" / "health.py").is_file()
@@ -566,7 +566,7 @@ def test_prod_compose_runs_the_portfolio_executor_on_the_bot_account():
     compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
     block = compose.split("  portfolio:\n", 1)[1].split("\n  # Исполнитель И13", 1)[0]
     assert '["python", "-m", "portfolio"]' in block and '"portfolio.health"' in block
-    assert "/opt/market-bot/.env" in block and "DB_PATH: /data/db/market_bot.db" in block
+    assert "/opt/market-bot/env/portfolio.env" in block and "DB_PATH: /data/db/market_bot.db" in block
     assert "portfolio_data:/portfolio" in block and "market_data:/data" in block and "host-gateway" in block
     assert "  portfolio_data:" in compose.split("\nvolumes:\n", 1)[1]
     assert (ROOT / "portfolio" / "__main__.py").is_file() and (ROOT / "portfolio" / "health.py").is_file()
@@ -597,7 +597,7 @@ def test_prod_compose_runs_the_btcalts_executor_on_its_own_subaccount():
     compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
     block = compose.split("  btcalts:\n", 1)[1].split("\n  # Исполнитель И13", 1)[0]
     assert '["python", "-m", "btcalts"]' in block and '"btcalts.health"' in block and "market-bot-btcalts" in block
-    assert "/opt/market-bot/.env" in block and "btcalts_data:/btcalts" in block and "host-gateway" in block
+    assert "/opt/market-bot/env/btcalts.env" in block and "btcalts_data:/btcalts" in block and "host-gateway" in block
     assert 'BTCALTS_CAPITAL_USDT: "5000"' in block
     assert "  btcalts_data:" in compose.split("\nvolumes:\n", 1)[1]
     assert (ROOT / "btcalts" / "__main__.py").is_file() and (ROOT / "btcalts" / "health.py").is_file()
