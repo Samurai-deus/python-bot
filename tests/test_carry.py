@@ -95,7 +95,12 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("CARRY_DIR", str(tmp_path))
     monkeypatch.setenv("CARRY_SYMBOLS", "BTCUSDT,ETHUSDT")
     monkeypatch.setenv("CARRY_NOTIONAL_USDT", "10000")
+    monkeypatch.setattr(cm, "notify", lambda text: SENT.append(text) or True)
+    SENT.clear()
     return Store(str(tmp_path / "carry.db")), tmp_path
+
+
+SENT = []
 
 
 # --- чистая логика ------------------------------------------------------
@@ -197,6 +202,7 @@ def test_danger_margin_closes_everything_and_halts(env):
     cm.cycle(cli, store, NOW + 3_600_000)
     assert cli.shorts == {"BTCUSDT": 0.0, "ETHUSDT": 0.0}
     assert cli.coins["BTC"] == pytest.approx(0.0) and store.get("halted")
+    assert any("экстренное закрытие" in t and "Пары закрыты" in t for t in SENT), "правило: «в журнал и в Telegram»"
     n = len(cli.orders)
     cli.mm = 0.05
     cm.cycle(cli, store, NOW + 7_200_000)
@@ -272,3 +278,97 @@ def test_weekly_summary_not_sent_is_retried_the_same_day(tmp_path, monkeypatch):
     assert store.get(f"weekly:{monday}") and len(sent) == 1
     assert not cm.send_weekly_summary(store, 1.0, {}, monday + 4 * 3_600_000), "ушла — второй раз нет"
     assert not cm.weekly_summary_due(monday + 24 * 3_600_000 + 60_000, Store(str(tmp_path / "c2.db"))), "вторник — не день сводки"
+
+
+def test_emergency_close_goes_pair_by_pair_and_retries_the_rest(env):
+    store, _ = env
+    cli = FakeCarry()
+    cm.cycle(cli, store, NOW)
+    real = cli.perp_market
+
+    def flaky(sym, side, qty, reduce_only=False):
+        if sym == "BTCUSDT" and side == "Buy":
+            raise RuntimeError("биржа не ответила")
+        return real(sym, side, qty, reduce_only)
+    cli.perp_market = flaky
+    cli.mm = 0.7
+    cm.cycle(cli, store, NOW + 3_600_000)
+    assert cli.shorts["ETHUSDT"] == 0.0 and cli.shorts["BTCUSDT"] > 0, "ETH закрыт, несмотря на сбой BTC"
+    assert any("НЕ ЗАКРЫТО" in t and "BTCUSDT" in t for t in SENT)
+    cli.perp_market = real
+    cm.cycle(cli, store, NOW + 7_200_000)
+    assert cli.shorts == {"BTCUSDT": 0.0, "ETHUSDT": 0.0} and cli.coins["BTC"] == pytest.approx(0.0)
+    assert "Пары закрыты" in SENT[-1]
+
+
+def test_hedge_deviation_is_recorded_before_the_adjustment(env):
+    """Аудит 29.09: писалось расхождение ПОСЛЕ подгонки (≈0 по построению) — критерий «вне ±5 %» не мог провалиться."""
+    store, tmp = env
+    cli = FakeCarry()
+    cm.cycle(cli, store, NOW)
+    cli.shorts["BTCUSDT"] *= 0.9                              # хедж разошёлся на 10 %
+    cm.cycle(cli, store, NOW + 3_600_000)
+    devs = json.loads(store.conn.execute("SELECT deviations FROM snapshots ORDER BY ts DESC").fetchone()[0])
+    assert devs["BTCUSDT"] == pytest.approx(0.1, abs=0.002), "снимок — найденное расхождение"
+    assert cli.shorts["BTCUSDT"] == pytest.approx(cli.coins["BTC"], rel=0.01), "а хедж при этом подогнан"
+    assert report.summary(sqlite3.connect(str(tmp / "carry.db")))["outside_share"] > 0
+
+
+def test_failed_rehedge_does_not_lose_the_snapshot(env):
+    store, _ = env
+    cli = FakeCarry()
+    cm.cycle(cli, store, NOW)
+    cli.shorts["ETHUSDT"] *= 0.8
+    cli.fail_short_once = True
+    cm.cycle(cli, store, NOW + 3_600_000)
+    assert store.conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 2
+    assert store.conn.execute("SELECT COUNT(*) FROM events WHERE kind = 'rehedge_failed'").fetchone()[0] == 1
+
+
+def test_start_equity_is_taken_before_the_pairs_are_bought(env):
+    """«Итог после всех издержек»: старт — до покупок, комиссии и спред открытия внутри итога."""
+    store, _ = env
+    cli = FakeCarry(coins={"USDT": 0.0})
+    cm.cycle(cli, store, NOW)
+    assert store.get("start_before_open") and float(store.get("start_equity")) == pytest.approx(cli.funds)
+
+
+def test_report_subtracts_opening_fees_for_a_start_recorded_after_opening(env):
+    """Запуск 14.09: старт записан после открытия пар — комиссии открытия вычитаются из итога явно."""
+    store, tmp = env
+    store.set("opened_at", NOW)
+    store.set("start_equity", 50_000.0)
+    store.add_fills("linear", [{"execId": "o1", "symbol": "BTCUSDT", "side": "Sell", "execQty": "0.1",
+                                "execPrice": "80000", "execFee": "5.5", "feeCurrency": "USDT", "execTime": str(NOW + 1_000)}])
+    store.add_fills("linear", [{"execId": "h1", "symbol": "BTCUSDT", "side": "Sell", "execQty": "0.01",
+                                "execPrice": "80000", "execFee": "0.5", "feeCurrency": "USDT", "execTime": str(NOW + 5 * 3_600_000)}])
+    store.snapshot(NOW + 6 * 3_600_000, 50_100.0, 0.05, {}, {})
+    s = report.summary(sqlite3.connect(str(tmp / "carry.db")))
+    assert s["opening_fees"] == pytest.approx(5.5), "только исполнения цикла открытия"
+    assert s["change_after_costs"] == pytest.approx(100.0 - 5.5)
+    store.set("start_before_open", NOW)
+    assert report.summary(sqlite3.connect(str(tmp / "carry.db")))["opening_fees"] == 0.0
+
+
+class PagedFunding:
+    """Биржа: ставки каждые 8 ч, не больше 200 за запрос (последние до endTime)."""
+
+    def __init__(self, start, end, rate=0.0001):
+        self.rows = [(t, rate) for t in range(start, end + 1, 8 * 3_600_000)]
+        self.calls = 0
+
+    def get(self, path, params):
+        self.calls += 1
+        rows = [r for r in self.rows if r[0] <= params["endTime"]][-params["limit"]:]
+        return {"list": [{"fundingRateTimestamp": str(t), "fundingRate": str(v)} for t, v in reversed(rows)]}
+
+
+def test_model_funding_pages_past_the_200_record_cap():
+    """12 недель = 252 выплаты: одним запросом терялась пятая часть, проверка «≥ 60 %» завышалась ≈1,26×."""
+    opened = NOW
+    now = opened + 84 * 86_400_000
+    api = PagedFunding(opened - 10 * 86_400_000, now)
+    expected = sum(v for t, v in api.rows if opened < t <= now) * 10_000
+    assert len([t for t, _ in api.rows if opened < t <= now]) == 252
+    got = report.model_funding(opened, now, ["BTCUSDT"], 10_000, api=api)
+    assert got == pytest.approx(expected) and api.calls >= 2

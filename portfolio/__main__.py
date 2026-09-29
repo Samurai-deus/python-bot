@@ -132,12 +132,18 @@ def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     while not stop.is_set():
+        error = None
         try:
             cycle(cli, store, int(time.time() * 1000))
             logger.info("цикл И14 выполнен")
         except Exception as exc:
             logger.warning("цикл И14 не удался: %s", type(exc).__name__, exc_info=True)
-            store.event(int(time.time() * 1000), "error", f"{type(exc).__name__}: {exc}"[:300])
+            error = f"{type(exc).__name__}: {exc}"
+            store.event(int(time.time() * 1000), "error", error[:300])
+        try:
+            executor.cycle_outcome(store, int(time.time() * 1000), error, notify, "И14")
+        except Exception:
+            logger.warning("учёт сбоев цикла И14 не удался", exc_info=True)
         stop.wait(executor.sleep_seconds(int(time.time() * 1000)))
 
 
