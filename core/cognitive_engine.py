@@ -11,7 +11,6 @@ Entropy ≠ волатильность
 
 Это мета-оценки мышления системы, а не market indicators.
 """
-from typing import Dict, Optional
 from core.signal_snapshot import SignalSnapshot, SignalDecision, RiskLevel, VolatilityLevel
 from core.market_state import MarketState
 
@@ -107,7 +106,7 @@ def calculate_entropy(snapshot: SignalSnapshot) -> float:
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
-def _calculate_state_consistency(states: Dict[str, Optional[MarketState]]) -> float:
+def _calculate_state_consistency(states: dict[str, MarketState | None]) -> float:
     """
     Вычисляет согласованность MarketState по таймфреймам.
     
@@ -232,7 +231,7 @@ def _calculate_regime_volatility_boost(snapshot: SignalSnapshot) -> float:
     return max(0.0, min(1.0, boost))
 
 
-def _calculate_state_dispersion(states: Dict[str, Optional[MarketState]]) -> float:
+def _calculate_state_dispersion(states: dict[str, MarketState | None]) -> float:
     """
     Вычисляет разброс MarketState по таймфреймам.
     

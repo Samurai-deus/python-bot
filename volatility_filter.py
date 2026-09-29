@@ -2,10 +2,9 @@
 Модуль для улучшенной фильтрации волатильности
 """
 from indicators import atr
-from typing import Dict, List, Tuple
 
 
-def calculate_volatility_metrics(candles: List, period: int = 20) -> Dict:
+def calculate_volatility_metrics(candles: list, period: int = 20) -> dict:
     """
     Рассчитывает метрики волатильности.
     
@@ -69,7 +68,7 @@ def calculate_volatility_metrics(candles: List, period: int = 20) -> Dict:
     }
 
 
-def check_price_spike(candles: List, threshold_pct: float = 2.0) -> Dict:
+def check_price_spike(candles: list, threshold_pct: float = 2.0) -> dict:
     """
     Проверяет наличие резкого движения цены (спайка).
     
@@ -139,7 +138,7 @@ def check_price_spike(candles: List, threshold_pct: float = 2.0) -> Dict:
     }
 
 
-def get_volatility_score(volatility_metrics: Dict) -> Tuple[int, List[str]]:
+def get_volatility_score(volatility_metrics: dict) -> tuple[int, list[str]]:
     """
     Возвращает score для волатильности (0-15 баллов).
     

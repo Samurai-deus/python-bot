@@ -10,9 +10,8 @@ Strategy 3: Momentum Breakout — пробой с всплеском объём�
   - Target: 2.0R
 """
 import logging
-from typing import Optional, Dict
 
-from indicators import atr, volume_analysis
+from indicators import atr
 from strategies.base_strategy import BaseStrategy, StrategySignal
 
 logger = logging.getLogger(__name__)
@@ -35,11 +34,11 @@ class MomentumBreakoutStrategy(BaseStrategy):
     def evaluate(
         self,
         symbol: str,
-        candles_map: Dict,
-        directions: Dict,
-        momentum_data: Dict,
-        states: Dict,
-    ) -> Optional[StrategySignal]:
+        candles_map: dict,
+        directions: dict,
+        momentum_data: dict,
+        states: dict,
+    ) -> StrategySignal | None:
 
         candles_15m = candles_map.get("15m", [])
         candles_5m = candles_map.get("5m", [])
@@ -64,9 +63,6 @@ class MomentumBreakoutStrategy(BaseStrategy):
         range_low = min(float(c[3]) for c in range_candles)
 
         current_close = float(candles_15m[-1][4])
-        current_high = float(candles_15m[-1][2])
-        current_low = float(candles_15m[-1][3])
-        current_open = float(candles_15m[-1][1])
 
         entry = float(candles_5m[-1][4])
         atr_val = atr(candles_15m)

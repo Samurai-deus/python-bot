@@ -5,7 +5,7 @@
 import logging
 import os
 import time
-from typing import Dict, List, Optional, Sequence
+from collections.abc import Sequence
 
 from backtest import momentum_xs as mx
 from backtest.wide_search import is_crypto, is_crypto_instrument, unknown_types
@@ -35,7 +35,7 @@ def demo_client() -> "PortfolioClient":
 
 
 class PortfolioClient(BybitClient):
-    def market_data(self, symbols: Sequence[str], t: int, ages: Optional[Dict[str, int]] = None) -> Dict[str, dict]:
+    def market_data(self, symbols: Sequence[str], t: int, ages: dict[str, int] | None = None) -> dict[str, dict]:
         """
         {символ: {"c4": закрытия по ts, "o4": открытия по ts, "o1": {t: open}}} — как load() в
         бэктестах. Бар, открывшийся в t, ещё идёт: его close в c4 не кладётся (сигналы берут только
@@ -59,13 +59,15 @@ class PortfolioClient(BybitClient):
             out[s] = {"c4": c4, "o4": o4, "o1": {t: o4[t]}, "turn30": turnover / TURNOVER_D, "age_d": ages.get(s, 0)}
         return out
 
-    def launch_ages_d(self) -> Dict[str, int]:
+    def launch_ages_d(self) -> dict[str, int]:
         """
         Возраст крипто-контрактов в днях по launchTime (публичный список инструментов, страницами).
         Акции, ETF, сырьё и валюты по признаку биржи (symbolType/marketRegion) сюда не попадают — а без
         возраста контракт не кандидат (continuation_candidates, market_data). Так 110126 не доходит до ордера.
         """
-        out, cursor, now_ms, odd = {}, "", int(time.time() * 1000), {}
+        out: dict = {}
+        odd: dict = {}
+        cursor, now_ms = "", int(time.time() * 1000)
         for _ in range(10):
             params = {"category": "linear", "limit": 1000}
             if cursor:
@@ -85,7 +87,7 @@ class PortfolioClient(BybitClient):
                            "(если это крипта — добавить в CRYPTO_TYPES)", odd)
         return out
 
-    def continuation_candidates(self, ages: Dict[str, int]) -> List[str]:
+    def continuation_candidates(self, ages: dict[str, int]) -> list[str]:
         """Кандидаты И17а: крипто-контракты USDT старше 100 дней (ages — из launch_ages_d), крупнейшие по обороту за 24 ч."""
         from portfolio import engine
         rows = self._get("/v5/market/tickers", params={"category": "linear"}, signed=False).get("list") or []
@@ -94,7 +96,7 @@ class PortfolioClient(BybitClient):
         ok.sort(reverse=True)
         return [s for _, s in ok[:CANDIDATES]]
 
-    def positions_usdt(self) -> Dict[str, float]:
+    def positions_usdt(self) -> dict[str, float]:
         """
         Подписанный номинал открытых позиций по ТЕКУЩЕЙ цене: + лонг, − шорт. Считается без лишних
         запросов — из цены входа и нереализованного результата: знак × размер × вход + нереализованный
@@ -108,7 +110,7 @@ class PortfolioClient(BybitClient):
                 out[p.symbol] = sign * p.size * p.entry_price + float(p.unrealised_pnl or 0.0)
         return out
 
-    def positions_qty(self) -> Dict[str, float]:
+    def positions_qty(self) -> dict[str, float]:
         out = {}
         for p in self.get_positions():
             if p.size > 0:
@@ -137,8 +139,9 @@ class PortfolioClient(BybitClient):
             raise RuntimeError("в ответе кошелька нет USDT — стоимость счёта неизвестна")
         return 0.0
 
-    def settlements(self, start_ms: int) -> List[dict]:
-        out, cursor = [], ""
+    def settlements(self, start_ms: int) -> list[dict]:
+        out: list = []
+        cursor = ""
         for _ in range(20):
             params = {"accountType": "UNIFIED", "category": "linear", "type": "SETTLEMENT",
                       "startTime": int(start_ms), "limit": 50}

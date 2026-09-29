@@ -8,7 +8,6 @@ Opportunity Awareness Bot - готовит возможности, не толк
 - подозрительная тишина
 """
 import logging
-from typing import Dict, List, Optional
 from core.decision_core import Opportunity
 from volatility_filter import calculate_volatility_metrics
 from indicators import atr, bollinger_bands, volume_analysis, rsi
@@ -29,13 +28,13 @@ class OpportunityAwareness:
     
     def __init__(self):
         # Кэш для результатов анализа
-        self._cache: Dict[str, tuple] = {}  # {cache_key: (opportunity, timestamp)}
+        self._cache: dict[str, tuple] = {}  # {cache_key: (opportunity, timestamp)}
         self._cache_ttl = timedelta(minutes=5)  # Время жизни кэша - 5 минут
         self._MAX_CACHE_SIZE = 200  # предел записей; старые вытесняются при превышении
         # Явное состояние (последний проанализированный символ)
-        self.state: Optional[Dict[str, Opportunity]] = {}  # {symbol: Opportunity}
+        self.state: dict[str, Opportunity] | None = {}  # {symbol: Opportunity}
     
-    def _get_cache_key(self, symbol: str, candles_map: Dict[str, List]) -> str:
+    def _get_cache_key(self, symbol: str, candles_map: dict[str, list]) -> str:
         """
         Генерирует ключ кэша на основе символа и последних свечей.
         
@@ -63,7 +62,7 @@ class OpportunityAwareness:
         opportunity, timestamp = cache_entry
         return datetime.now(UTC) - timestamp < self._cache_ttl
     
-    def analyze(self, symbol: str, candles_map: Dict[str, List], 
+    def analyze(self, symbol: str, candles_map: dict[str, list], 
                system_state=None) -> Opportunity:
         """
         Анализирует возможности для символа.
@@ -156,7 +155,7 @@ class OpportunityAwareness:
             for key in sorted_keys[:excess]:
                 del self._cache[key]
     
-    def _check_volatility_squeeze(self, candles: List) -> bool:
+    def _check_volatility_squeeze(self, candles: list) -> bool:
         """
         Проверяет сжатие волатильности (Bollinger Bands сужаются).
         bollinger_bands() возвращает скалярные значения для текущей свечи,
@@ -180,7 +179,7 @@ class OpportunityAwareness:
 
         return False
     
-    def _check_accumulation(self, candles_15m: List, candles_30m: List) -> bool:
+    def _check_accumulation(self, candles_15m: list, candles_30m: list) -> bool:
         """
         Проверяет накопление (цена в диапазоне, объемы растут).
         """
@@ -189,7 +188,6 @@ class OpportunityAwareness:
         
         # Проверяем, что цена в диапазоне
         atr_15m = atr(candles_15m)
-        current_price = float(candles_15m[-1][4])
         
         # Берем диапазон последних 20 свечей
         highs = [float(c[2]) for c in candles_15m[-20:]]
@@ -212,7 +210,7 @@ class OpportunityAwareness:
 
         return False
     
-    def _check_divergence(self, candles: List) -> bool:
+    def _check_divergence(self, candles: list) -> bool:
         """
         Проверяет расхождения между ценой и индикаторами.
         
@@ -294,7 +292,7 @@ class OpportunityAwareness:
         
         return False
     
-    def _check_suspicious_silence(self, candles: List) -> bool:
+    def _check_suspicious_silence(self, candles: list) -> bool:
         """
         Проверяет подозрительную тишину (низкая волатильность + низкие объемы).
         """
@@ -323,7 +321,7 @@ class OpportunityAwareness:
     
     def _calculate_readiness(self, volatility_squeeze: bool, accumulation: bool,
                             divergence: bool, suspicious_silence: bool,
-                            candles: List) -> float:
+                            candles: list) -> float:
         """
         Рассчитывает готовность рынка (0.0 - 1.0).
         """

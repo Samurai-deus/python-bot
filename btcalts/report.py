@@ -33,7 +33,7 @@ def main() -> int:
           f"({last_eq - start_eq:+.2f} USDT, {100 * (last_eq - start_eq) / capital():+.2f} % капитала); "
           f"просадка от пика {dd:.2f} USDT ({100 * dd / capital():.1f} %); {'ОСТАНОВЛЕН: ' + state['halted'] if state.get('halted') else 'работает'}")
     runs = runs_by_monday(conn)
-    for t, done_ms, weights, orders, failed in conn.execute("SELECT * FROM rebalances ORDER BY t"):
+    for t, _done_ms, weights, orders, failed in conn.execute("SELECT * FROM rebalances ORDER BY t"):
         w = json.loads(weights)
         print(f"  {datetime.fromtimestamp(t / 1000, UTC):%d.%m} ребалансировка: BTC {w.get('BTCUSDT', 0):+.2f}, альтов {sum(1 for v in w.values() if v < 0)}, "
               f"ордеров {len(json.loads(orders))}, не прошло {len(json.loads(failed))}" + (f", прогонов {runs[t]}" if runs.get(t, 1) > 1 else ""))

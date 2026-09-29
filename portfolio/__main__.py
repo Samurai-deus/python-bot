@@ -16,7 +16,6 @@ import signal
 import threading
 import time
 from pathlib import Path
-from typing import List
 
 import config
 from backtest import trend_ts as tt
@@ -42,7 +41,7 @@ def root_dir() -> Path:
     return Path(os.environ.get("PORTFOLIO_DIR", "/portfolio"))
 
 
-def symbols() -> List[str]:
+def symbols() -> list[str]:
     return sorted(set(config.SYMBOLS) | set(tt.SYMBOLS))
 
 

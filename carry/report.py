@@ -8,7 +8,6 @@ import argparse
 import json
 import sqlite3
 import time
-from typing import Dict, List
 
 from carry import engine
 from carry.__main__ import carry_dir, notional, symbols
@@ -18,7 +17,7 @@ FUNDING_PAGE = 200
 OPENING_WINDOW_MS = 15 * 60_000
 
 
-def summary(conn: sqlite3.Connection) -> Dict:
+def summary(conn: sqlite3.Connection) -> dict:
     state = dict(conn.execute("SELECT key, value FROM state").fetchall())
     snaps = conn.execute("SELECT ts, equity, deviations FROM snapshots ORDER BY ts").fetchall()
     opened = int(state["opened_at"]) if state.get("opened_at") else None
@@ -55,7 +54,7 @@ def summary(conn: sqlite3.Connection) -> Dict:
             "halted": state.get("halted")}
 
 
-def model_funding(opened_ms: int, now_ms: int, syms: List[str], notional_usdt: float, api=None) -> float:
+def model_funding(opened_ms: int, now_ms: int, syms: list[str], notional_usdt: float, api=None) -> float:
     """
     Сумма опубликованных ставок Bybit за (opened; now] × номинал — расчётный фандинг шорта. Биржа отдаёт
     не больше 200 записей за запрос — листаем назад по endTime, как history.sync_funding. До 29.09 был один
@@ -67,7 +66,7 @@ def model_funding(opened_ms: int, now_ms: int, syms: List[str], notional_usdt: f
         api = history.BybitHistory()
     total = 0.0
     for s in syms:
-        rates: Dict[int, float] = {}
+        rates: dict[int, float] = {}
         end = now_ms
         while True:
             rows = api.get("/v5/market/funding/history", {"category": "linear", "symbol": s,

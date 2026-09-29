@@ -10,7 +10,6 @@
 import json
 import re
 import time
-from typing import Dict, List, Optional
 
 PROMPT_VERSION = "news-v1"
 DEFAULT_MODEL = "anthropic/claude-sonnet-5"
@@ -42,11 +41,11 @@ def model() -> str:
     return env_str("AI_MODEL_NEWS", "").strip() or DEFAULT_MODEL
 
 
-def render(batch: List[dict]) -> str:
+def render(batch: list[dict]) -> str:
     return "\n".join(f"{i}. [{it['source']}] {it['title']}" for i, it in enumerate(batch, 1))
 
 
-def _item_rows(obj) -> Optional[List[dict]]:
+def _item_rows(obj) -> list[dict] | None:
     """Строки оценки по монетам одного заголовка; None — объект не по схеме."""
     if not isinstance(obj, dict):
         return None
@@ -77,7 +76,7 @@ def _item_rows(obj) -> Optional[List[dict]]:
              "confidence": confidence, "novelty": int(novelty)} for t in tickers]
 
 
-def parse_scores(text: Optional[str], n: int) -> Dict[int, List[dict]]:
+def parse_scores(text: str | None, n: int) -> dict[int, list[dict]]:
     """{номер заголовка: строки по монетам} только для заголовков, оценённых по схеме."""
     match = re.search(r"\{.*\}", text or "", re.S)
     if not match:

@@ -152,3 +152,16 @@ class TestExpectancy:
         exp = calculate_expectancy(trades)
         assert exp is not None
         assert exp > 0
+
+
+def test_statistics_report_lists_the_top_three_symbols():
+    """Аудит 29.09.2026 (ruff F841): доля побед по символу считалась и отбрасывалась — под заголовком было пусто."""
+    from bot_statistics import format_statistics_report
+    stats = {"total_pnl": 5.0, "total_trades": 6, "win_rate": 50.0, "initial_balance": 100.0, "current_balance": 105.0,
+             "total_pnl_pct": 5.0, "open_trades": 0, "wins": 3, "losses": 3,
+             "symbol_stats": {"SOLUSDT": {"pnl": 7.5, "wins": 2, "trades": 4}, "ETHUSDT": {"pnl": -2.5, "wins": 1, "trades": 2},
+                              "BTCUSDT": {"pnl": 0.0, "wins": 0, "trades": 0}, "XRPUSDT": {"pnl": -9.0, "wins": 0, "trades": 1}}}
+    report = format_statistics_report(stats)
+    tail = report.split("Топ-3 символа")[1]
+    assert "SOLUSDT: `+7.50` USDT, побед 50 % из 4" in tail
+    assert "ETHUSDT" in tail and "BTCUSDT" in tail and "XRPUSDT" not in tail, "только три лучших по P&L"

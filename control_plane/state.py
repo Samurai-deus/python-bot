@@ -13,7 +13,6 @@
 import asyncio
 import logging
 import threading
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +99,7 @@ metrics_lock = TimeoutLock(timeout=1.0)
 # Lock to prevent race conditions in HTTP handlers (especially admin commands):
 # concurrent HTTP requests cannot race-clear safe_mode or resume trading while
 # safe_mode == true. Created lazily, when an event loop is running.
-_admin_command_lock: Optional[asyncio.Lock] = None
+_admin_command_lock: asyncio.Lock | None = None
 
 
 def get_admin_lock() -> asyncio.Lock:

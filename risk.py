@@ -1,10 +1,9 @@
 import logging
-from typing import Optional, Dict
 from core.market_state import MarketState, normalize_states_dict
 
 logger = logging.getLogger(__name__)
 
-def risk_level(states: Dict[str, Optional[MarketState]], directions=None) -> str:
+def risk_level(states: dict[str, MarketState | None], directions=None) -> str:
     """
     Базовая оценка риска на основе состояний таймфреймов.
     
@@ -117,7 +116,7 @@ def calculate_stop_distance(entry, stop, atr_15m, entry_price):
     }
 
 
-def enhanced_risk_level(states: Dict[str, Optional[MarketState]], stop_info=None, volume_info=None, momentum_data=None, candles_map=None, directions=None) -> str:
+def enhanced_risk_level(states: dict[str, MarketState | None], stop_info=None, volume_info=None, momentum_data=None, candles_map=None, directions=None) -> str:
     """
     Улучшенная оценка риска с учетом размера стопа, объемов и индикаторов.
     

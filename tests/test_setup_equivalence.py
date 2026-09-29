@@ -198,7 +198,7 @@ def test_the_regime_handed_to_the_strategies(monkeypatch, trend, adx_value, expe
 
         class Manager:
             def get_best_signal(self, *args, market_regime=None, volatility_level=None, **kwargs):
-                seen.append(market_regime)
+                seen.append(market_regime)  # noqa: B023 — вызывается в той же итерации
                 return None
 
         setup.evaluate_setup(symbol, market, market_correlations={}, good_time=True, market_regime=regime,

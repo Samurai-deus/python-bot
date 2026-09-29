@@ -3,7 +3,6 @@
 """
 import logging
 from datetime import datetime, UTC
-from typing import Dict, List, Optional
 from volatility_filter import check_price_spike
 from indicators import atr, rsi, macd
 from telegram_bot import send_message
@@ -33,7 +32,7 @@ def spike_alert_cooldown_sec() -> float:
     return env_float("SPIKE_ALERT_COOLDOWN_SEC", 1800)
 
 
-def analyze_spike_with_context(symbol: str, candles: List, timeframe: str = "15m") -> Optional[Dict]:
+def analyze_spike_with_context(symbol: str, candles: list, timeframe: str = "15m") -> dict | None:
     """
     Анализирует резкое движение и определяет, есть ли видимая причина.
     
@@ -123,7 +122,7 @@ def analyze_spike_with_context(symbol: str, candles: List, timeframe: str = "15m
     }
 
 
-def send_spike_alert(symbol: str, spike_analysis: Dict):
+def send_spike_alert(symbol: str, spike_analysis: dict):
     """
     Отправляет алерт о резком движении в Telegram.
     """
@@ -151,12 +150,12 @@ def send_spike_alert(symbol: str, spike_analysis: Dict):
     message += f"⏱ Таймфрейм: {spike_analysis.get('timeframe', '15m')}\n\n"
     
     if has_reason and reasons:
-        message += f"✅ Возможные причины:\n"
+        message += "✅ Возможные причины:\n"
         for reason in reasons:
             message += f"• {reason}\n"
     else:
-        message += f"⚠️ **БЕЗ ВИДИМОЙ ПРИЧИНЫ**\n"
-        message += f"Возможные причины:\n"
+        message += "⚠️ **БЕЗ ВИДИМОЙ ПРИЧИНЫ**\n"
+        message += "Возможные причины:\n"
         if reasons:
             for reason in reasons:
                 message += f"• {reason}\n"
@@ -177,7 +176,7 @@ def send_spike_alert(symbol: str, spike_analysis: Dict):
         logger.error("Alert send error: %s", e)
 
 
-def check_all_symbols_for_spikes(symbols: List[str], candles_map: Dict[str, Dict[str, List]]):
+def check_all_symbols_for_spikes(symbols: list[str], candles_map: dict[str, dict[str, list]]):
     """
     Проверяет все символы на резкие движения и отправляет алерты.
     """

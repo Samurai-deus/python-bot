@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
-from typing import Dict, List, Optional
 
 import logging
 
@@ -36,7 +35,7 @@ class SymbolReport:
     gross_pnl: float = 0.0
     commission: float = 0.0
     net_pnl: float = 0.0
-    profit_factor: Optional[float] = None
+    profit_factor: float | None = None
 
     @property
     def win_rate(self) -> float:
@@ -77,27 +76,27 @@ class FullPerformanceReport:
     win_rate: float
 
     # Финансовые метрики
-    sharpe_ratio: Optional[float]
+    sharpe_ratio: float | None
     max_drawdown_abs: float
     max_drawdown_pct: float
-    profit_factor: Optional[float]
-    recovery_factor: Optional[float]
-    expectancy: Optional[float]
+    profit_factor: float | None
+    recovery_factor: float | None
+    expectancy: float | None
 
     # Текущий streak
     current_streak: int  # > 0 выигрышный, < 0 убыточный
 
     # Breakdown
-    by_symbol: Dict[str, SymbolReport] = field(default_factory=dict)
-    by_regime: Dict[str, RegimeReport] = field(default_factory=dict)
-    by_timeofday: Dict[str, TimeOfDayReport] = field(default_factory=dict)
+    by_symbol: dict[str, SymbolReport] = field(default_factory=dict)
+    by_regime: dict[str, RegimeReport] = field(default_factory=dict)
+    by_timeofday: dict[str, TimeOfDayReport] = field(default_factory=dict)
 
     # Топ/Худшие символы
-    top_symbols: List[str] = field(default_factory=list)      # топ-5 по net_pnl
-    worst_symbols: List[str] = field(default_factory=list)    # худшие-5 по net_pnl
+    top_symbols: list[str] = field(default_factory=list)      # топ-5 по net_pnl
+    worst_symbols: list[str] = field(default_factory=list)    # худшие-5 по net_pnl
 
     # Equity curve
-    equity_curve: List[float] = field(default_factory=list)
+    equity_curve: list[float] = field(default_factory=list)
 
     generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -124,12 +123,12 @@ class PerformanceTracker:
         gross_pnl: float,
         net_pnl: float,
         commission: float = 0.0,
-        market_regime: Optional[str] = None,
-        hold_duration_seconds: Optional[int] = None,
-        signal_confidence: Optional[float] = None,
-        signal_entropy: Optional[float] = None,
-        balance_after: Optional[float] = None,
-    ) -> Optional[int]:
+        market_regime: str | None = None,
+        hold_duration_seconds: int | None = None,
+        signal_confidence: float | None = None,
+        signal_entropy: float | None = None,
+        balance_after: float | None = None,
+    ) -> int | None:
         """
         Записывает закрытую сделку в pnl_records.
 
@@ -153,15 +152,15 @@ class PerformanceTracker:
             balance_after=balance_after,
         )
 
-    def get_pnl_by_symbol(self, days: int = 30, trades: Optional[list] = None) -> Dict[str, SymbolReport]:
+    def get_pnl_by_symbol(self, days: int = 30, trades: list | None = None) -> dict[str, SymbolReport]:
         """P&L breakdown по символу. Accepts pre-fetched trades to avoid duplicate queries."""
         if trades is None:
             from database import get_closed_trades
             trades = get_closed_trades(days)
         from bot_statistics import calculate_profit_factor
 
-        result: Dict[str, SymbolReport] = {}
-        trades_by_sym: Dict[str, list] = {}
+        result: dict[str, SymbolReport] = {}
+        trades_by_sym: dict[str, list] = {}
 
         for t in trades:
             sym = t['symbol']
@@ -184,12 +183,12 @@ class PerformanceTracker:
 
         return result
 
-    def get_pnl_by_regime(self, days: int = 30, trades: Optional[list] = None) -> Dict[str, RegimeReport]:
+    def get_pnl_by_regime(self, days: int = 30, trades: list | None = None) -> dict[str, RegimeReport]:
         """P&L breakdown по режиму рынка (A/B/C/D). Accepts pre-fetched trades."""
         if trades is None:
             from database import get_closed_trades
             trades = get_closed_trades(days)
-        result: Dict[str, RegimeReport] = {}
+        result: dict[str, RegimeReport] = {}
 
         for t in trades:
             regime = t.get('market_regime') or 'unknown'
@@ -203,7 +202,7 @@ class PerformanceTracker:
 
         return result
 
-    def get_pnl_by_timeofday(self, days: int = 30, trades: Optional[list] = None) -> Dict[str, TimeOfDayReport]:
+    def get_pnl_by_timeofday(self, days: int = 30, trades: list | None = None) -> dict[str, TimeOfDayReport]:
         """
         P&L breakdown по времени суток (UTC). Accepts pre-fetched trades.
 
@@ -216,7 +215,7 @@ class PerformanceTracker:
         if trades is None:
             from database import get_closed_trades
             trades = get_closed_trades(days)
-        result: Dict[str, TimeOfDayReport] = {}
+        result: dict[str, TimeOfDayReport] = {}
 
         for t in trades:
             try:
@@ -245,7 +244,7 @@ class PerformanceTracker:
 
         return result
 
-    def get_equity_curve(self, days: int = 30) -> List[float]:
+    def get_equity_curve(self, days: int = 30) -> list[float]:
         """Возвращает equity curve (список балансов) за период."""
         from database import get_equity_curve_points
         points = get_equity_curve_points(days)
@@ -268,7 +267,7 @@ class PerformanceTracker:
                 break
         return streak
 
-    def get_full_report(self, days: int = 30) -> Optional[FullPerformanceReport]:
+    def get_full_report(self, days: int = 30) -> FullPerformanceReport | None:
         """
         Полный P&L отчёт за период.
 

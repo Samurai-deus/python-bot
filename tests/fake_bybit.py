@@ -13,7 +13,6 @@ import hmac
 import itertools
 import json
 from dataclasses import dataclass
-from typing import Optional
 from urllib.parse import parse_qsl, urlsplit
 
 import requests
@@ -45,7 +44,7 @@ class Recorded:
     params: dict
     body: dict
     headers: dict
-    sign_ok: Optional[bool]
+    sign_ok: bool | None
 
 
 class FakeBybit:

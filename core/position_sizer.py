@@ -13,7 +13,7 @@ PositionSizer НЕ принимает решения о входе — толь�
 - Расширяемый для будущих факторов (regime, volatility)
 """
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Protocol
 from config import RISK_PERCENT, INITIAL_BALANCE
 
 
@@ -86,7 +86,7 @@ class PositionSizingResult:
     entropy_factor: float
     portfolio_factor: float
     reason: str
-    position_size_usd: Optional[float] = None  # Размер позиции в USDT
+    position_size_usd: float | None = None  # Размер позиции в USDT
     
     def __post_init__(self):
         """Проверка инвариантов"""
@@ -119,7 +119,7 @@ class PositionSizer:
     портфеля (позиции, суммарный риск, группы, номинал) держит Risk Core.
     """
     
-    def __init__(self, config: Optional[PositionSizingConfig] = None):
+    def __init__(self, config: PositionSizingConfig | None = None):
         """
         Инициализация PositionSizer.
         
@@ -134,8 +134,8 @@ class PositionSizer:
         entropy: float,
         portfolio_state: PortfolioStateProtocol,
         symbol: str,
-        balance: Optional[float] = None,
-        stop_distance_pct: Optional[float] = None,
+        balance: float | None = None,
+        stop_distance_pct: float | None = None,
     ) -> PositionSizingResult:
         """
         Рассчитывает допустимый размер позиции.
@@ -275,7 +275,7 @@ class RegimeFactor(PositionSizingFactor):
         entropy: float,
         portfolio_state: PortfolioStateProtocol,
         symbol: str,
-        market_regime: Optional[object] = None,
+        market_regime: object | None = None,
         **kwargs
     ) -> float:
         """
@@ -312,7 +312,7 @@ class VolatilityFactor(PositionSizingFactor):
         entropy: float,
         portfolio_state: PortfolioStateProtocol,
         symbol: str,
-        volatility_level: Optional[str] = None,
+        volatility_level: str | None = None,
         **kwargs
     ) -> float:
         """

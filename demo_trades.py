@@ -1,6 +1,3 @@
-from datetime import datetime, UTC
-from telegram_bot import send_message
-from capital import get_current_balance
 from database import add_trade
 
 def log_demo_trade(symbol, side, entry, stop, target, position_size=None, leverage=None, strategy_name=None):
@@ -18,6 +15,6 @@ def log_demo_trade(symbol, side, entry, stop, target, position_size=None, levera
         strategy_name: Название стратегии (опционально)
     """
     # Добавляем сделку в базу данных
-    trade_id = add_trade(symbol, side, entry, stop, target, position_size, leverage, strategy_name)
+    add_trade(symbol, side, entry, stop, target, position_size, leverage, strategy_name)
     
     # Уведомление не отправляем — сигнал уже отправлен через Gatekeeper

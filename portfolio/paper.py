@@ -21,7 +21,7 @@ import bisect
 import json
 import sqlite3
 from datetime import UTC, datetime
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Callable, Sequence
 
 from backtest import momentum_xs as mx
 from backtest.portfolio import SLIPPAGE, TAKER_FEE
@@ -31,7 +31,7 @@ FIRST_WEEK = "2026-09-21"       # неделя 14–21.09 (догоняющая)
 LAST_WEEK = "2026-12-07"        # 12 ребалансировок; итог 14.12
 
 
-def week_weights(conn: sqlite3.Connection, weeks_t: Sequence[int]) -> Dict[int, Dict[str, float]]:
+def week_weights(conn: sqlite3.Connection, weeks_t: Sequence[int]) -> dict[int, dict[str, float]]:
     """Цели первого прогона каждой недели (понедельник t → {символ: вес}); недели без прогона — пусто."""
     out = {}
     for t in weeks_t:
@@ -40,18 +40,18 @@ def week_weights(conn: sqlite3.Connection, weeks_t: Sequence[int]) -> Dict[int, 
     return out
 
 
-def paper_weeks(weights: Dict[int, Dict[str, float]], data: Dict, weeks_t: Sequence[int]) -> List[Tuple[int, float]]:
+def paper_weeks(weights: dict[int, dict[str, float]], data: dict, weeks_t: Sequence[int]) -> list[tuple[int, float]]:
     """
     Доходность бумаги по неделям (доли капитала): weeks_t — понедельники периода плюс конец периода.
     Арифметика backtest.trend_ts.simulate без издержек выхода.
     """
     out = []
-    held: Dict[str, float] = {}
+    held: dict[str, float] = {}
     for t, t_next in zip(weeks_t, weeks_t[1:]):
         target = weights.get(t, {})
         turnover = sum(abs(target.get(s, 0.0) - held.get(s, 0.0)) for s in set(target) | set(held))
         r = -turnover * (TAKER_FEE + SLIPPAGE)
-        new_held: Dict[str, float] = {}
+        new_held: dict[str, float] = {}
         for s, w in target.items():
             p0, p1 = data[s]["o4"][t], data[s]["o4"][t_next]
             r += w * (p1 / p0 - 1)
@@ -64,7 +64,7 @@ def paper_weeks(weights: Dict[int, Dict[str, float]], data: Dict, weeks_t: Seque
     return out
 
 
-def account_change(conn: sqlite3.Connection, start_ms: int, end_ms: int) -> Optional[float]:
+def account_change(conn: sqlite3.Connection, start_ms: int, end_ms: int) -> float | None:
     """Стоимость: последний снимок до end_ms минус последний снимок до start_ms (None — снимков нет)."""
     def before(ts: int):
         row = conn.execute("SELECT equity FROM snapshots WHERE ts < ? ORDER BY ts DESC LIMIT 1", (ts,)).fetchone()
@@ -77,8 +77,8 @@ def verdict(account_usdt: float, paper_usdt: float, capital: float) -> bool:
     return account_usdt >= paper_usdt - HONESTY_SLACK * capital
 
 
-def evaluate(conn: sqlite3.Connection, capital: float, load: Callable[[Sequence[str], int, int], Dict],
-             first: str = FIRST_WEEK, last: str = LAST_WEEK) -> Dict:
+def evaluate(conn: sqlite3.Connection, capital: float, load: Callable[[Sequence[str], int, int], dict],
+             first: str = FIRST_WEEK, last: str = LAST_WEEK) -> dict:
     weeks_t = mx.mondays(mx.day_ms(first), mx.day_ms(last)) + [mx.day_ms(last) + mx.WEEK_MS]
     weights = week_weights(conn, weeks_t[:-1])
     symbols = sorted({s for w in weights.values() for s in w})
@@ -95,7 +95,7 @@ def evaluate(conn: sqlite3.Connection, capital: float, load: Callable[[Sequence[
             "halted": conn.execute("SELECT value FROM state WHERE key = 'halted'").fetchone() is not None}
 
 
-def history_loader(db: str) -> Callable[[Sequence[str], int, int], Dict]:
+def history_loader(db: str) -> Callable[[Sequence[str], int, int], dict]:
     """Свечи 4h и ставки фандинга Bybit в локальный кэш истории и из него — как у наблюдения И4/И3."""
     def load(symbols, start_ms, end_ms):
         from backtest import history

@@ -18,7 +18,6 @@ from analytics.adaptive_risk_manager import (
     FLOOR_RISK_PCT,
     STEP_DOWN,
     STEP_UP,
-    RECOVERY_HOURS,
 )
 
 

@@ -2,9 +2,8 @@
 StrategyManager: оркестрирует стратегии, выбирает лучший сигнал.
 """
 import logging
-from typing import Optional, Dict
 
-from strategies.base_strategy import BaseStrategy, StrategySignal
+from strategies.base_strategy import StrategySignal
 from strategies.trend_following import TrendFollowingStrategy
 from strategies.mean_reversion import MeanReversionStrategy
 from strategies.momentum_breakout import MomentumBreakoutStrategy
@@ -26,13 +25,13 @@ class StrategyManager:
     def get_best_signal(
         self,
         symbol: str,
-        candles_map: Dict,
-        directions: Dict,
-        momentum_data: Dict,
-        states: Dict,
+        candles_map: dict,
+        directions: dict,
+        momentum_data: dict,
+        states: dict,
         market_regime: str = "RANGE",
         volatility_level: str = "MEDIUM",
-    ) -> Optional[StrategySignal]:
+    ) -> StrategySignal | None:
         """
         Оценивает все стратегии и возвращает сигнал с наивысшим confidence.
         Возвращает None если ни одна стратегия не даёт сигнал.

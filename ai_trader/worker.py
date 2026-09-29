@@ -12,7 +12,7 @@ outcome_tracker размечает исход сигнала. Владельцу
 import logging
 import queue
 import threading
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from utils.env import env_str
 
@@ -32,7 +32,7 @@ UNSENT_BUDGET_RESERVE = 0.5
 SENT = "SENT"
 
 _queue: "queue.Queue[dict]" = queue.Queue(maxsize=QUEUE_SIZE)
-_thread: Optional[threading.Thread] = None
+_thread: threading.Thread | None = None
 _thread_lock = threading.Lock()
 _warned = set()
 
@@ -67,7 +67,7 @@ def _room_for_unsent() -> bool:
         return False
 
 
-def submit(symbol: str, signal_data: dict, snapshot, fate: str = SENT, signal_ts: Optional[str] = None) -> bool:
+def submit(symbol: str, signal_data: dict, snapshot, fate: str = SENT, signal_ts: str | None = None) -> bool:
     """
     Поставить сигнал на оценку. False — ИИ выключен, нет ни снимка, ни метки времени,
     очередь полна или (для невзятого сигнала) нет резерва бюджета.
@@ -131,7 +131,7 @@ def _notify(text: str) -> None:
     AsyncToSyncAdapter.call_async(send_message_async(text, parse_mode=None), timeout=15.0)
 
 
-def process(job: dict, transport=None, notify: Optional[Callable[[str], None]] = None):
+def process(job: dict, transport=None, notify: Callable[[str], None] | None = None):
     """Оценить один сигнал: запрос, разбор, запись в базу, сообщение при несогласии. Возвращает мнение или None."""
     from ai_trader import client, prompts, review
     import database

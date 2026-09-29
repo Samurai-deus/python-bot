@@ -10,7 +10,6 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +21,11 @@ class Opinion:
     decision: str
     size_multiplier: float
     confidence: float
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
     key_risk: str = ""
 
 
-def parse_opinion(text: Optional[str]) -> Optional[Opinion]:
+def parse_opinion(text: str | None) -> Opinion | None:
     """Мнение из ответа модели — или None, если ответ не по схеме."""
     match = re.search(r"\{.*\}", text or "", re.S)
     if not match:
@@ -76,7 +75,7 @@ def _enum_value(value):
     return getattr(value, "value", value)
 
 
-def signal_context(symbol: str, signal_data: Dict, snapshot) -> Dict:
+def signal_context(symbol: str, signal_data: dict, snapshot) -> dict:
     entry = _num(signal_data.get("entry"))
     atr = _num(signal_data.get("atr"))
     ctx = {
@@ -107,7 +106,7 @@ def signal_context(symbol: str, signal_data: Dict, snapshot) -> Dict:
     return ctx
 
 
-def _candles_summary(symbol: str) -> Dict:
+def _candles_summary(symbol: str) -> dict:
     from data_loader import get_candles
     out = {}
     for label, interval, count in (("4h", "240", 12), ("15m", "15", 16)):
@@ -117,7 +116,7 @@ def _candles_summary(symbol: str) -> Dict:
     return out
 
 
-def _crowd_positioning(symbol: str) -> Dict:
+def _crowd_positioning(symbol: str) -> dict:
     from market_data.bybit_market_data import get_funding_rate, get_open_interest
     funding = [_num(f.get("fundingRate")) for f in (get_funding_rate(symbol, limit=3) or [])]
     oi = [float(x["openInterest"]) for x in (get_open_interest(symbol, interval="1h", limit=24) or [])
@@ -126,7 +125,7 @@ def _crowd_positioning(symbol: str) -> Dict:
     return {"funding_rates_recent": funding, "open_interest_change_24h_pct": oi_change}
 
 
-def portfolio_context(symbol: Optional[str] = None) -> Dict:
+def portfolio_context(symbol: str | None = None) -> dict:
     import capital
     import database
     from market_data.correlation_groups import get_groups
@@ -147,7 +146,7 @@ def portfolio_context(symbol: Optional[str] = None) -> Dict:
     return ctx
 
 
-def track_record(days: int = 30) -> Dict:
+def track_record(days: int = 30) -> dict:
     import database
     return {"system_signal_outcomes_30d": database.get_signal_outcome_counts(days),
             "ai_shadow_opinions_30d": database.get_ai_opinion_stats(days)}
@@ -161,7 +160,7 @@ def _safe(part: str, build):
         return None
 
 
-def build_context(symbol: str, signal_data: Dict, snapshot) -> Dict:
+def build_context(symbol: str, signal_data: dict, snapshot) -> dict:
     return {
         "signal": signal_context(symbol, signal_data, snapshot),
         "candles": _safe("свечи", lambda: _candles_summary(symbol)),
@@ -171,7 +170,7 @@ def build_context(symbol: str, signal_data: Dict, snapshot) -> Dict:
     }
 
 
-def render(context: Dict) -> str:
+def render(context: dict) -> str:
     return ("Сигнал на оценку. Данные (JSON):\n"
             + json.dumps(context, ensure_ascii=False, separators=(",", ":"), default=str)
             + "\nОтветь строго JSON по схеме из инструкции.")

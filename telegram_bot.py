@@ -14,7 +14,6 @@ load_dotenv()
 warnings.filterwarnings("ignore", category=UserWarning, module="apscheduler")
 
 from telegram import Bot
-from telegram.ext import ApplicationBuilder  # Только для создания Application (polling)
 from telegram.request import HTTPXRequest
 
 logger = logging.getLogger(__name__)

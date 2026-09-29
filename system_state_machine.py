@@ -42,7 +42,7 @@ import uuid
 import queue
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from typing import Any
 from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class StateTransition:
     timestamp: datetime
     incident_id: str
     owner: str  # Кто инициировал переход
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class SystemStateMachine:
@@ -100,7 +100,7 @@ class SystemStateMachine:
         self._force_exit_armed = False
         self._state_lock = asyncio.Lock()
         self._transitions: list[StateTransition] = []
-        self._state_entered_at: Dict[SystemState, datetime] = {
+        self._state_entered_at: dict[SystemState, datetime] = {
             SystemState.RUNNING: datetime.now(UTC)
         }
         self._consecutive_errors = 0
@@ -108,10 +108,10 @@ class SystemStateMachine:
         # TTL для SAFE_MODE (максимальное время в safe_mode перед FATAL)
         # HARDENING: TTL управляется только state machine, не глобальными переменными
         self._safe_mode_ttl = safe_mode_ttl
-        self._safe_mode_entered_at: Optional[datetime] = None
+        self._safe_mode_entered_at: datetime | None = None
         
         # Heartbeat для SAFE_MODE
-        self._last_heartbeat: Optional[datetime] = None
+        self._last_heartbeat: datetime | None = None
         self._heartbeat_interval = 60.0  # 1 минута
         
         # HARDENING: Thread-safe event queue для ThreadWatchdog → asyncio communication
@@ -120,7 +120,7 @@ class SystemStateMachine:
         # HARDENING: Event queue с maxsize и drop policy
         # Если очередь переполнена N раз подряд → FATAL
         self._event_queue: queue.Queue = queue.Queue(maxsize=10)
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._event_queue_drops = 0  # Счётчик отброшенных событий
         self._event_queue_consecutive_drops = 0  # Подряд идущие отбросы
         self._event_queue_max_consecutive_drops = 5  # После 5 подряд → FATAL
@@ -222,7 +222,7 @@ class SystemStateMachine:
         new_state: SystemState,
         reason: str,
         owner: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> bool:
         """
         Переход в новое состояние
@@ -249,7 +249,7 @@ class SystemStateMachine:
 
     def _transition_unlocked(self, new_state: 'SystemState', reason: str,
                              owner: str = "unknown",
-                             metadata: Optional[Dict[str, Any]] = None) -> bool:
+                             metadata: dict[str, Any] | None = None) -> bool:
         """Internal transition WITHOUT acquiring lock. Caller MUST hold _state_lock."""
         old_state = self._state
 
@@ -363,7 +363,7 @@ class SystemStateMachine:
         """
         self._loop = loop
     
-    def trigger_loop_stall_thread_safe(self, time_since_heartbeat: float, incident_id: Optional[str] = None) -> bool:
+    def trigger_loop_stall_thread_safe(self, time_since_heartbeat: float, incident_id: str | None = None) -> bool:
         """
         HARDENING: Thread-safe триггер LOOP_STALL из ThreadWatchdog.
         
@@ -557,7 +557,7 @@ class SystemStateMachine:
         self._shutdown_started = True
         logger.critical("STATE_MACHINE: Shutdown started - all state transitions disabled")
     
-    def get_safe_mode_entered_at(self) -> Optional[datetime]:
+    def get_safe_mode_entered_at(self) -> datetime | None:
         """
         HARDENING: Thread-safe чтение safe_mode_entered_at для ThreadWatchdog.
         НЕ использует async/await, безопасно вызывать из thread.
@@ -585,7 +585,7 @@ class SystemStateMachine:
         async with self._state_lock:
             self._last_heartbeat = datetime.now(UTC)
     
-    def get_state_info(self) -> Dict[str, Any]:
+    def get_state_info(self) -> dict[str, Any]:
         """Получить информацию о текущем состоянии"""
         duration = None
         if self._state in self._state_entered_at:
@@ -609,7 +609,7 @@ class SystemStateMachine:
 
 
 # Глобальный экземпляр
-_state_machine: Optional[SystemStateMachine] = None
+_state_machine: SystemStateMachine | None = None
 
 
 def get_state_machine(safe_mode_ttl: float = 600.0) -> SystemStateMachine:

@@ -13,7 +13,6 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, UTC
-from typing import Optional
 
 import httpx
 
@@ -45,7 +44,7 @@ class Completion:
     completion_tokens: int
     cost_usd: float
     latency_ms: int
-    finish_reason: Optional[str] = None  # 'length' — ответ оборван по max_tokens
+    finish_reason: str | None = None  # 'length' — ответ оборван по max_tokens
 
 
 def api_key() -> str:
@@ -74,11 +73,11 @@ def news_daily_budget_usd() -> float:
     return env_float("AI_NEWS_DAILY_BUDGET_USD", DEFAULT_NEWS_BUDGET_USD)
 
 
-def utc_day(now: Optional[datetime] = None) -> str:
+def utc_day(now: datetime | None = None) -> str:
     return (now or datetime.now(UTC)).strftime("%Y-%m-%d")
 
 
-def budget_left_usd(now: Optional[datetime] = None, purpose: Optional[str] = None) -> float:
+def budget_left_usd(now: datetime | None = None, purpose: str | None = None) -> float:
     """Остаток суточного бюджета: для оценки новостей — её собственного, для остального — общего."""
     from database import get_ai_spend
     if purpose == NEWS_PURPOSE:
@@ -92,7 +91,7 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
 
 
 def complete(purpose: str, system: str, user: str, model: str, max_tokens: int = 700,
-             transport: Optional[httpx.BaseTransport] = None) -> Optional[Completion]:
+             transport: httpx.BaseTransport | None = None) -> Completion | None:
     """Запрос к модели. None — ключа нет, бюджет исчерпан или OpenRouter не ответил как положено."""
     key = api_key()
     if not key:

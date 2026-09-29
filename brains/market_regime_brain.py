@@ -8,12 +8,10 @@ Market Regime Brain - определяет режим рынка
 - macro pressure
 """
 import random
-from typing import Dict, List, Optional
 from core.decision_core import MarketRegime
 from indicators import atr, adx
 from states import market_direction, is_flat
 from volatility_filter import calculate_volatility_metrics
-from correlation_analysis import analyze_market_correlations
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,7 +35,7 @@ class MarketRegimeBrain:
         """
         pass
     
-    def analyze(self, symbols: List[str], candles_map: Dict[str, Dict[str, List]], 
+    def analyze(self, symbols: list[str], candles_map: dict[str, dict[str, list]], 
                system_state=None) -> MarketRegime:
         """
         Анализирует режим рынка на основе данных всех символов.
@@ -80,8 +78,8 @@ class MarketRegimeBrain:
         
         return regime
     
-    def _determine_trend_type(self, symbols: List[str], 
-                             candles_map: Dict[str, Dict[str, List]]) -> str:
+    def _determine_trend_type(self, symbols: list[str], 
+                             candles_map: dict[str, dict[str, list]]) -> str:
         """
         Определяет тип рынка: TREND или RANGE
         
@@ -148,8 +146,8 @@ class MarketRegimeBrain:
         else:
             return "MIXED"  # Ambiguous — consumers treat as RANGE for safety
     
-    def _determine_volatility(self, symbols: List[str],
-                             candles_map: Dict[str, Dict[str, List]]) -> str:
+    def _determine_volatility(self, symbols: list[str],
+                             candles_map: dict[str, dict[str, list]]) -> str:
         """
         Определяет уровень волатильности: HIGH, MEDIUM, LOW
         """
@@ -179,7 +177,6 @@ class MarketRegimeBrain:
         # Подсчитываем
         high_count = volatility_levels.count("HIGH")
         low_count = volatility_levels.count("LOW")
-        medium_count = volatility_levels.count("MEDIUM")
         
         if high_count > len(volatility_levels) * 0.5:
             return "HIGH"
@@ -188,8 +185,8 @@ class MarketRegimeBrain:
         else:
             return "MEDIUM"
     
-    def _determine_risk_sentiment(self, symbols: List[str],
-                                 candles_map: Dict[str, Dict[str, List]]) -> str:
+    def _determine_risk_sentiment(self, symbols: list[str],
+                                 candles_map: dict[str, dict[str, list]]) -> str:
         """
         Определяет risk-on vs risk-off
         
@@ -234,8 +231,8 @@ class MarketRegimeBrain:
         
         return "NEUTRAL"
     
-    def _determine_macro_pressure(self, symbols: List[str],
-                                 candles_map: Dict[str, Dict[str, List]]) -> Optional[str]:
+    def _determine_macro_pressure(self, symbols: list[str],
+                                 candles_map: dict[str, dict[str, list]]) -> str | None:
         """
         Определяет макро-давление
         
@@ -285,7 +282,7 @@ class MarketRegimeBrain:
         return None
     
     @staticmethod
-    def _sample_symbols(symbols: List[str], size: int = 7) -> List[str]:
+    def _sample_symbols(symbols: list[str], size: int = 7) -> list[str]:
         """Sample a mix of top symbols + random from the rest to reduce bias."""
         if len(symbols) <= size:
             return symbols
@@ -295,8 +292,8 @@ class MarketRegimeBrain:
         return top + random.sample(rest, n_random)
 
     def _calculate_confidence(self, trend_type: str, volatility_level: str,
-                              risk_sentiment: str, symbols: List[str],
-                              candles_map: Dict[str, Dict[str, List]]) -> float:
+                              risk_sentiment: str, symbols: list[str],
+                              candles_map: dict[str, dict[str, list]]) -> float:
         """
         Рассчитывает уверенность в определении режима (0.0 - 1.0)
         """

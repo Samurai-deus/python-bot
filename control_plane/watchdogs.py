@@ -52,7 +52,7 @@ def configure(*, system_state):
 
 
 # ========== THREAD-SAFE HEARTBEAT ACCESS ==========
-def get_last_heartbeat_timestamp() -> Optional[float]:
+def get_last_heartbeat_timestamp() -> float | None:
     """
     Thread-safe чтение last_heartbeat timestamp.
     
@@ -134,7 +134,7 @@ class ThreadWatchdog:
         self.state_machine = state_machine_instance
         self.heartbeat_timeout = heartbeat_timeout
         self.check_interval = check_interval
-        self.thread: Optional[threading.Thread] = None
+        self.thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self._exit_fn = exit_fn or _hard_exit
         self.triggered = False  # Idempotent: предотвращает повторные срабатывания
@@ -396,14 +396,14 @@ class RuntimeState:
     Устраняет необходимость в global declarations.
     """
     def __init__(self):
-        self.thread_watchdog: Optional[ThreadWatchdog] = None
-        self.fatal_reaper: Optional['FatalReaper'] = None
+        self.thread_watchdog: ThreadWatchdog | None = None
+        self.fatal_reaper: FatalReaper | None = None
     
-    def get_thread_watchdog(self) -> Optional[ThreadWatchdog]:
+    def get_thread_watchdog(self) -> ThreadWatchdog | None:
         """Возвращает экземпляр ThreadWatchdog"""
         return self.thread_watchdog
     
-    def set_thread_watchdog(self, watchdog: Optional[ThreadWatchdog]):
+    def set_thread_watchdog(self, watchdog: ThreadWatchdog | None):
         """Устанавливает экземпляр ThreadWatchdog"""
         self.thread_watchdog = watchdog
     
@@ -420,7 +420,7 @@ class RuntimeState:
 _runtime_state = RuntimeState()
 
 
-def get_thread_watchdog() -> Optional[ThreadWatchdog]:
+def get_thread_watchdog() -> ThreadWatchdog | None:
     """Возвращает глобальный экземпляр ThreadWatchdog"""
     return _runtime_state.get_thread_watchdog()
 
@@ -448,7 +448,7 @@ class FatalReaper:
     def __init__(self, state_machine_instance, check_interval: float = 1.5, exit_fn=None):
         self.state_machine = state_machine_instance
         self.check_interval = check_interval
-        self.thread: Optional[threading.Thread] = None
+        self.thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self._exit_fn = exit_fn or _hard_exit
     

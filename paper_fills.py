@@ -11,15 +11,14 @@
 после рестарта стоп из базы действует и во время простоя). Иначе — только
 обновившийся минимум (ниже прежнего) и максимум (выше прежнего).
 """
-from typing import Dict, Optional, Tuple
 
 
 class CandleWatermark:
     def __init__(self) -> None:
-        self._seen: Dict[str, Tuple[object, float, float]] = {}
+        self._seen: dict[str, tuple[object, float, float]] = {}
 
     def fresh_extremes(self, symbol: str, candle_start, low: float, high: float
-                       ) -> Tuple[Optional[float], Optional[float]]:
+                       ) -> tuple[float | None, float | None]:
         """(новый минимум или None, новый максимум или None) для этой проверки."""
         prev = self._seen.get(symbol)
         self._seen[symbol] = (candle_start, low, high)

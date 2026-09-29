@@ -69,7 +69,6 @@ def migrate(sqlite_path: str, database_url: str) -> None:
 
     # Ensure PG schema exists (creates tables if not present)
     os.environ["DATABASE_URL"] = database_url
-    import database as db_module
 
     pg.commit()  # schema was committed inside _init_pg_schema
 

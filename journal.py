@@ -16,7 +16,7 @@ import logging
 import threading
 import time
 from datetime import UTC, datetime
-from typing import Dict, List, Optional, Sequence
+from collections.abc import Sequence
 
 from core import release
 from core.signal_snapshot import SignalSnapshot
@@ -31,7 +31,7 @@ SKIPPED = "SKIPPED"
 # записи вызывающий помечает collapse_repeats: одна на символ, сторону, судьбу и причину
 # в час — иначе журнал и разметка исходов тонут в копиях одного сигнала.
 REPEAT_WINDOW_SECONDS = 3600
-_recent: Dict[tuple, float] = {}
+_recent: dict[tuple, float] = {}
 _recent_lock = threading.Lock()
 
 
@@ -47,18 +47,18 @@ def _is_repeat(key: tuple, now: float) -> bool:
         return False
 
 
-def _text(value) -> Optional[str]:
+def _text(value) -> str | None:
     """MarketState, RiskLevel, SignalDecision или строка — в строку для БД."""
     if value is None:
         return None
     return str(getattr(value, "value", value))
 
 
-def record_signal(*, symbol: str, side: Optional[str], entry: Optional[float], stop: Optional[float],
-                  target: Optional[float], status: str, reason_code: Optional[str] = None,
-                  reason: Optional[str] = None, states: Optional[Dict] = None, risk=None,
-                  score: Optional[float] = None, strategy: Optional[str] = None, decision=None,
-                  confidence: Optional[float] = None, timestamp: Optional[datetime] = None,
+def record_signal(*, symbol: str, side: str | None, entry: float | None, stop: float | None,
+                  target: float | None, status: str, reason_code: str | None = None,
+                  reason: str | None = None, states: dict | None = None, risk=None,
+                  score: float | None = None, strategy: str | None = None, decision=None,
+                  confidence: float | None = None, timestamp: datetime | None = None,
                   collapse_repeats: bool = False) -> bool:
     """
     Записать сигнал-кандидат. True — записан; False — повтор в окне или сбой записи.
@@ -100,8 +100,8 @@ def record_signal(*, symbol: str, side: Optional[str], entry: Optional[float], s
         return False
 
 
-def log_signal_snapshot(snapshot: SignalSnapshot, status: str = SENT, reason_code: Optional[str] = None,
-                        reason: Optional[str] = None, strategy: Optional[str] = None) -> bool:
+def log_signal_snapshot(snapshot: SignalSnapshot, status: str = SENT, reason_code: str | None = None,
+                        reason: str | None = None, strategy: str | None = None) -> bool:
     """
     Записать сигнал по SignalSnapshot. Метка времени — snapshot.timestamp: по ней же
     ИИ-трейдер пишет мнение (ai_opinions) и outcome tracker — исход (signal_outcomes).
@@ -115,7 +115,7 @@ def log_signal_snapshot(snapshot: SignalSnapshot, status: str = SENT, reason_cod
     )
 
 
-def _parse_timestamp(value) -> Optional[datetime]:
+def _parse_timestamp(value) -> datetime | None:
     if isinstance(value, datetime):
         moment = value
     else:
@@ -126,8 +126,8 @@ def _parse_timestamp(value) -> Optional[datetime]:
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
-def get_recent_signals(since: Optional[datetime] = None,
-                       statuses: Optional[Sequence[str]] = None) -> List[Dict]:
+def get_recent_signals(since: datetime | None = None,
+                       statuses: Sequence[str] | None = None) -> list[dict]:
     """
     Недавние сигналы из журнала, новые первыми.
 

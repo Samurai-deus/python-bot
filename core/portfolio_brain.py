@@ -9,7 +9,6 @@ PortfolioBrain НЕ анализирует рынок.
 """
 from database import open_notional  # остаток позиции после частичного закрытия
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 from enum import Enum
 from core.signal_snapshot import SignalSnapshot, SignalDecision
 from core.market_state import MarketState
@@ -33,7 +32,7 @@ class PositionSnapshot:
     size: float  # Размер позиции в USDT
     entry_price: float
     unrealized_pnl: float
-    market_state: Optional[MarketState]  # MarketState на момент входа
+    market_state: MarketState | None  # MarketState на момент входа
     confidence: float  # Confidence сигнала на момент входа
     entropy: float  # Entropy сигнала на момент входа
     
@@ -64,8 +63,8 @@ class PortfolioState:
     risk_budget: float  # Доступный риск-бюджет в USDT
     used_risk: float  # Использованный риск в USDT
     
-    regime_exposure: Dict[MarketState, float] = field(default_factory=dict)  # Экспозиция по MarketState
-    symbol_exposure: Dict[str, float] = field(default_factory=dict)  # Экспозиция по символам
+    regime_exposure: dict[MarketState, float] = field(default_factory=dict)  # Экспозиция по MarketState
+    symbol_exposure: dict[str, float] = field(default_factory=dict)  # Экспозиция по символам
     
     def __post_init__(self):
         """Проверка инвариантов"""
@@ -98,9 +97,9 @@ class PortfolioAnalysis:
     
     # Агрегированные метрики
     portfolio_entropy: float = 0.0
-    dominant_market_state: Optional[MarketState] = None
-    exposure_by_state: Dict[MarketState, float] = field(default_factory=dict)
-    exposure_by_direction: Dict[str, float] = field(default_factory=dict)
+    dominant_market_state: MarketState | None = None
+    exposure_by_state: dict[MarketState, float] = field(default_factory=dict)
+    exposure_by_direction: dict[str, float] = field(default_factory=dict)
     average_confidence: float = 0.0
     risk_utilization_ratio: float = 0.0  # used_risk / risk_budget
 
@@ -123,7 +122,7 @@ class PortfolioBrain:
     def evaluate(
         self,
         snapshot: SignalSnapshot,
-        open_positions: List[PositionSnapshot],
+        open_positions: list[PositionSnapshot],
         portfolio_state: PortfolioState,
     ) -> PortfolioAnalysis:
         """
@@ -235,9 +234,9 @@ class PortfolioBrain:
         snapshot: SignalSnapshot,
         portfolio_state: PortfolioState,
         portfolio_entropy: float,
-        dominant_market_state: Optional[MarketState],
-        exposure_by_state: Dict[MarketState, float]
-    ) -> Optional[str]:
+        dominant_market_state: MarketState | None,
+        exposure_by_state: dict[MarketState, float]
+    ) -> str | None:
         """
         Проверяет блокирующие условия (HARD).
         
@@ -289,10 +288,10 @@ class PortfolioBrain:
         self,
         snapshot: SignalSnapshot,
         portfolio_state: PortfolioState,
-        open_positions: List[PositionSnapshot],
+        open_positions: list[PositionSnapshot],
         average_confidence: float,
         portfolio_entropy: float
-    ) -> tuple[Optional[str], float]:
+    ) -> tuple[str | None, float]:
         """
         Проверяет условия для уменьшения размера (SCALE_DOWN).
         
@@ -337,11 +336,11 @@ class PortfolioBrain:
         self,
         snapshot: SignalSnapshot,
         portfolio_state: PortfolioState,
-        open_positions: List[PositionSnapshot],
+        open_positions: list[PositionSnapshot],
         average_confidence: float,
         portfolio_entropy: float,
-        exposure_by_state: Dict[MarketState, float]
-    ) -> Optional[str]:
+        exposure_by_state: dict[MarketState, float]
+    ) -> str | None:
         """
         Проверяет условия для разрешения сигнала (ALLOW).
         
@@ -381,7 +380,7 @@ class PortfolioBrain:
         snapshot: SignalSnapshot,
         portfolio_state: PortfolioState,
         average_confidence: float
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Проверяет условия для REDUCE (стратегически полезен, но портфель перегружен).
         
@@ -398,7 +397,7 @@ class PortfolioBrain:
     
     # ========== АГРЕГИРОВАННЫЕ МЕТРИКИ ==========
     
-    def _calculate_portfolio_entropy(self, open_positions: List[PositionSnapshot]) -> float:
+    def _calculate_portfolio_entropy(self, open_positions: list[PositionSnapshot]) -> float:
         """Вычисляет энтропию портфеля"""
         if not open_positions:
             return 0.0
@@ -412,14 +411,14 @@ class PortfolioBrain:
         return weighted_entropy
     
     def _find_dominant_market_state(
-        self, open_positions: List[PositionSnapshot]
-    ) -> Optional[MarketState]:
+        self, open_positions: list[PositionSnapshot]
+    ) -> MarketState | None:
         """Находит доминирующее MarketState в портфеле"""
         if not open_positions:
             return None
         
         # Подсчитываем экспозицию по состояниям
-        state_exposure: Dict[MarketState, float] = {}
+        state_exposure: dict[MarketState, float] = {}
         for pos in open_positions:
             if pos.market_state:
                 state_exposure[pos.market_state] = state_exposure.get(pos.market_state, 0.0) + pos.size
@@ -432,25 +431,25 @@ class PortfolioBrain:
         return dominant_state
     
     def _calculate_exposure_by_state(
-        self, open_positions: List[PositionSnapshot]
-    ) -> Dict[MarketState, float]:
+        self, open_positions: list[PositionSnapshot]
+    ) -> dict[MarketState, float]:
         """Вычисляет экспозицию по MarketState"""
-        exposure: Dict[MarketState, float] = {}
+        exposure: dict[MarketState, float] = {}
         for pos in open_positions:
             if pos.market_state:
                 exposure[pos.market_state] = exposure.get(pos.market_state, 0.0) + pos.size
         return exposure
     
     def _calculate_exposure_by_direction(
-        self, open_positions: List[PositionSnapshot]
-    ) -> Dict[str, float]:
+        self, open_positions: list[PositionSnapshot]
+    ) -> dict[str, float]:
         """Вычисляет экспозицию по направлению"""
         exposure = {"LONG": 0.0, "SHORT": 0.0}
         for pos in open_positions:
             exposure[pos.direction.value] = exposure.get(pos.direction.value, 0.0) + pos.size
         return exposure
     
-    def _calculate_average_confidence(self, open_positions: List[PositionSnapshot]) -> float:
+    def _calculate_average_confidence(self, open_positions: list[PositionSnapshot]) -> float:
         """Вычисляет среднюю confidence портфеля (взвешенную по размеру)"""
         if not open_positions:
             return 0.0
@@ -463,7 +462,7 @@ class PortfolioBrain:
         return weighted_confidence
     
     def _calculate_portfolio_correlation(
-        self, snapshot: SignalSnapshot, open_positions: List[PositionSnapshot]
+        self, snapshot: SignalSnapshot, open_positions: list[PositionSnapshot]
     ) -> float:
         """
         Вычисляет корреляцию сигнала с портфелем.
@@ -501,7 +500,7 @@ def get_portfolio_brain() -> PortfolioBrain:
 
 # ========== HELPER ФУНКЦИИ ДЛЯ ПРЕОБРАЗОВАНИЯ ДАННЫХ ==========
 
-def convert_trades_to_positions(open_trades: List[Dict], current_prices: Optional[Dict[str, float]] = None) -> List[PositionSnapshot]:
+def convert_trades_to_positions(open_trades: list[dict], current_prices: dict[str, float] | None = None) -> list[PositionSnapshot]:
     """
     Преобразует открытые сделки из БД в PositionSnapshot.
     
@@ -562,7 +561,7 @@ def convert_trades_to_positions(open_trades: List[Dict], current_prices: Optiona
 
 
 def calculate_portfolio_state(
-    open_positions: List[PositionSnapshot],
+    open_positions: list[PositionSnapshot],
     risk_budget: float,
     initial_balance: float = 10000.0
 ) -> PortfolioState:
@@ -587,13 +586,13 @@ def calculate_portfolio_state(
     used_risk = total_exposure
     
     # Вычисляем экспозицию по MarketState
-    regime_exposure: Dict[MarketState, float] = {}
+    regime_exposure: dict[MarketState, float] = {}
     for pos in open_positions:
         if pos.market_state:
             regime_exposure[pos.market_state] = regime_exposure.get(pos.market_state, 0.0) + pos.size
     
     # Вычисляем экспозицию по символам
-    symbol_exposure: Dict[str, float] = {}
+    symbol_exposure: dict[str, float] = {}
     for pos in open_positions:
         symbol_exposure[pos.symbol] = symbol_exposure.get(pos.symbol, 0.0) + pos.size
     

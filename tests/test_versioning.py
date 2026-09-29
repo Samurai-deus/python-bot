@@ -8,7 +8,6 @@
 """
 import pathlib
 import sqlite3
-from datetime import UTC, datetime, timedelta
 
 import pytest
 

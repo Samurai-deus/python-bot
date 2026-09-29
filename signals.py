@@ -1,7 +1,6 @@
-from typing import Optional, Dict
 from core.market_state import MarketState, get_state_text, normalize_states_dict
 
-def build_signal(symbol, states: Dict[str, Optional[MarketState]], risk, directions, zone=None, 
+def build_signal(symbol, states: dict[str, MarketState | None], risk, directions, zone=None, 
                  position_size=None, leverage=None, candle_analysis=None):
     """
     Формирует торговый сигнал с полной информацией.

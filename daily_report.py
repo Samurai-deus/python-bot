@@ -1,9 +1,9 @@
 """
 Модуль для генерации ежедневных отчетов
 """
-from datetime import datetime, UTC, timedelta
+from datetime import datetime, UTC
 from telegram_bot import send_message
-from bot_statistics import get_trade_statistics, format_statistics_report
+from bot_statistics import get_trade_statistics
 from trade_manager import get_open_trades
 from capital import get_current_balance
 from capital import get_initial_balance
@@ -22,7 +22,7 @@ def generate_daily_report():
         
         timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         
-        report = f"📊 **ЕЖЕДНЕВНЫЙ ОТЧЕТ**\n\n"
+        report = "📊 **ЕЖЕДНЕВНЫЙ ОТЧЕТ**\n\n"
         report += f"⏰ {timestamp}\n\n"
         
         # Статистика за сегодня

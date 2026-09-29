@@ -7,7 +7,8 @@ docs/DEFERRED_PLAN.md, шаг 5). Состояние процесса прихо
 """
 import asyncio
 import logging
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
             # Обёртываем в wait_for с таймаутом для предотвращения блокировки shutdown
             try:
                 await asyncio.wait_for(app.initialize(), timeout=10.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Telegram app.initialize() timeout - network may be unreachable")
                 raise  # Перезапустим с backoff
             except asyncio.CancelledError:
@@ -80,7 +81,7 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
 
             try:
                 await asyncio.wait_for(app.start(), timeout=10.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Telegram app.start() timeout - network may be unreachable")
                 # Cleanup initialize перед перезапуском
                 try:
@@ -101,7 +102,7 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
             async def _safe_polling():
                 """Wrapper to ensure polling errors are logged"""
                 try:
-                    await app.updater.start_polling(
+                    await app.updater.start_polling(  # noqa: B023 — задача ждётся в том же обороте цикла
                         poll_interval=2.0,
                         drop_pending_updates=True,
                     )
@@ -150,7 +151,7 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
                     polling_task.cancel()
                     try:
                         await asyncio.wait_for(polling_task, timeout=2.0)
-                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                    except (TimeoutError, asyncio.CancelledError):
                         logger.debug("Polling task cancel: CancelledError or timeout (expected)")
                     except Exception as e:
                         logger.debug("Error waiting for polling task cancellation: %s: %s", type(e).__name__, e)
@@ -223,7 +224,7 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
                         await asyncio.wait_for(polling_task, timeout=2.0)
                     except asyncio.CancelledError:
                         pass  # Ожидаемое исключение при cancel
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.warning("Telegram polling task did not cancel within timeout")
                     except Exception as e:
                         # Исключения во время shutdown (включая httpx.ReadError) не критичны

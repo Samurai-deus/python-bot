@@ -9,7 +9,7 @@ import pathlib
 import shutil
 import subprocess
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 import pytest
 
@@ -85,7 +85,7 @@ class Host:
         (self.stub / name).unlink()
 
     def cert_expires_in(self, days):
-        self.put("cert_end", cert_date(datetime.now(timezone.utc) + timedelta(days=days)))
+        self.put("cert_end", cert_date(datetime.now(UTC) + timedelta(days=days)))
 
     def run(self, at=0):
         env = dict(

@@ -8,12 +8,10 @@ Risk & Exposure Brain - управление риском и экспозици�
 - перегрузки
 """
 from database import open_notional  # остаток позиции после частичного закрытия
-from typing import Dict, List, Optional
 from core.decision_core import RiskExposure
 from capital import get_current_balance
 from trade_manager import get_open_trades
 from correlation_analysis import analyze_market_correlations
-from config import INITIAL_BALANCE
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,8 +43,8 @@ class RiskExposureBrain:
         """
         pass
     
-    def analyze(self, symbols: List[str], 
-               candles_map: Dict[str, Dict[str, List]], 
+    def analyze(self, symbols: list[str], 
+               candles_map: dict[str, dict[str, list]], 
                system_state=None) -> RiskExposure:
         """
         Анализирует текущий риск и экспозицию.
@@ -95,7 +93,7 @@ class RiskExposureBrain:
         
         return risk_exposure
     
-    def _calculate_total_risk(self, open_trades: List[Dict]) -> float:
+    def _calculate_total_risk(self, open_trades: list[dict]) -> float:
         """
         Рассчитывает суммарный риск в процентах от баланса.
         
@@ -139,9 +137,9 @@ class RiskExposureBrain:
         
         return total_risk_pct
     
-    def _calculate_max_correlation(self, open_trades: List[Dict],
-                                  symbols: List[str],
-                                  candles_map: Dict[str, Dict[str, List]]) -> float:
+    def _calculate_max_correlation(self, open_trades: list[dict],
+                                  symbols: list[str],
+                                  candles_map: dict[str, dict[str, list]]) -> float:
         """
         Рассчитывает максимальную корреляцию между открытыми позициями.
         """
@@ -214,7 +212,7 @@ class RiskExposureBrain:
         
         return max_corr
     
-    def _calculate_total_leverage(self, open_trades: List[Dict]) -> float:
+    def _calculate_total_leverage(self, open_trades: list[dict]) -> float:
         """
         Рассчитывает суммарное взвешенное плечо.
         """
@@ -236,7 +234,7 @@ class RiskExposureBrain:
         
         return total_leverage_weighted / total_size
     
-    def _calculate_exposure(self, open_trades: List[Dict]) -> float:
+    def _calculate_exposure(self, open_trades: list[dict]) -> float:
         """
         Рассчитывает экспозицию в процентах от баланса.
         """

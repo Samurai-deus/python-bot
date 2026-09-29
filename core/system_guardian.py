@@ -11,7 +11,7 @@ SystemGuardian - Глобальный слой принуждения инвар
 """
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Set
+from typing import Any
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import Enum
@@ -82,7 +82,7 @@ class AsyncToSyncAdapter:
 
             future = asyncio.run_coroutine_threadsafe(coro, loop)
             return future.result(timeout=timeout)
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             # Timeout → возвращаем fail-safe результат
             logger.error("AsyncToSyncAdapter timeout (operation: %s)", coro.__name__ if hasattr(coro, '__name__') else 'unknown')
             return fail_safe_result
@@ -108,9 +108,9 @@ class InvariantViolation:
     invariant_id: str  # INV-1, INV-2, etc.
     severity: InvariantViolationSeverity
     message: str
-    module: Optional[str] = None
+    module: str | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -118,8 +118,8 @@ class TradingPermission:
     """Разрешение на торговлю"""
     allowed: bool
     reason: str
-    blocked_by: Optional[str] = None  # Модуль или инвариант, который заблокировал
-    violations: List[InvariantViolation] = field(default_factory=list)
+    blocked_by: str | None = None  # Модуль или инвариант, который заблокировал
+    violations: list[InvariantViolation] = field(default_factory=list)
 
 
 class ModuleHealthMonitor:
@@ -127,8 +127,8 @@ class ModuleHealthMonitor:
     
     def __init__(self, module_registry: ModuleRegistry):
         self.module_registry = module_registry
-        self._health_cache: Dict[str, ModuleHealth] = {}
-        self._last_check: Dict[str, datetime] = {}
+        self._health_cache: dict[str, ModuleHealth] = {}
+        self._last_check: dict[str, datetime] = {}
     
     async def check_module_health(self, module_name: str) -> ModuleHealth:
         """
@@ -189,7 +189,7 @@ class ModuleHealthMonitor:
                         timeout=module_info.timeout_seconds
                     )
                     return result is True
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning("Module %s health check timeout", module_info.name)
                     return False
                 except Exception as e:
@@ -226,7 +226,7 @@ class ModuleHealthMonitor:
         except Exception:
             return False
     
-    async def _get_last_heartbeat(self, module_info) -> Optional[datetime]:
+    async def _get_last_heartbeat(self, module_info) -> datetime | None:
         """Получает время последнего heartbeat модуля"""
         # Базовая реализация - можно расширить
         # Модули могут реализовать метод get_last_heartbeat()
@@ -238,7 +238,7 @@ class ModuleHealthMonitor:
             logger.debug("system_guardian: модуль не отдал время последнего heartbeat", exc_info=True)
         return None
     
-    async def check_all_modules(self) -> Dict[str, ModuleHealth]:
+    async def check_all_modules(self) -> dict[str, ModuleHealth]:
         """Проверяет здоровье всех зарегистрированных модулей"""
         all_modules = self.module_registry.list_modules()
         health_status = {}
@@ -256,7 +256,7 @@ class InvariantEnforcer:
         self.module_registry = module_registry
         self.state_machine = state_machine
     
-    async def check_all_invariants(self) -> List[InvariantViolation]:
+    async def check_all_invariants(self) -> list[InvariantViolation]:
         """
         Проверяет все инварианты.
         
@@ -285,7 +285,7 @@ class InvariantEnforcer:
         
         return violations
     
-    async def _check_invariant_1(self) -> List[InvariantViolation]:
+    async def _check_invariant_1(self) -> list[InvariantViolation]:
         """INV-1: CRITICAL MODULE AVAILABILITY"""
         violations = []
         
@@ -313,7 +313,7 @@ class InvariantEnforcer:
         
         return violations
     
-    async def _check_invariant_2(self) -> List[InvariantViolation]:
+    async def _check_invariant_2(self) -> list[InvariantViolation]:
         """INV-2: DECISION CORE AUTHORITY"""
         violations = []
         
@@ -336,7 +336,7 @@ class InvariantEnforcer:
         
         return violations
     
-    async def _check_invariant_3(self) -> List[InvariantViolation]:
+    async def _check_invariant_3(self) -> list[InvariantViolation]:
         """INV-3: META DECISION BRAIN CRITICALITY"""
         violations = []
         
@@ -353,7 +353,7 @@ class InvariantEnforcer:
         
         return violations
     
-    async def _check_invariant_4(self) -> List[InvariantViolation]:
+    async def _check_invariant_4(self) -> list[InvariantViolation]:
         """INV-4: STATE MACHINE CONSISTENCY"""
         violations = []
         
@@ -381,7 +381,7 @@ class InvariantEnforcer:
         
         return violations
     
-    async def _check_invariant_5(self) -> List[InvariantViolation]:
+    async def _check_invariant_5(self) -> list[InvariantViolation]:
         """INV-5: DATA VALIDITY"""
         violations = []
         
@@ -409,7 +409,7 @@ class InvariantEnforcer:
                             message=f"CRITICAL module {module_name} has invalid data",
                             module=module_name
                         ))
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     violations.append(InvariantViolation(
                         invariant_id="INV-5",
                         severity=InvariantViolationSeverity.CRITICAL,
@@ -426,7 +426,7 @@ class InvariantEnforcer:
         
         return violations
     
-    async def _check_invariant_6(self) -> List[InvariantViolation]:
+    async def _check_invariant_6(self) -> list[InvariantViolation]:
         """INV-6: TIMEOUT ENFORCEMENT"""
         violations = []
         
@@ -448,7 +448,7 @@ class PolicyEnforcer:
         self,
         module_name: str,
         failure_type: str,
-        failure_details: Dict[str, Any]
+        failure_details: dict[str, Any]
     ) -> bool:
         """
         Применяет fail-safe политику при отказе модуля.
@@ -601,7 +601,7 @@ class SystemGuardian:
     
     def __init__(
         self,
-        module_registry: Optional[ModuleRegistry] = None,
+        module_registry: ModuleRegistry | None = None,
         state_machine = None
     ):
         self.module_registry = module_registry or get_module_registry()
@@ -618,11 +618,11 @@ class SystemGuardian:
             self.health_monitor
         )
     
-    async def check_all_invariants(self) -> List[InvariantViolation]:
+    async def check_all_invariants(self) -> list[InvariantViolation]:
         """Проверяет все инварианты"""
         return await self.invariant_enforcer.check_all_invariants()
     
-    async def check_module_health(self) -> Dict[str, ModuleHealth]:
+    async def check_module_health(self) -> dict[str, ModuleHealth]:
         """Проверяет здоровье всех модулей"""
         return await self.health_monitor.check_all_modules()
     
@@ -685,7 +685,7 @@ class SystemGuardian:
             fail_safe_result=None
         )
 
-    async def handle_violations(self, violations: List[InvariantViolation]):
+    async def handle_violations(self, violations: list[InvariantViolation]):
         """
         Обрабатывает нарушения инвариантов.
         
@@ -736,7 +736,7 @@ class SystemGuardian:
 
 
 # Глобальный экземпляр
-_system_guardian: Optional[SystemGuardian] = None
+_system_guardian: SystemGuardian | None = None
 
 
 def get_system_guardian() -> SystemGuardian:

@@ -19,7 +19,7 @@ import logging
 import threading
 import time
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
-from typing import Callable, Dict, Optional, Tuple
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ INSTRUMENTS_URL = instruments_url()
 TESTNET_INSTRUMENTS_URL = instruments_url(testnet=True)
 CACHE_TTL_SECONDS = 6 * 3600
 
-_cache: Dict[str, Tuple[float, dict]] = {}
+_cache: dict[str, tuple[float, dict]] = {}
 _lock = threading.Lock()
 
 
@@ -39,7 +39,7 @@ def _instruments_url() -> str:
     return TESTNET_INSTRUMENTS_URL if uses_testnet_endpoint() else INSTRUMENTS_URL
 
 
-def _fetch_from_bybit(symbol: str) -> Optional[dict]:
+def _fetch_from_bybit(symbol: str) -> dict | None:
     import requests
 
     response = requests.get(
@@ -62,7 +62,7 @@ def _fetch_from_bybit(symbol: str) -> Optional[dict]:
     }
 
 
-def get_limits(symbol: str, fetch: Optional[Callable[[str], Optional[dict]]] = None) -> Optional[dict]:
+def get_limits(symbol: str, fetch: Callable[[str], dict | None] | None = None) -> dict | None:
     """Лимиты инструмента: из кэша, свежие с биржи или устаревшие, если биржа не ответила."""
     now = time.time()
     with _lock:
@@ -93,7 +93,7 @@ def clear_cache() -> None:
 
 
 def min_order_usd(symbol: str, price: float,
-                  fetch: Optional[Callable[[str], Optional[dict]]] = None) -> Optional[float]:
+                  fetch: Callable[[str], dict | None] | None = None) -> float | None:
     """
     Минимальный ордер биржи в долларах при цене price: лот × цена, но не меньше
     минимального номинала. None — лимиты инструмента недоступны.
@@ -104,8 +104,8 @@ def min_order_usd(symbol: str, price: float,
     return float(max(limits["min_qty"] * Decimal(str(price)), limits["min_notional"]))
 
 
-def smallest_order_usd(symbol: str, price: Optional[float],
-                       fetch: Optional[Callable[[str], Optional[dict]]] = None) -> Optional[float]:
+def smallest_order_usd(symbol: str, price: float | None,
+                       fetch: Callable[[str], dict | None] | None = None) -> float | None:
     """
     Наименьший номинал, который биржа примет после округления количества до шага
     лота. min_order_usd — порог, а исполнитель округляет количество ВНИЗ: 5 $ по ADA
@@ -123,8 +123,8 @@ def smallest_order_usd(symbol: str, price: Optional[float],
     return float(max(limits["min_qty"], by_notional) * p)
 
 
-def min_order_violation(symbol: str, notional_usd: float, entry_price: Optional[float],
-                        fetch: Optional[Callable[[str], Optional[dict]]] = None) -> Optional[str]:
+def min_order_violation(symbol: str, notional_usd: float, entry_price: float | None,
+                        fetch: Callable[[str], dict | None] | None = None) -> str | None:
     """
     Почему биржа не примет ордер такого размера — или None, если примет.
 

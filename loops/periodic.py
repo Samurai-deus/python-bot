@@ -10,7 +10,7 @@ docs/DEFERRED_PLAN.md). Состояние процесса передаётся
 import asyncio
 import logging
 from datetime import datetime, UTC, timedelta
-from typing import Callable
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ async def weekly_report_loop(is_running: IsRunning, shutdown_evt: asyncio.Event)
         try:
             await asyncio.wait_for(shutdown_evt.wait(), timeout=delay)
             break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass  # Expected: время отчёта
         if not is_running():
             break
@@ -147,7 +147,7 @@ async def outcome_tracker_loop(is_running: IsRunning, shutdown_evt: asyncio.Even
         await asyncio.wait_for(shutdown_evt.wait(), timeout=300.0)
         logger.info("[OutcomeTracker] Loop stopped (shutdown during initial delay)")
         return
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass  # Expected: initial delay elapsed, proceed to outcome check loop
 
     while is_running() and not shutdown_evt.is_set():
@@ -164,7 +164,7 @@ async def outcome_tracker_loop(is_running: IsRunning, shutdown_evt: asyncio.Even
         try:
             await asyncio.wait_for(shutdown_evt.wait(), timeout=1800.0)  # 30 min
             break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass  # Expected: sleep interval elapsed, proceed to next outcome check
 
     logger.info("[OutcomeTracker] Loop stopped")

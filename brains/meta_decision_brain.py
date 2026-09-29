@@ -13,7 +13,6 @@ MetaDecisionBrain НЕ работает с рынком напрямую.
 - Приоритет проверок: HARD_BLOCK > SOFT_BLOCK > ALLOW (явно заявлен)
 """
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 from enum import Enum
 from core.decision_core import MarketRegime
 
@@ -64,7 +63,7 @@ class MetaDecisionResult:
     """
     allow_trading: bool
     reason: str
-    block_level: Optional[BlockLevel] = None
+    block_level: BlockLevel | None = None
     cooldown_minutes: int = 0
     
     def __post_init__(self):
@@ -120,11 +119,11 @@ class MetaDecisionBrain:
     
     def evaluate(
         self,
-        market_regime: Optional[MarketRegime] = None,
+        market_regime: MarketRegime | None = None,
         confidence_score: float = 0.5,
         entropy_score: float = 0.5,
         portfolio_exposure: float = 0.0,
-        recent_outcomes: Optional[List[float]] = None,
+        recent_outcomes: list[float] | None = None,
         signals_count_recent: int = 0,
         system_health: SystemHealthStatus = SystemHealthStatus.OK,
         time_context: TimeContext = TimeContext.UNKNOWN,
@@ -218,7 +217,7 @@ class MetaDecisionBrain:
         confidence_score: float,
         portfolio_exposure: float,
         system_health: SystemHealthStatus
-    ) -> Optional[MetaDecisionResult]:
+    ) -> MetaDecisionResult | None:
         """
         Явная проверка перехода в состояние HARD_BLOCK.
         
@@ -251,10 +250,10 @@ class MetaDecisionBrain:
         confidence_score: float,
         entropy_score: float,
         signals_count_recent: int,
-        recent_outcomes: Optional[List[float]],
+        recent_outcomes: list[float] | None,
         portfolio_exposure: float,
         time_context: TimeContext
-    ) -> Optional[MetaDecisionResult]:
+    ) -> MetaDecisionResult | None:
         """
         Явная проверка перехода в состояние SOFT_BLOCK.
         
@@ -354,7 +353,7 @@ class MetaDecisionBrain:
         confidence_score: float,
         portfolio_exposure: float,
         system_health: SystemHealthStatus
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Проверяет условия для HARD BLOCK (жёсткой блокировки).
         
@@ -387,8 +386,8 @@ class MetaDecisionBrain:
         # 3. system_health == DEGRADED
         if system_health == SystemHealthStatus.DEGRADED:
             return (
-                f"HARD BLOCK: System health is DEGRADED. System is experiencing issues. "
-                f"Trading is disabled until system recovers."
+                "HARD BLOCK: System health is DEGRADED. System is experiencing issues. "
+                "Trading is disabled until system recovers."
             )
         
         return None
@@ -398,10 +397,10 @@ class MetaDecisionBrain:
         confidence_score: float,
         entropy_score: float,
         signals_count_recent: int,
-        recent_outcomes: Optional[List[float]],
+        recent_outcomes: list[float] | None,
         portfolio_exposure: float,
         time_context: TimeContext
-    ) -> Tuple[Optional[str], int]:
+    ) -> tuple[str | None, int]:
         """
         Проверяет условия для SOFT BLOCK (мягкой блокировки).
         
@@ -511,15 +510,15 @@ class MetaDecisionBrainExtension:
     
     def check_extension_conditions(
         self,
-        market_regime: Optional[MarketRegime] = None,
+        market_regime: MarketRegime | None = None,
         confidence_score: float = 0.5,
         entropy_score: float = 0.5,
         portfolio_exposure: float = 0.0,
-        recent_outcomes: Optional[List[float]] = None,
+        recent_outcomes: list[float] | None = None,
         signals_count_recent: int = 0,
         system_health: SystemHealthStatus = SystemHealthStatus.OK,
         time_context: TimeContext = TimeContext.UNKNOWN,
-    ) -> Optional[MetaDecisionResult]:
+    ) -> MetaDecisionResult | None:
         """
         Проверяет дополнительные условия (переопределяется в подклассах).
         

@@ -200,7 +200,7 @@ async def handle_metrics(state):
     lines.append(f'scheduler_stalls_total {stalls_total}')
     
     # Gauges
-    lines.append(f'market_volatility 0.000')
+    lines.append('market_volatility 0.000')
     lines.append(f'uptime_seconds {uptime:.3f}')
     safe_mode_value = 1 if state.system_health.safe_mode else 0
     lines.append(f'safe_mode {safe_mode_value}')
@@ -494,7 +494,7 @@ async def start_http_server(get_state, shutdown_evt, host="127.0.0.1", port=8080
             # Безопасное чтение HTTP request (до \r\n\r\n)
             try:
                 request_data = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 status_code = 408
                 response_body = b"Request Timeout"
                 content_type = "text/plain"
@@ -620,7 +620,7 @@ async def start_http_server(get_state, shutdown_evt, host="127.0.0.1", port=8080
                     f"Content-Length: {len(error_body)}\r\n"
                     f"Connection: close\r\n"
                     f"\r\n"
-                ).encode('utf-8') + error_body
+                ).encode() + error_body
                 writer.write(response)
                 await writer.drain()
                 logger.error("HTTP RESPONSE 500: Critical error: %s: %s", type(e).__name__, e)

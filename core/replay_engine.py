@@ -19,13 +19,14 @@ ReplayEngine повторно прогоняет сохранённые SignalSn
 """
 import logging
 from dataclasses import dataclass, field
-from typing import List, Iterator, Optional, TYPE_CHECKING, Dict
+from typing import Optional, TYPE_CHECKING
+from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 from core.signal_snapshot import SignalSnapshot
 from core.portfolio_brain import (
     PortfolioBrain, PortfolioAnalysis, PortfolioDecision,
-    PortfolioState, calculate_portfolio_state, convert_trades_to_positions
+    PortfolioState
 )
 from core.position_sizer import PositionSizer, PortfolioStateAdapter
 from core.decision_core import DecisionCore, TradingDecision
@@ -100,10 +101,10 @@ class ReplayEngine:
     
     def __init__(
         self,
-        meta_brain: Optional[MetaDecisionBrain] = None,
-        portfolio_brain: Optional[PortfolioBrain] = None,
-        position_sizer: Optional[PositionSizer] = None,
-        decision_core: Optional[DecisionCore] = None
+        meta_brain: MetaDecisionBrain | None = None,
+        portfolio_brain: PortfolioBrain | None = None,
+        position_sizer: PositionSizer | None = None,
+        decision_core: DecisionCore | None = None
     ):
         """
         Инициализация ReplayEngine.
@@ -126,7 +127,7 @@ class ReplayEngine:
     
     def replay_snapshots(
         self,
-        snapshots: List[SignalSnapshot]
+        snapshots: list[SignalSnapshot]
     ) -> ReplaySummary:
         """
         Прогоняет список SignalSnapshot через текущую логику.
@@ -230,7 +231,7 @@ class ReplayEngine:
     def _replay_meta_decision(
         self,
         snapshot: SignalSnapshot
-    ) -> Optional[MetaDecisionResult]:
+    ) -> MetaDecisionResult | None:
         """
         Прогоняет snapshot через MetaDecisionBrain.
         
@@ -272,7 +273,7 @@ class ReplayEngine:
     def _replay_decision_core(
         self,
         snapshot: SignalSnapshot
-    ) -> Optional[TradingDecision]:
+    ) -> TradingDecision | None:
         """
         Прогоняет snapshot через DecisionCore.
         
@@ -324,7 +325,7 @@ class ReplayEngine:
     def _replay_portfolio(
         self,
         snapshot: SignalSnapshot
-    ) -> Optional[PortfolioAnalysis]:
+    ) -> PortfolioAnalysis | None:
         """
         Прогоняет snapshot через PortfolioBrain.
         
@@ -346,7 +347,7 @@ class ReplayEngine:
     def _replay_position_sizer(
         self,
         snapshot: SignalSnapshot,
-        portfolio_analysis: Optional[PortfolioAnalysis]
+        portfolio_analysis: PortfolioAnalysis | None
     ) -> Optional["PositionSizingResult"]:
         """
         Прогоняет snapshot через PositionSizer.

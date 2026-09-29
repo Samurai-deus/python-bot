@@ -1,7 +1,8 @@
 """Своя база И14 (SQLite в томе /portfolio): состояние, ребалансировки, снимки, фандинг, события."""
 import json
 import sqlite3
-from typing import Dict, Iterable, Optional, Set, Tuple
+from collections.abc import Iterable
+import builtins
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT)",
@@ -22,7 +23,7 @@ class Store:
             self.conn.execute(sql)
         self.conn.commit()
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
 
@@ -36,25 +37,25 @@ class Store:
                           (key, str(value)))
         self.conn.commit()
 
-    def rebalance(self, t: int, done_ms: int, weights: Dict[str, float], orders: list, failed: list) -> None:
+    def rebalance(self, t: int, done_ms: int, weights: dict[str, float], orders: list, failed: list) -> None:
         row = (t, done_ms, json.dumps(weights), json.dumps(orders), json.dumps(failed))
         self.conn.execute("INSERT OR REPLACE INTO rebalances (t, done_ms, weights, orders, failed) VALUES (?, ?, ?, ?, ?)", row)
         self.conn.execute("INSERT OR IGNORE INTO rebalance_runs (t, done_ms, weights, orders, failed) VALUES (?, ?, ?, ?, ?)", row)
         self.conn.commit()
 
-    def last_weights(self) -> Optional[Dict[str, float]]:
+    def last_weights(self) -> dict[str, float] | None:
         """Цели последнего прогона ребалансировки; None — ребалансировок ещё не было."""
         row = self.conn.execute("SELECT weights FROM rebalance_runs ORDER BY done_ms DESC LIMIT 1").fetchone()
         return json.loads(row[0]) if row else None
 
-    def traded_symbols(self) -> set:
+    def traded_symbols(self) -> builtins.set[str]:      # в теле класса `set` — это метод Store.set
         """Все монеты из целей и ордеров журнала прогонов — чем исполнитель когда-либо торговал."""
         out = set()
         for w, o in self.conn.execute("SELECT weights, orders FROM rebalance_runs"):
             out |= set(json.loads(w)) | {x[0] for x in json.loads(o)}
         return out
 
-    def week_retry(self, t: int) -> Optional[Tuple[Dict[str, float], Set[str]]]:
+    def week_retry(self, t: int) -> tuple[dict[str, float], builtins.set[str]] | None:
         """
         Повтор недели t: цели последнего её прогона и монеты, где ордер тогда не прошёл. None — прогонов
         недели ещё не было. Цели не пересчитываются: повтор доводит те же, а не новые по сдвинувшимся ценам.
@@ -68,7 +69,7 @@ class Store:
     def has_rebalance(self, t: int) -> bool:
         return self.conn.execute("SELECT 1 FROM rebalances WHERE t = ?", (t,)).fetchone() is not None
 
-    def snapshot(self, ts: int, equity: float, positions: Dict[str, float]) -> None:
+    def snapshot(self, ts: int, equity: float, positions: dict[str, float]) -> None:
         self.conn.execute("INSERT OR REPLACE INTO snapshots (ts, equity, positions) VALUES (?, ?, ?)",
                           (ts, equity, json.dumps(positions)))
         self.conn.commit()

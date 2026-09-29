@@ -24,7 +24,7 @@ class MarketState(Enum):
     D = "D"  # Отказ (Rejection)
     
     @classmethod
-    def is_valid(cls, value: Optional[str]) -> bool:
+    def is_valid(cls, value: str | None) -> bool:
         """
         Проверяет, является ли значение валидным состоянием рынка.
         
@@ -39,7 +39,7 @@ class MarketState(Enum):
         return value in cls._value2member_map_
     
     @classmethod
-    def from_string(cls, value: Optional[str]) -> Optional['MarketState']:
+    def from_string(cls, value: str | None) -> Optional['MarketState']:
         """
         Преобразует строку в MarketState enum.
         
@@ -57,7 +57,7 @@ class MarketState(Enum):
             return None
     
     @classmethod
-    def to_string(cls, value: Optional['MarketState']) -> Optional[str]:
+    def to_string(cls, value: Optional['MarketState']) -> str | None:
         """
         Преобразует MarketState enum в строку.
         
@@ -88,7 +88,7 @@ STATE_TEXT = {
 }
 
 
-def get_state_text(state: Optional[MarketState]) -> str:
+def get_state_text(state: MarketState | None) -> str:
     """
     Получает текстовое представление состояния рынка.
     
@@ -103,7 +103,7 @@ def get_state_text(state: Optional[MarketState]) -> str:
     return STATE_TEXT.get(state, "Неопределённость")
 
 
-def normalize_state(value: Optional[str]) -> Optional[MarketState]:
+def normalize_state(value: str | None) -> MarketState | None:
     """
     Нормализует строковое значение состояния в MarketState enum.
     
@@ -125,7 +125,7 @@ def normalize_state(value: Optional[str]) -> Optional[MarketState]:
     return None
 
 
-def state_to_string(state: Optional[MarketState]) -> str:
+def state_to_string(state: MarketState | None) -> str:
     """
     Преобразует MarketState в строку для записи в CSV/БД.
     
@@ -140,7 +140,7 @@ def state_to_string(state: Optional[MarketState]) -> str:
     return state.value
 
 
-def validate_state(state, context: str = "") -> Optional[MarketState]:
+def validate_state(state, context: str = "") -> MarketState | None:
     """
     Проверяет инвариант: state должен быть MarketState enum или None.
     

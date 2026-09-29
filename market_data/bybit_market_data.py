@@ -4,7 +4,6 @@ Bybit Market Data: Open Interest и Funding Rate.
 """
 import logging
 import time
-from typing import List, Dict, Optional
 import requests
 
 logger = logging.getLogger(__name__)
@@ -13,12 +12,12 @@ BASE_URL = "https://api.bybit.com"
 TIMEOUT = 10
 
 # Кэш: {symbol: (timestamp, data)} — TTL 5 минут
-_oi_cache: Dict[str, tuple] = {}
-_funding_cache: Dict[str, tuple] = {}
+_oi_cache: dict[str, tuple] = {}
+_funding_cache: dict[str, tuple] = {}
 CACHE_TTL = 300  # 5 минут
 
 
-def _get_cached(cache: dict, key: str) -> Optional[list]:
+def _get_cached(cache: dict, key: str) -> list | None:
     """Возвращает данные из кэша если не устарели."""
     if key in cache:
         ts, data = cache[key]
@@ -27,7 +26,7 @@ def _get_cached(cache: dict, key: str) -> Optional[list]:
     return None
 
 
-def get_open_interest(symbol: str, interval: str = "5min", limit: int = 50) -> List[Dict]:
+def get_open_interest(symbol: str, interval: str = "5min", limit: int = 50) -> list[dict]:
     """
     Получает историю Open Interest с Bybit.
     /v5/market/open-interest — бесплатный endpoint.
@@ -60,7 +59,7 @@ def get_open_interest(symbol: str, interval: str = "5min", limit: int = 50) -> L
         return []
 
 
-def get_funding_rate(symbol: str, limit: int = 10) -> List[Dict]:
+def get_funding_rate(symbol: str, limit: int = 10) -> list[dict]:
     """
     Получает историю Funding Rate с Bybit.
     /v5/market/funding/history — бесплатный endpoint.

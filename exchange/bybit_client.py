@@ -32,7 +32,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Dict, Optional, Union
+from typing import Any
 from urllib.parse import urlencode
 
 import requests
@@ -45,7 +45,7 @@ _MAINNET_BASE = "https://api.bybit.com"
 _TESTNET_BASE = "https://api-testnet.bybit.com"
 _DEMO_BASE = "https://api-demo.bybit.com"  # демо-счёт основного аккаунта (BYBIT_DEMO)
 
-Number = Union[Decimal, float, int, str]
+Number = Decimal | float | int | str
 
 # orderLinkId: до 36 символов, буквы, цифры, дефис и подчёркивание (документация v5).
 _ORDER_LINK_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,36}$")
@@ -79,7 +79,7 @@ class OrderResult:
     side: str            # "Buy" | "Sell"
     order_type: str      # "Market" | "Limit"
     qty: float
-    price: Optional[float]
+    price: float | None
     status: str          # "Created" | "Filled" | "Cancelled" etc.
     time_in_force: str
     order_link_id: str = ""
@@ -94,11 +94,11 @@ class PositionInfo:
     entry_price: float
     unrealised_pnl: float
     leverage: float
-    stop_loss: Optional[float]
-    take_profit: Optional[float]
+    stop_loss: float | None
+    take_profit: float | None
 
 
-def _num(value) -> Optional[float]:
+def _num(value) -> float | None:
     """Число из ответа Bybit; "" и отсутствие поля — None: Bybit отдаёт "" и для нуля, и для неприменимого поля."""
     if value is None or value == "":
         return None
@@ -124,7 +124,7 @@ class InstrumentFilters:
     min_qty: Decimal
     max_market_qty: Decimal
     min_notional: Decimal
-    max_leverage: Optional[Decimal]
+    max_leverage: Decimal | None
 
 
 # ========== CLIENT ==========
@@ -157,10 +157,10 @@ class BybitClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        api_secret: Optional[str] = None,
-        testnet: Optional[bool] = None,
-        demo: Optional[bool] = None,
+        api_key: str | None = None,
+        api_secret: str | None = None,
+        testnet: bool | None = None,
+        demo: bool | None = None,
     ):
         self._api_key = api_key or os.environ.get("BYBIT_API_KEY", "")
         self._api_secret = api_secret or os.environ.get("BYBIT_API_SECRET", "")
@@ -188,7 +188,7 @@ class BybitClient:
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
 
-        self._filters_cache: Dict[str, tuple] = {}
+        self._filters_cache: dict[str, tuple] = {}
 
         mode = self.environment
         logger.info("BybitClient initialized [%s]: %s", mode, self._base_url)
@@ -250,7 +250,7 @@ class BybitClient:
             logger.warning("get_mark_price(%s) failed: %s", symbol, e)
         return 0.0
 
-    def get_instruments_info(self, symbol: str) -> Dict:
+    def get_instruments_info(self, symbol: str) -> dict:
         """Сырые параметры инструмента."""
         return self._get("/v5/market/instruments-info", params={"category": "linear", "symbol": symbol}, signed=False)
 
@@ -279,7 +279,7 @@ class BybitClient:
         return filters
 
     @staticmethod
-    def _parse_filters(symbol: str, item: Dict) -> InstrumentFilters:
+    def _parse_filters(symbol: str, item: dict) -> InstrumentFilters:
         lot = item.get("lotSizeFilter") or {}
         price = item.get("priceFilter") or {}
         lev = item.get("leverageFilter") or {}
@@ -366,12 +366,12 @@ class BybitClient:
             warned.add(key)
             logger.warning(msg, *args)
 
-    def get_positions(self, symbol: Optional[str] = None) -> list:
+    def get_positions(self, symbol: str | None = None) -> list:
         """
         Открытые позиции, все страницы. Раньше читалась только первая страница
         (по умолчанию 20 записей), и позиция со второй считалась закрытой.
         """
-        params: Dict[str, Any] = {"category": "linear", "settleCoin": "USDT", "limit": 200}
+        params: dict[str, Any] = {"category": "linear", "settleCoin": "USDT", "limit": 200}
         if symbol:
             params["symbol"] = symbol
         result = []
@@ -412,7 +412,7 @@ class BybitClient:
         data = self._get("/v5/order/realtime", params={"category": "linear", "symbol": symbol}, signed=True)
         return data.get("list", [])
 
-    def find_order(self, symbol: str, order_link_id: str) -> Optional[Dict]:
+    def find_order(self, symbol: str, order_link_id: str) -> dict | None:
         """
         Ордер по orderLinkId в любом статусе — или None. Сначала order/realtime
         (по orderLinkId отдаёт и исполненные), затем order/history: после
@@ -436,12 +436,12 @@ class BybitClient:
         side: str,               # "Buy" | "Sell"
         qty: Number,
         order_type: str = "Market",
-        price: Optional[Number] = None,
-        stop_loss: Optional[Number] = None,
-        take_profit: Optional[Number] = None,
+        price: Number | None = None,
+        stop_loss: Number | None = None,
+        take_profit: Number | None = None,
         time_in_force: str = "GTC",
         reduce_only: bool = False,
-        client_order_id: Optional[str] = None,
+        client_order_id: str | None = None,
         position_idx: int = 0,
     ) -> OrderResult:
         """
@@ -455,7 +455,7 @@ class BybitClient:
         link_id = client_order_id or new_order_link_id()
         if not _ORDER_LINK_ID_RE.match(link_id):
             raise ValueError(f"orderLinkId {link_id!r}: до 36 символов, буквы, цифры, '-' и '_'")
-        body: Dict[str, Any] = {
+        body: dict[str, Any] = {
             "category": "linear",
             "symbol": symbol,
             "side": side,
@@ -508,12 +508,12 @@ class BybitClient:
     def set_trading_stop(
         self,
         symbol: str,
-        stop_loss: Optional[Number] = None,
-        take_profit: Optional[Number] = None,
+        stop_loss: Number | None = None,
+        take_profit: Number | None = None,
         position_idx: int = 0,
     ) -> bool:
         """Установить/изменить SL и/или TP для открытой позиции."""
-        body: Dict[str, Any] = {"category": "linear", "symbol": symbol, "positionIdx": position_idx}
+        body: dict[str, Any] = {"category": "linear", "symbol": symbol, "positionIdx": position_idx}
         if stop_loss is not None:
             body["stopLoss"] = fmt_number(stop_loss)
         if take_profit is not None:
@@ -541,18 +541,18 @@ class BybitClient:
     #  Internal HTTP helpers                                              #
     # ------------------------------------------------------------------ #
 
-    def _get(self, path: str, params: Dict, signed: bool) -> Dict:
+    def _get(self, path: str, params: dict, signed: bool) -> dict:
         return self._request("GET", path, params=params, signed=signed,
                              retry_network=True, retry_server=True)
 
-    def _post(self, path: str, body: Dict, signed: bool,
-              retry_network: bool = True, retry_server: bool = True) -> Dict:
+    def _post(self, path: str, body: dict, signed: bool,
+              retry_network: bool = True, retry_server: bool = True) -> dict:
         return self._request("POST", path, body=body, signed=signed,
                              retry_network=retry_network, retry_server=retry_server)
 
-    def _request(self, method: str, path: str, params: Optional[Dict] = None,
-                 body: Optional[Dict] = None, signed: bool = False,
-                 retry_network: bool = True, retry_server: bool = True) -> Dict:
+    def _request(self, method: str, path: str, params: dict | None = None,
+                 body: dict | None = None, signed: bool = False,
+                 retry_network: bool = True, retry_server: bool = True) -> dict:
         url = self._base_url + path
         if method == "GET":
             # Подписывается ровно та строка запроса, что уходит в URL.
@@ -603,7 +603,7 @@ class BybitClient:
     def _now_ms(self) -> int:
         return int(time.time() * 1000)
 
-    def _build_auth_headers(self, payload_str: str) -> Dict:
+    def _build_auth_headers(self, payload_str: str) -> dict:
         """Auth-заголовки Bybit V5: подпись над timestamp + key + recv_window + payload."""
         ts = str(self._now_ms())
         recv_window = str(self._RECV_WINDOW)
@@ -622,7 +622,7 @@ class BybitClient:
         }
 
     @staticmethod
-    def _parse_response(resp, path: str) -> Dict:
+    def _parse_response(resp, path: str) -> dict:
         """Разобрать Bybit V5 envelope. Исключение при любой ошибке."""
         try:
             resp.raise_for_status()
@@ -688,7 +688,7 @@ class _RateLimited(_RetryableError):
 
 # ========== SINGLETON ==========
 
-_client: Optional[BybitClient] = None
+_client: BybitClient | None = None
 _client_lock = threading.Lock()
 
 

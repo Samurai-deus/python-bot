@@ -22,7 +22,6 @@ import hmac
 import json
 import logging
 import time
-from typing import Optional
 from urllib.parse import unquote
 
 from fastapi import HTTPException, Request
@@ -75,7 +74,7 @@ class InitDataError(Exception):
 
 
 def verify_init_data(init_data: str, bot_token: str, max_age: int = INIT_DATA_MAX_AGE,
-                     now: Optional[float] = None) -> dict:
+                     now: float | None = None) -> dict:
     """
     Проверяет подпись и свежесть initData, возвращает разобранные поля плюс
     user_id (int). Бросает InitDataError при любом несоответствии.
@@ -111,7 +110,7 @@ def verify_init_data(init_data: str, bot_token: str, max_age: int = INIT_DATA_MA
     try:
         auth_date = int(params.get("auth_date", 0))
     except (TypeError, ValueError):
-        raise InitDataError("некорректный auth_date")
+        raise InitDataError("некорректный auth_date") from None
     current = time.time() if now is None else now
     if abs(current - auth_date) > max_age:
         raise InitDataError("initData просрочен")
@@ -120,7 +119,7 @@ def verify_init_data(init_data: str, bot_token: str, max_age: int = INIT_DATA_MA
         user = json.loads(params.get("user") or "{}")
         user_id = int(user["id"])
     except (ValueError, TypeError, KeyError):
-        raise InitDataError("в initData нет корректного user.id")
+        raise InitDataError("в initData нет корректного user.id") from None
 
     # init_hash — чтобы обмен на сессию мог пометить этот initData использованным
     return {**params, "user_id": user_id, "username": user.get("username"), "init_hash": hash_value}
@@ -159,7 +158,7 @@ async def verify_auth(request: Request) -> dict:
         # Причину пишем в лог, наружу — одинаковый ответ: различие между
         # «плохая подпись» и «просрочен» подсказывает атакующему, что менять.
         logger.info("verify_auth: отказ — %s", exc)
-        raise HTTPException(status_code=401, detail="Invalid Telegram InitData")
+        raise HTTPException(status_code=401, detail="Invalid Telegram InitData") from None
 
     if not principals.is_allowed(user["user_id"]):
         logger.warning("verify_auth: user_id=%s не в списке допущенных", user["user_id"])
@@ -189,7 +188,7 @@ async def _session_user(token: str) -> dict:
         record = await get_store().resolve(token)
     except SessionUnavailable as exc:
         logger.error("verify_auth: хранилище сессий недоступно: %s", exc)
-        raise HTTPException(status_code=503, detail="Session service unavailable")
+        raise HTTPException(status_code=503, detail="Session service unavailable") from None
     if record is None:
         raise HTTPException(status_code=401, detail="Invalid session")
     user = {"user_id": int(record["user_id"]), "username": record.get("username"), "session": True}
@@ -215,14 +214,14 @@ async def verify_admin_fresh(request: Request) -> dict:
                                  env_str("TELEGRAM_BOT_TOKEN"), max_age=STEP_UP_MAX_AGE)
     except InitDataError as exc:
         logger.info("verify_admin_fresh: нет свежего initData — %s", exc)
-        raise HTTPException(status_code=403, detail="Fresh Telegram InitData required")
+        raise HTTPException(status_code=403, detail="Fresh Telegram InitData required") from None
     if fresh["user_id"] != user["user_id"]:
         logger.warning("verify_admin_fresh: initData другого пользователя (%s ≠ %s)", fresh["user_id"], user["user_id"])
         raise HTTPException(status_code=403, detail="Fresh Telegram InitData required")
     return user
 
 
-def ws_user(init_data: str) -> Optional[dict]:
+def ws_user(init_data: str) -> dict | None:
     """
     Пользователь WebSocket: подпись, свежесть и допуск — или None. Раньше
     проверялись только подпись и свежесть — живой поток позиций и баланса
@@ -247,7 +246,7 @@ def verify_ws_token(init_data: str) -> bool:
     return ws_user(init_data) is not None
 
 
-async def ws_user_async(token: str) -> Optional[dict]:
+async def ws_user_async(token: str) -> dict | None:
     """Пользователь WebSocket: токен сессии (2.8) или, пока идёт переход, initData."""
     from api.sessions import SessionUnavailable, get_store, is_session_token
     if auth_disabled("ws") or not is_session_token(token):

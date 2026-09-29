@@ -17,7 +17,6 @@ import signal
 import threading
 import time
 from pathlib import Path
-from typing import Tuple
 
 import httpx
 
@@ -34,7 +33,7 @@ def heartbeat_path() -> Path:
     return Path(os.environ.get("NEWS_HEARTBEAT", "/tmp/news-heartbeat"))
 
 
-def poll_once(http, now_ms: int) -> Tuple[int, int]:
+def poll_once(http, now_ms: int) -> tuple[int, int]:
     """Опрос источников: (добавлено новых заголовков, ответивших источников)."""
     import database
     items, ok = sources.fetch_all(http)

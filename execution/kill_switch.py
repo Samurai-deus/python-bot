@@ -24,7 +24,6 @@ grep-ом по всему репозиторию: его читали тольк
 что торговать можно, считаем, что нельзя.
 """
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ _BLOCKING_RISK_STATES = frozenset({"LOCKED", "HALTED"})
 
 
 def trading_halt_reason(system_state=None, state_machine=None, risk_core=None,
-                        include_risk_core: bool = True) -> Optional[str]:
+                        include_risk_core: bool = True) -> str | None:
     """
     Причина, по которой открывать позиции сейчас нельзя, или None, если можно.
 

@@ -4,7 +4,6 @@
 Добавлены спот, кошелёк, поддерживающая маржа, исполнения и начисления фандинга.
 """
 import os
-from typing import Dict, List, Optional
 
 from exchange.bybit_client import BybitClient, fmt_number, new_order_link_id
 
@@ -21,11 +20,11 @@ class CarryClient(BybitClient):
         super().__init__(api_key=api_key.strip(), api_secret=api_secret.strip(), demo=True)
 
     # --- кошелёк ---------------------------------------------------------
-    def wallet(self) -> Dict:
+    def wallet(self) -> dict:
         data = self._get("/v5/account/wallet-balance", params={"accountType": "UNIFIED"}, signed=True)
         return (data.get("list") or [{}])[0]
 
-    def coin_balances(self) -> Dict[str, float]:
+    def coin_balances(self) -> dict[str, float]:
         return {c["coin"]: float(c.get("walletBalance") or 0) for c in self.wallet().get("coin") or []}
 
     def total_equity(self) -> float:
@@ -35,7 +34,7 @@ class CarryClient(BybitClient):
         """Доступно для новых сделок (UTA, cross): спот-покупка и маржа шорта берутся отсюда."""
         return float(self.wallet().get("totalAvailableBalance") or 0)
 
-    def account_mm_rate(self) -> Optional[float]:
+    def account_mm_rate(self) -> float | None:
         value = self.wallet().get("accountMMRate")
         return float(value) if value not in (None, "") else None
 
@@ -68,8 +67,9 @@ class CarryClient(BybitClient):
         return sum(p.size for p in self.get_positions(symbol) if str(p.side).lower() in ("sell", "short"))
 
     # --- история ---------------------------------------------------------
-    def _pages(self, path: str, params: Dict) -> List[Dict]:
-        out, cursor = [], ""
+    def _pages(self, path: str, params: dict) -> list[dict]:
+        out: list = []
+        cursor = ""
         for _ in range(20):
             data = self._get(path, params=dict(params, **({"cursor": cursor} if cursor else {})), signed=True)
             out += data.get("list") or []
@@ -78,10 +78,10 @@ class CarryClient(BybitClient):
                 break
         return out
 
-    def executions(self, category: str, start_ms: int) -> List[Dict]:
+    def executions(self, category: str, start_ms: int) -> list[dict]:
         return self._pages("/v5/execution/list", {"category": category, "startTime": int(start_ms), "limit": 100})
 
-    def settlements(self, start_ms: int) -> List[Dict]:
+    def settlements(self, start_ms: int) -> list[dict]:
         return self._pages("/v5/account/transaction-log", {"accountType": "UNIFIED", "category": "linear",
                                                            "type": "SETTLEMENT", "startTime": int(start_ms),
                                                            "limit": 50})

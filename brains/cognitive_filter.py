@@ -7,7 +7,6 @@ Cognitive Filter Bot - фильтр человеческих ошибок
 - FOMO-паттерны
 """
 import logging
-from typing import Dict, List, Optional
 from datetime import datetime, UTC, timedelta
 from core.decision_core import CognitiveState
 from trade_manager import get_open_trades

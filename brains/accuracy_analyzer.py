@@ -11,9 +11,8 @@ Accuracy Analyzer — анализирует точность предсказа
 
 Не влияет на торговую логику. Только читает.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, UTC
-from typing import Dict, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -59,12 +58,12 @@ class AccuracyReport:
     long_total: int
     short_win_rate: float
     short_total: int
-    by_symbol: List[SymbolAccuracy]
-    by_confidence: List[ConfidenceBucket]
-    by_state_15m: Dict[str, dict]
+    by_symbol: list[SymbolAccuracy]
+    by_confidence: list[ConfidenceBucket]
+    by_state_15m: dict[str, dict]
     mean_calibration_error: float
-    top_symbols: List[SymbolAccuracy]    # топ-5 по win_rate (min 3 resolved)
-    bottom_symbols: List[SymbolAccuracy] # худшие-5 (min 3 resolved)
+    top_symbols: list[SymbolAccuracy]    # топ-5 по win_rate (min 3 resolved)
+    bottom_symbols: list[SymbolAccuracy] # худшие-5 (min 3 resolved)
     avg_max_favorable_pct: float
     avg_max_adverse_pct: float
 
@@ -74,7 +73,7 @@ def _win_rate(wins: int, losses: int) -> float:
     return round(wins / total, 4) if total > 0 else 0.0
 
 
-def analyze_accuracy(days: int = 30) -> Optional[AccuracyReport]:
+def analyze_accuracy(days: int = 30) -> AccuracyReport | None:
     """
     Анализирует точность предсказаний за последние N дней.
 
@@ -114,7 +113,7 @@ def analyze_accuracy(days: int = 30) -> Optional[AccuracyReport]:
     )
 
     # --- By symbol ---
-    sym_map: Dict[str, dict] = {}
+    sym_map: dict[str, dict] = {}
     for r in rows:
         sym = r["symbol"]
         if sym not in sym_map:
@@ -188,7 +187,7 @@ def analyze_accuracy(days: int = 30) -> Optional[AccuracyReport]:
     )
 
     # --- By state_15m ---
-    state_map: Dict[str, dict] = {}
+    state_map: dict[str, dict] = {}
     for r in rows:
         state = r.get("state_15m") or "UNKNOWN"
         if state not in state_map:

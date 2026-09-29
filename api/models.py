@@ -1,7 +1,6 @@
 """
 Pydantic v2 response schemas (схемы удалённых роутеров убраны 23.09.2026) for the FastAPI backend.
 """
-from typing import Dict, List
 from pydantic import BaseModel
 
 
@@ -67,11 +66,11 @@ class AccuracyReportResponse(BaseModel):
     long_total: int
     short_win_rate: float
     short_total: int
-    by_confidence: List[ConfidenceBucketResponse]
-    by_state_15m: Dict[str, dict]
+    by_confidence: list[ConfidenceBucketResponse]
+    by_state_15m: dict[str, dict]
     mean_calibration_error: float
-    top_symbols: List[SymbolAccuracyResponse]
-    bottom_symbols: List[SymbolAccuracyResponse]
+    top_symbols: list[SymbolAccuracyResponse]
+    bottom_symbols: list[SymbolAccuracyResponse]
     avg_max_favorable_pct: float
     avg_max_adverse_pct: float
     generated_at: str

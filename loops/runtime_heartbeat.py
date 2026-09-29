@@ -13,7 +13,8 @@ ThreadWatchdog — параметрами. Интервал и пороги — 
 import asyncio
 import logging
 import time
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from control_plane import state as cp_state
 from system_state_machine import SystemState as SystemStateEnum, get_state_machine
@@ -135,7 +136,7 @@ async def runtime_heartbeat_loop(get_state: StateGetter, shutdown_evt: asyncio.E
                         if not state_machine.is_safe_mode:
                             await state_machine.transition_to(
                                 SystemStateEnum.SAFE_MODE,
-                                reason=f"Loop stall detection: consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
+                                reason="Loop stall detection: consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
                                 owner="runtime_heartbeat_loop",
                                 metadata={"consecutive_errors": get_state().system_health.consecutive_errors}
                             )

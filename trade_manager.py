@@ -12,7 +12,6 @@ Multi-stage exit logic:
 """
 import logging
 from datetime import datetime, UTC
-from typing import Dict, List, Optional
 
 from database import (
     get_open_trades as db_get_open_trades,
@@ -25,12 +24,12 @@ from database import (
 logger = logging.getLogger(__name__)
 
 
-def get_open_trades() -> List[Dict]:
+def get_open_trades() -> list[dict]:
     """Получает список всех открытых сделок из БД."""
     return db_get_open_trades()
 
 
-def _calc_r_multiple(trade: Dict, current_price: float) -> float:
+def _calc_r_multiple(trade: dict, current_price: float) -> float:
     """Текущий R-множитель: сколько R (risk units) в текущем движении."""
     entry = trade["entry"]
     # Используем ОРИГИНАЛЬНЫЙ стоп для расчёта risk distance,
@@ -46,20 +45,19 @@ def _calc_r_multiple(trade: Dict, current_price: float) -> float:
         return (entry - current_price) / risk_distance
 
 
-def _get_trade_duration_minutes(trade: Dict) -> float:
+def _get_trade_duration_minutes(trade: dict) -> float:
     """Сколько минут прошло с открытия сделки."""
     try:
         opened = datetime.fromisoformat(trade["timestamp"])
         if opened.tzinfo is None:
-            from datetime import timezone
-            opened = opened.replace(tzinfo=timezone.utc)
+            opened = opened.replace(tzinfo=UTC)
         now = datetime.now(UTC)
         return (now - opened).total_seconds() / 60.0
     except Exception:
         return 0.0
 
 
-def _calc_pnl(trade: Dict, close_price: float, fraction: float = 1.0) -> float:
+def _calc_pnl(trade: dict, close_price: float, fraction: float = 1.0) -> float:
     """PnL в USDT для доли позиции."""
     position_size = trade.get("position_size")
     if not position_size:
@@ -103,7 +101,7 @@ def _stop_fill_price(side: str, stop: float) -> float:
 
 
 def check_trades(symbol: str, current_price: float,
-                 low: Optional[float] = None, high: Optional[float] = None) -> List[Dict]:
+                 low: float | None = None, high: float | None = None) -> list[dict]:
     """
     Проверяет открытые сделки для символа.
     Multi-stage exit: SL → breakeven → partial TP → trailing → time exit → full TP.

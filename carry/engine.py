@@ -3,7 +3,6 @@
 проверяется тестами на числах.
 """
 import math
-from typing import Optional
 
 HEDGE_TOLERANCE = 0.02            # подгонять шорт, если он отличается от спота больше чем на 2 %
 DANGER_MM_RATE = 1 / 1.5          # маржа ≤ 150 % поддерживающей ⇔ accountMMRate ≥ 2/3
@@ -33,7 +32,7 @@ def hedge_deviation(spot_qty: float, short_qty: float) -> float:
 
 
 def hedge_adjustment(spot_qty: float, short_qty: float, perp_step: float,
-                     tolerance: float = HEDGE_TOLERANCE) -> Optional[float]:
+                     tolerance: float = HEDGE_TOLERANCE) -> float | None:
     """
     Сколько добавить к шорту (> 0 — продать ещё контракт, < 0 — откупить часть), чтобы он сравнялся
     со спотом; None — расхождение в допуске или меньше шага контракта.
@@ -46,6 +45,6 @@ def hedge_adjustment(spot_qty: float, short_qty: float, perp_step: float,
     return delta if spot_qty > short_qty else -delta
 
 
-def margin_danger(account_mm_rate: Optional[float]) -> bool:
+def margin_danger(account_mm_rate: float | None) -> bool:
     """Опасная маржа: поддерживающая маржа ≥ 2/3 капитала счёта (запас меньше 150 %). Нет данных — не опасно."""
     return account_mm_rate is not None and account_mm_rate >= DANGER_MM_RATE

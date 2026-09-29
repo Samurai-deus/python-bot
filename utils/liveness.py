@@ -17,7 +17,6 @@ import logging
 import os
 import pathlib
 import time
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +45,7 @@ def _replace(src: pathlib.Path, dst: pathlib.Path) -> None:
             time.sleep(_REPLACE_PAUSE_SECONDS)
 
 
-def mark(name: str, now: Optional[float] = None) -> None:
+def mark(name: str, now: float | None = None) -> None:
     """Ставит метку. Сбой записи не роняет бот: пропавшую метку заметит healthcheck."""
     try:
         directory = _dir()
@@ -58,7 +57,7 @@ def mark(name: str, now: Optional[float] = None) -> None:
         logger.warning("liveness: не удалось записать метку %s: %s", name, exc)
 
 
-def age(name: str, now: Optional[float] = None) -> Optional[float]:
+def age(name: str, now: float | None = None) -> float | None:
     """Сколько секунд назад ставилась метка; None — метки нет или она испорчена."""
     try:
         stamp = float((_dir() / name).read_text(encoding="ascii"))

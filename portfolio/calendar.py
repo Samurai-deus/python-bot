@@ -5,9 +5,9 @@
 плана править и здесь.
 """
 from datetime import UTC, datetime, timedelta
-from typing import Callable, List, Tuple
+from collections.abc import Callable
 
-CHECKPOINTS: List[Tuple[str, str]] = [
+CHECKPOINTS: list[tuple[str, str]] = [
     ("2026-09-21", "И14: первая штатная ребалансировка тремя ногами (00:02 UTC); И18: старт — бумага и демо-субсчёт"),
     ("2026-10-11", "Запись стакана: 4 недели данных — можно записывать первую гипотезу на стакане (до этого — нельзя)"),
     ("2026-10-12", "И14: 4 ребалансировки — решение о часе исполнения по замеру проскальзывания"),
@@ -28,7 +28,7 @@ REMIND_DAYS = 3
 NOTIFY_HOUR_UTC = 8
 
 
-def due(now_ms: int, is_sent: Callable[[str], bool]) -> List[Tuple[str, str]]:
+def due(now_ms: int, is_sent: Callable[[str], bool]) -> list[tuple[str, str]]:
     """[(id, текст)] сообщений, которые пора отправить: день события (с 08:00 UTC) и за 3 дня (с 08:00 UTC)."""
     now = datetime.fromtimestamp(now_ms / 1000, UTC)
     out = []

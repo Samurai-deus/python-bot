@@ -7,7 +7,8 @@ docs/DEFERRED_PLAN.md, шаг 3). Состояние процесса прихо
 """
 import asyncio
 import logging
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ async def paper_trading_monitor_loop(get_state: Callable[[], Any], shutdown_evt:
         try:
             await asyncio.wait_for(shutdown_evt.wait(), timeout=15.0)
             break  # shutdown_evt сработал
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass  # Нормальный timeout — продолжаем цикл
 
     logger.info("📄 Paper trading monitor stopped")

@@ -14,13 +14,13 @@ import asyncio
 import traceback
 import logging
 import json
-from typing import Dict, Any, List, Optional
+from typing import Any
 from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
 
 
-def dump_all_tasks(incident_id: str) -> Dict[str, Any]:
+def dump_all_tasks(incident_id: str) -> dict[str, Any]:
     """
     Dump всех asyncio tasks
     
@@ -63,7 +63,7 @@ def dump_all_tasks(incident_id: str) -> Dict[str, Any]:
     }
 
 
-def _dump_task(task: asyncio.Task, incident_id: str) -> Dict[str, Any]:
+def _dump_task(task: asyncio.Task, incident_id: str) -> dict[str, Any]:
     """Dump одного task"""
     task_name = task.get_name()
     task_id = id(task)
@@ -161,7 +161,7 @@ def log_task_dump(incident_id: str, context: str = "CRITICAL") -> None:
     logger.critical("TASK_DUMP_FULL incident_id=%s dump=%s", incident_id, dump_json)
 
 
-def get_stalled_tasks(threshold_seconds: float = 60.0) -> List[Dict[str, Any]]:
+def get_stalled_tasks(threshold_seconds: float = 60.0) -> list[dict[str, Any]]:
     """
     Найти stalled tasks (не yield'ят долго)
     

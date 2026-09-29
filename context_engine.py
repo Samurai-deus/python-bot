@@ -1,12 +1,12 @@
 """
 Модуль для определения состояния рынка на основе свечей.
 """
-from typing import Optional, List, Any
+from typing import Any
 from states import impulse, acceptance, loss_of_control, rejection
 from core.market_state import MarketState
 
 
-def determine_state(candles: List[List[Any]], atr_val: float) -> Optional[MarketState]:
+def determine_state(candles: list[list[Any]], atr_val: float) -> MarketState | None:
     """
     Определяет состояние рынка на основе анализа свечей и ATR.
     

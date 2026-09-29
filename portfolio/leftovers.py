@@ -4,7 +4,7 @@
 висели 8 выбывших монет — закрывающие ордера считались по цене входа и не закрывали позицию целиком.
 """
 import logging
-from typing import Callable, List
+from collections.abc import Callable
 
 from portfolio import engine
 from portfolio.store import Store
@@ -12,7 +12,7 @@ from portfolio.store import Store
 logger = logging.getLogger(__name__)
 
 
-def close_leftovers(cli, store: Store, now: int, notify: Callable[[str], bool], name: str) -> List[str]:
+def close_leftovers(cli, store: Store, now: int, notify: Callable[[str], bool], name: str) -> list[str]:
     last = store.last_weights()
     if last is None:
         return []

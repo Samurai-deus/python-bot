@@ -1,0 +1,44 @@
+# Настройки инструментов (аудит 29.09.2026: линтер в CI проверял только фатальный класс, типов не
+# проверял никто). Зависимости — requirements.txt и хэш-замок requirements.lock (генерируется uv).
+[project]
+name = "market-bot"
+version = "0.0.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 130
+extend-exclude = ["venv", "archive", "miniapp", "data"]
+
+[tool.ruff.lint]
+# F — pyflakes целиком (неиспользуемое, переопределения, неопределённые имена);
+# B — типичные ошибки (кроме B008 — Depends в FastAPI так и пишется, B905 — zip(strict) шумит);
+# ASYNC — блокирующие вызовы в асинхронном коде; UP — современный синтаксис 3.12.
+select = ["F", "E9", "B", "ASYNC", "UP"]
+# UP042 (StrEnum) меняет str() у перечислений — это поведение, не синтаксис; UP047 — синтаксис обобщений 3.12.
+ignore = ["B008", "B905", "UP031", "UP042", "UP047"]
+
+[tool.ruff.lint.per-file-ignores]
+# Замороженный код исследований (TRADER_PLAN: «менять только с записью и пересчётом») — синтаксис не трогаем.
+"backtest/**" = ["UP", "B007", "B023"]
+# F811 в тестах — импорт фикстуры и параметр с тем же именем, так pytest и работает.
+"tests/**" = ["B011", "B017", "F811"]
+# Короткие чтения/записи служебных файлов (метки, пульс) в асинхронных обработчиках — миллисекунды; не
+# стоит отдельного потока. ASYNC109 — у этих функций свой таймаут-параметр по смыслу, не asyncio.timeout.
+"chaos_engine.py" = ["ASYNC230"]
+"health_monitor.py" = ["ASYNC230"]
+"recorder/__main__.py" = ["ASYNC240"]
+"telegram_commands.py" = ["ASYNC230", "ASYNC240"]
+"runner.py" = ["ASYNC109"]
+"api/routers/ws.py" = ["ASYNC109"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_unused_ignores = true
+# Денежный путь исполнителей проверяется строго; остальное — по мере перевода (храповик).
+files = ["portfolio", "btcalts", "carry"]
+
+[tool.coverage.run]
+omit = ["*/health.py", "*/report.py"]

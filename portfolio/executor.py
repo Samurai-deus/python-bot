@@ -6,7 +6,7 @@
 До 29.09 эти шаги жили копиями в portfolio/__main__.py и btcalts/__main__.py, и каждая правка
 делалась дважды.
 """
-from typing import Callable, Dict, List, Mapping, Optional, Set, Tuple
+from collections.abc import Callable, Mapping
 
 from portfolio import engine
 from portfolio.store import Store
@@ -42,7 +42,7 @@ def remember_blocked(store: Store, symbol: str, error: str, now: int) -> bool:
     return True
 
 
-def own_positions(positions: Mapping[str, float], store: Store, targets: Mapping[str, float]) -> Dict[str, float]:
+def own_positions(positions: Mapping[str, float], store: Store, targets: Mapping[str, float]) -> dict[str, float]:
     """
     Позиции исполнителя: монеты из его журнала и из текущих целей. Чужие (бот на общем счёте И14)
     ребалансировка и остановка не трогают — как и закрытие хвостов.
@@ -51,7 +51,7 @@ def own_positions(positions: Mapping[str, float], store: Store, targets: Mapping
     return {s: q for s, q in positions.items() if q and s in own}
 
 
-def instrument_filters(cli, symbols) -> Dict[str, object]:
+def instrument_filters(cli, symbols) -> dict[str, object]:
     """Параметры инструментов по одному: сбой по монете — None для неё, а не срыв всей ребалансировки."""
     out = {}
     for s in symbols:
@@ -62,8 +62,8 @@ def instrument_filters(cli, symbols) -> Dict[str, object]:
     return out
 
 
-def trade_to_weights(cli, store: Store, weights: Dict[str, float], cap: float, leverage: float, now: int,
-                     only: Optional[Set[str]] = None) -> Tuple[List[list], List[list]]:
+def trade_to_weights(cli, store: Store, weights: dict[str, float], cap: float, leverage: float, now: int,
+                     only: set[str] | None = None) -> tuple[list[list], list[list]]:
     """
     Ордера до целей weights × cap. only — повтор: торгуются только эти монеты (цели те же, что в первом
     прогоне недели), остальные позиции между ребалансировками не трогаются. Монета без цены или параметров
@@ -97,7 +97,7 @@ def trade_to_weights(cli, store: Store, weights: Dict[str, float], cap: float, l
     return done, failed
 
 
-def drawdown_confirmed(cli, store: Store, cap: float, now: int) -> Optional[str]:
+def drawdown_confirmed(cli, store: Store, cap: float, now: int) -> str | None:
     """
     Причина остановки или None. Пик обновляется по текущей стоимости; превышение порога проверяется
     вторым чтением: остановка необратима, и один сбойный ответ биржи не должен закончить эксперимент.
@@ -114,7 +114,7 @@ def drawdown_confirmed(cli, store: Store, cap: float, now: int) -> Optional[str]
     return f"просадка {peak - again:.0f} USDT > {engine.MAX_DRAWDOWN * cap:.0f}"
 
 
-def close_positions(cli, positions: Mapping[str, float]) -> List[str]:
+def close_positions(cli, positions: Mapping[str, float]) -> list[str]:
     """Закрыть позиции по одной; вернуть не закрытые (с причиной). Сбой по одной не останавливает остальные."""
     failed = []
     for s, q in sorted(positions.items()):
@@ -153,7 +153,7 @@ def after_halt(cli, store: Store, now: int, notify: Callable[[str], bool], name:
             store.set("notice:halt", now)
 
 
-def cycle_outcome(store, now: int, error: Optional[str], notify: Callable[[str], bool], name: str) -> None:
+def cycle_outcome(store, now: int, error: str | None, notify: Callable[[str], bool], name: str) -> None:
     """
     Сбои цикла исполнителя (И13/И14/И18): после FAIL_ALERT_AFTER подряд — сообщение владельцу, после
     восстановления — ещё одно. До 29.09 сбой оставался только в журнале событий, а сторож замечал его по

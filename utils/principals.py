@@ -25,14 +25,13 @@ Telegram сам выдаёт ему валидно подписанный initDa
     зависят от порядка импорта.
 """
 import logging
-from typing import FrozenSet, Optional
 
 from utils.env import env_str
 
 logger = logging.getLogger(__name__)
 
 
-def admin_id() -> Optional[int]:
+def admin_id() -> int | None:
     """Telegram user id владельца или None, если не задан или задан не числом."""
     raw = env_str("ADMIN_CHAT_ID")
     if not raw:
@@ -46,7 +45,7 @@ def admin_id() -> Optional[int]:
         return None
 
 
-def allowed_ids() -> FrozenSet[int]:
+def allowed_ids() -> frozenset[int]:
     """Все, кому можно смотреть: владелец плюс ALLOWED_USER_IDS."""
     ids = set()
     for part in env_str("ALLOWED_USER_IDS").split(","):
@@ -63,7 +62,7 @@ def allowed_ids() -> FrozenSet[int]:
     return frozenset(ids)
 
 
-def _as_int(user_id) -> Optional[int]:
+def _as_int(user_id) -> int | None:
     if user_id is None:
         return None
     try:
@@ -102,4 +101,4 @@ def require_configured() -> None:
     try:
         int(raw)
     except ValueError:
-        raise RuntimeError(f"ADMIN_CHAT_ID={raw!r} не является числом (нужен Telegram user id)")
+        raise RuntimeError(f"ADMIN_CHAT_ID={raw!r} не является числом (нужен Telegram user id)") from None
