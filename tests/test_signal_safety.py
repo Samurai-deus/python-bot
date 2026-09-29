@@ -56,9 +56,14 @@ def test_no_strategy_is_enabled_by_default(monkeypatch):
 
 
 def _sent_strategies(monkeypatch, enabled):
+    """
+    Сценарии эталона на одном BTCUSDT: на нём срабатывают и legacy, и trend_following — этого хватает, чтобы
+    отличить флаги, а прогон ~2 с вместо ~55 с по всем символам (29.09.2026 три полных прогона не уложились в
+    таймаут CI 120 с).
+    """
     from tests.test_setup_equivalence import run_scenarios
     monkeypatch.setenv("SIGNAL_STRATEGIES", enabled)
-    return {e[6] for e in run_scenarios(monkeypatch) if e[0] == "GK"}
+    return {e[6] for e in run_scenarios(monkeypatch, symbols=("BTCUSDT",)) if e[0] == "GK"}
 
 
 def test_without_enabled_strategies_the_generator_sends_nothing(monkeypatch):
@@ -66,12 +71,18 @@ def test_without_enabled_strategies_the_generator_sends_nothing(monkeypatch):
     assert _sent_strategies(monkeypatch, "") == set()
 
 
-def test_only_the_enabled_strategies_reach_the_gatekeeper(monkeypatch):
-    everything = _sent_strategies(monkeypatch, "trend_following,mean_reversion,momentum_breakout,legacy")
-    assert "legacy" in everything and len(everything) >= 2, everything
+def test_with_every_strategy_enabled_both_kinds_reach_the_gatekeeper(monkeypatch):
+    """Опора двух тестов ниже: без неё «только legacy» проходило бы и на генераторе, который молчит."""
+    assert _sent_strategies(monkeypatch, "trend_following,mean_reversion,momentum_breakout,legacy") == \
+        {"legacy", "trend_following"}
+
+
+def test_only_legacy_enabled_sends_only_legacy(monkeypatch):
     assert _sent_strategies(monkeypatch, "legacy") == {"legacy"}
-    without_legacy = _sent_strategies(monkeypatch, "trend_following,mean_reversion,momentum_breakout")
-    assert without_legacy and "legacy" not in without_legacy, without_legacy
+
+
+def test_legacy_disabled_sends_only_the_new_strategies(monkeypatch):
+    assert _sent_strategies(monkeypatch, "trend_following,mean_reversion,momentum_breakout") == {"trend_following"}
 
 
 # ---------------------------------------------------------------------------
