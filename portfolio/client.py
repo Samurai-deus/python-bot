@@ -3,6 +3,7 @@
 данных бэктестов, подписанные позиции, стоимость счёта, начисления фандинга.
 """
 import logging
+import os
 import time
 from typing import Dict, List, Optional, Sequence
 
@@ -15,6 +16,22 @@ logger = logging.getLogger(__name__)
 KLINES = 200                        # 4h × 200 = 33 дня: И4 нужны 31 день, И3 — 29, обороту И17а — 30
 TURNOVER_D = 30
 CANDIDATES = 80                     # кандидаты И17а: крупнейшие по обороту за 24 ч, из них top30 по обороту за 30 дней
+
+
+def demo_client() -> "PortfolioClient":
+    """
+    Клиент И14: всегда демо-хост и ключ бота из окружения. До 29.09 хост и ключ выбирал общий резолвер
+    режима бота: LIVE_TRADING=true увёл бы И14 на реальные деньги, режим paper — на основную биржу с
+    демо-ключом, а пустой ключ подменялся бы ключом из базы (его меняет мини-апп).
+    """
+    key = os.environ.get("BYBIT_API_KEY", "").strip()
+    secret = os.environ.get("BYBIT_API_SECRET", "").strip()
+    if not key or not secret:
+        raise RuntimeError("BYBIT_API_KEY / BYBIT_API_SECRET не заданы — ключ из базы для И14 не используется")
+    cli = PortfolioClient(api_key=key, api_secret=secret, demo=True)
+    if cli.environment != "DEMO":
+        raise RuntimeError(f"И14 обязан работать на демо-счёте, клиент смотрит в {cli.environment}")
+    return cli
 
 
 class PortfolioClient(BybitClient):
@@ -102,17 +119,22 @@ class PortfolioClient(BybitClient):
         data = self._get("/v5/account/wallet-balance", params={"accountType": "UNIFIED"}, signed=True)
         return (data.get("list") or [{}])[0]
 
-    def usdt_equity(self) -> float:
+    def usdt_equity(self, strict: bool = True) -> float:
         """
         USDT-часть счёта: баланс USDT + нереализованный результат USDT-контрактов (поле equity монеты
         USDT в UTA). Весь кошелёк (totalEquity) не годится: на демо-счёте лежат стартовые BTC и ETH,
         их переоценка — тысячи USDT в минуту (14.09: «просадка 3953 USDT» при позициях на 1356).
+
+        Нет USDT в ответе — исключение (strict), а не 0: ноль читался как просадка на всю стоимость и
+        необратимо останавливал эксперимент (аудит 29.09). strict=False — только до старта пустого субсчёта.
         """
         for coin in self.wallet().get("coin") or []:
             if coin.get("coin") == "USDT":
                 if coin.get("equity") not in (None, ""):
                     return float(coin["equity"])
                 return float(coin.get("walletBalance") or 0) + float(coin.get("unrealisedPnl") or 0)
+        if strict:
+            raise RuntimeError("в ответе кошелька нет USDT — стоимость счёта неизвестна")
         return 0.0
 
     def settlements(self, start_ms: int) -> List[dict]:

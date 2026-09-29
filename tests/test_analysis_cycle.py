@@ -97,6 +97,9 @@ def cycle(monkeypatch):
     import database
     from core import decision_trace, signal_snapshot_store
 
+    # Полный цикл — при включённой сигнальной торговле; с 29.09 по умолчанию она выключена.
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "true")
+
     env = SimpleNamespace(state=FakeState(), machine=FakeMachine(), sent=[], alerts=[], volatility=[],
                           generated=[], candles_loaded=[], saved=[], cleaned=[], pruned=[])
     env.candles = {"SOLUSDT": {"15m": ["candle"]}}
@@ -629,3 +632,35 @@ def test_configure_refuses_missing_or_unknown_names():
     values = {name: getattr(analysis, name) for name in analysis._INJECTED}
     with pytest.raises(TypeError, match="лишние"):
         analysis.configure(**values, SOMETHING_ELSE=1)
+
+
+
+def test_spike_alerts_run_outside_trading_hours_while_signals_are_off(cycle, monkeypatch):
+    """Аудит 29.09: окна вокруг фандинга глушили и сообщения о резких движениях (~1,5 ч в сутки)."""
+    spikes = []
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    monkeypatch.setattr(analysis, "is_good_time", lambda: False)
+    monkeypatch.setattr(analysis, "check_all_symbols_for_spikes", lambda symbols, candles: spikes.append(list(symbols)))
+    assert analyse() is True
+    assert spikes == [["SOLUSDT"]] and cycle.generated == []
+
+
+def test_adaptive_interval_bounds_follow_bot_interval():
+    """Аудит 29.09: BOT_INTERVAL=1800 молча не действовал — границы были числами 300/900 (на проде 533–900 с)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    code = "import runner; print(runner.ADAPTIVE_INTERVAL_MIN, runner.ADAPTIVE_INTERVAL_MAX)"
+    env = {**__import__("os").environ, "BOT_INTERVAL": "1800", "PYTHONIOENCODING": "utf-8"}
+    env.pop("ADAPTIVE_INTERVAL_MIN", None)
+    env.pop("ADAPTIVE_INTERVAL_MAX", None)
+    out = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parent.parent, env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.stdout.split()[-2:] == ["1800.0", "5400.0"], out.stderr[-500:]
+    from scripts import healthcheck
+    import os
+    os.environ["BOT_INTERVAL"] = "1800"
+    try:
+        assert healthcheck.analysis_max_age() == 2 * 5400 + 120, "пульс ждёт столько же, сколько цикл может спать"
+    finally:
+        del os.environ["BOT_INTERVAL"]

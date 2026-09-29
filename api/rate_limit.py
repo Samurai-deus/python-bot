@@ -50,11 +50,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             self._client = aioredis.from_url(
                 url, decode_responses=True, socket_connect_timeout=2
             )
+            from urllib.parse import urlparse  # noqa: PLC0415
             logger.info(
                 "Rate limiting enabled: read=%d/min write=%d/min (Redis: %s)",
                 self._read_limit,
                 self._write_limit,
-                url,
+                urlparse(url).hostname,          # в URL пароль Redis — в лог только хост
             )
         except Exception as exc:  # pragma: no cover
             logger.warning("Redis unavailable — rate limiting disabled: %s", exc)

@@ -62,27 +62,38 @@ def enforce_security_config() -> None:
         raise RuntimeError("Небезопасная конфигурация API:\n  - " + "\n  - ".join(problems))
 
 
+def _scrub_event(event, _hint):
+    """
+    Событие Sentry без секретов. initData в заголовке — ключ к данным бота; кастомный заголовок не входит
+    в стандартный список маскируемых у Sentry. Тело запроса и локальные переменные кадров — вон целиком
+    (аудит 29.09.2026): в них бывают ключи биржи и initData, а стандартный фильтр их имён не знает.
+    """
+    request = event.get("request") or {}
+    headers = request.get("headers") or {}
+    for name in list(headers):
+        if name.lower() in ("x-telegram-init-data", "authorization", "cookie"):
+            headers[name] = "[скрыто]"
+    for key in ("data", "cookies", "query_string"):
+        request.pop(key, None)
+    for exc in (event.get("exception") or {}).get("values") or []:
+        for frame in (exc.get("stacktrace") or {}).get("frames") or []:
+            frame.pop("vars", None)
+    return event
+
+
 def _init_sentry() -> None:
     dsn = env_str("SENTRY_DSN")
     if not dsn:
         return
-
-    def _scrub(event, _hint):
-        # initData в заголовке — ключ к данным бота на сутки. Кастомный
-        # заголовок не входит в стандартный список маскируемых у Sentry,
-        # поэтому при исключении в роуте он уезжал бы в событие целиком.
-        headers = (event.get("request") or {}).get("headers") or {}
-        for name in list(headers):
-            if name.lower() in ("x-telegram-init-data", "authorization", "cookie"):
-                headers[name] = "[скрыто]"
-        return event
 
     sentry_sdk.init(
         dsn=dsn,
         traces_sample_rate=0.1,
         environment=env_str("ENVIRONMENT", "production"),
         send_default_pii=False,
-        before_send=_scrub,
+        include_local_variables=False,
+        max_request_body_size="never",
+        before_send=_scrub_event,
     )
 
 
@@ -98,13 +109,15 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     # API тоже ходит в Telegram (уведомление о смене ключей) — токен не должен
     # оказаться в логе и здесь. См. utils/log_redaction.py.
-    from utils.log_redaction import install_log_redaction
-    install_log_redaction(logging.getLogger())
+    # До 29.09 фильтр вешался на обработчики корневого логгера, которых под uvicorn нет, — он не работал,
+    # а сообщения приложения уровня INFO не выводились вовсе.
+    from utils.log_redaction import setup_service_logging
+    setup_service_logging()
 
     enforce_security_config()
     _init_sentry()
 
-    from api.routers import auth, research, settings, system, ws
+    from api.routers import auth, research, system, ws
 
     production = is_production()
     app = FastAPI(
@@ -138,7 +151,6 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(system.router)
-    app.include_router(settings.router)
     app.include_router(ws.router)
     app.include_router(research.router)
 

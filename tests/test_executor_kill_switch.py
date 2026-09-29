@@ -9,6 +9,7 @@
 Биржа подменена клиентом, который записывает обращения; предохранитель
 подменяется, чтобы исход зависел только от него.
 """
+import pathlib
 import pytest
 
 from execution import order_executor as oe
@@ -136,14 +137,41 @@ def test_signal_trading_flag_halts_before_any_state_is_consulted(monkeypatch):
     assert reason and "SIGNAL_TRADING_ENABLED" in reason
 
 
-def test_signal_trading_flag_unset_or_true_does_not_halt(monkeypatch):
+def test_signal_trading_is_off_unless_set_explicitly(monkeypatch):
+    """Аудит 29.09: по умолчанию флаг был «включено», выключен — только в прод-compose."""
+    from types import SimpleNamespace
+    from execution.kill_switch import trading_halt_reason
+    from system_state_machine import SystemState as MachineState
+    import capital
+    import runner
+    from loops import market_analysis
+    from utils.env import signal_trading_enabled
+
+    machine = SimpleNamespace(state=MachineState.RUNNING, trading_paused=False)
+    system = SimpleNamespace(system_health=SimpleNamespace(trading_paused=False))
+    monkeypatch.delenv("SIGNAL_TRADING_ENABLED", raising=False)
+    assert signal_trading_enabled() is False
+    assert trading_halt_reason(system_state=system, state_machine=machine, include_risk_core=False)
+    assert not runner._signal_trading_enabled() and not market_analysis._signal_trading_enabled()
+    assert capital.account_shared_with_portfolio()
+
+
+def test_signal_trading_flag_is_read_in_one_place():
+    """Флаг читался в четырёх местах — каждое со своим значением по умолчанию."""
+    import re
+    root = pathlib.Path(__file__).resolve().parent.parent
+    hits = [str(p.relative_to(root)) for p in root.rglob("*.py")
+            if "venv" not in p.parts and "tests" not in p.parts
+            and re.search(r'env_flag\(\s*"SIGNAL_TRADING_ENABLED"', p.read_text(encoding="utf-8", errors="replace"))]
+    assert hits == [str(pathlib.Path("utils") / "env.py")], hits
+
+
+def test_signal_trading_flag_true_does_not_halt(monkeypatch):
     from types import SimpleNamespace
     from execution.kill_switch import trading_halt_reason
     from system_state_machine import SystemState as MachineState
 
     machine = SimpleNamespace(state=MachineState.RUNNING, trading_paused=False)
     system = SimpleNamespace(system_health=SimpleNamespace(trading_paused=False))
-    monkeypatch.delenv("SIGNAL_TRADING_ENABLED", raising=False)
-    assert trading_halt_reason(system_state=system, state_machine=machine, include_risk_core=False) is None
     monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "true")
     assert trading_halt_reason(system_state=system, state_machine=machine, include_risk_core=False) is None

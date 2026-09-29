@@ -20,6 +20,7 @@ from carry import engine
 from carry.client import CarryClient, keys_from_env
 from carry.store import Store
 from portfolio import engine as pe
+from portfolio import executor
 
 CYCLE_SEC = 3600
 SYNC_BACK_MS = 48 * 3600 * 1000
@@ -79,11 +80,14 @@ def send_weekly_summary(store: Store, equity: float, deviations: Dict[str, float
 
 
 def weekly_summary(store: Store, equity: float, deviations: Dict[str, float], now: int) -> str:
+    from carry.report import summary        # внутри: report импортирует этот модуль
     start = store.get("start_equity")
     start_eq = float(start) if start else equity
     funding = store.conn.execute("SELECT COALESCE(SUM(change), 0) FROM funding").fetchone()[0]
+    opening = summary(store.conn)["opening_fees"]      # итог — после всех издержек, как в отчёте и мини-аппе
     dev = ", ".join(f"{base(s)} {100 * d:+.1f} %" for s, d in deviations.items()) or "—"
-    return (f"📊 И13 неделя: стоимость {equity:.2f} против старта {start_eq:.2f} ({equity - start_eq:+.2f} USDT); "
+    return (f"📊 И13 неделя: стоимость {equity:.2f} против старта {start_eq:.2f} "
+            f"({equity - start_eq - opening:+.2f} USDT после всех издержек); "
             f"фандинг всего {float(funding):+.2f} USDT; отклонение хеджа: {dev}"
             + ("; ОСТАНОВЛЕН: " + store.get("halted") if store.get("halted") else ""))
 
@@ -115,6 +119,12 @@ def open_pairs(cli, store: Store, syms: List[str], now: int) -> None:
     """Открыть пары по монетам, у которых спот ещё не куплен (метка bought:<символ> — сразу после покупки)."""
     if store.get("opened_at"):
         return
+    if store.get("start_equity") is None:
+        # Старт — ДО первой покупки: комиссии и спред открытия входят в «итог после всех издержек».
+        # До 29.09 старт писался после открытия пар (14.09: ≈31 USDT комиссий вне итога; отчёт их вычитает).
+        ensure_usdt(cli, store, notional() * len(syms) * PAIR_USDT_FACTOR, now)
+        store.set("start_equity", cli.total_equity())
+        store.set("start_before_open", now)
     for s in syms:
         if store.get(f"bought:{s}"):
             continue
@@ -133,33 +143,78 @@ def open_pairs(cli, store: Store, syms: List[str], now: int) -> None:
 
 
 def rehedge(cli, store: Store, syms: List[str], now: int) -> Dict[str, float]:
-    """Подогнать шорт к споту; вернуть расхождения после подгонки (до повторного опроса — по расчёту)."""
+    """
+    Подогнать шорт к споту; вернуть расхождения, НАЙДЕННЫЕ до подгонки, — их и меряет критерий «доля
+    времени с хеджем вне ±5 %». До 29.09 возвращались расхождения после подгонки (≈0 по построению), и
+    критерий не мог провалиться. Сбой подгонки по монете — событие; остальные монеты и снимок идут дальше.
+    """
     bal = cli.coin_balances()
     deviations = {}
     for s in syms:
         spot_qty, short = bal.get(base(s), 0.0), cli.short_qty(s)
+        deviations[s] = engine.hedge_deviation(spot_qty, short)
         adj = engine.hedge_adjustment(spot_qty, short, cli.get_qty_step(s))
-        if adj:
+        if not adj:
+            continue
+        try:
             if adj > 0:
                 cli.perp_market(s, "Sell", adj)
             else:
                 cli.perp_market(s, "Buy", -adj, reduce_only=True)
             store.event(now, "rehedge", f"{s} spot {spot_qty} short {short} adj {adj:+}")
-            short += adj
-        deviations[s] = engine.hedge_deviation(spot_qty, short)
+        except Exception as exc:
+            store.event(now, "rehedge_failed", f"{s}: {type(exc).__name__}: {exc}"[:300])
     return deviations
 
 
+def close_pair(cli, s: str) -> None:
+    short = cli.short_qty(s)
+    if short > 0:
+        cli.perp_market(s, "Buy", short, reduce_only=True)
+    qty = engine.floor_step(cli.coin_balances().get(base(s), 0.0), cli.spot_base_step(s))
+    if qty * cli.spot_price(s) >= MIN_SPOT_USDT:
+        cli.spot_market(s, "Sell", qty)
+
+
 def emergency_close(cli, store: Store, syms: List[str], now: int, reason: str) -> None:
-    for s in syms:
-        short = cli.short_qty(s)
-        if short > 0:
-            cli.perp_market(s, "Buy", short, reduce_only=True)
-        qty = engine.floor_step(cli.coin_balances().get(base(s), 0.0), cli.spot_base_step(s))
-        if qty * cli.spot_price(s) >= MIN_SPOT_USDT:
-            cli.spot_market(s, "Sell", qty)
+    """
+    Экстренное закрытие по правилу — отметка сразу, пары закрываются по одной (сбой одной не мешает
+    другой), владельцу — сообщение: правило требует «в журнал и в Telegram», до 29.09 сообщения не было.
+    """
     store.set("halted", reason)
     store.event(now, "emergency_close", reason)
+    failed = []
+    for s in syms:
+        try:
+            close_pair(cli, s)
+        except Exception as exc:
+            failed.append(f"{s}: {type(exc).__name__}: {exc}"[:120])
+    if failed:
+        store.event(now, "emergency_close_failed", "; ".join(failed)[:480])
+    notify_halt(store, now, failed)
+
+
+def notify_halt(store: Store, now: int, failed: List[str]) -> None:
+    text = (f"🛑 И13 экстренное закрытие по правилу: {store.get('halted')}. "
+            + (f"НЕ ЗАКРЫТО: {'; '.join(failed)} — повтор каждый час." if failed else "Пары закрыты."))
+    if notify(text):
+        store.set("notice:halt", now)
+
+
+def after_halt(cli, store: Store, syms: List[str], now: int) -> None:
+    """После остановки: дозакрыть то, что осталось открытым, и доставить сообщение, если не ушло."""
+    left = [s for s in syms if cli.short_qty(s) > 0
+            or engine.floor_step(cli.coin_balances().get(base(s), 0.0), cli.spot_base_step(s)) * cli.spot_price(s) >= MIN_SPOT_USDT]
+    failed = []
+    for s in left:
+        try:
+            close_pair(cli, s)
+        except Exception as exc:
+            failed.append(f"{s}: {type(exc).__name__}: {exc}"[:120])
+    if left:
+        store.event(now, "halt_close", f"дозакрыто {len(left) - len(failed)} из {len(left)}")
+    if store.get("notice:halt") is None or (left and not failed):
+        notify_halt(store, now, failed)
 
 
 def sync(cli, store: Store, now: int) -> None:
@@ -172,10 +227,14 @@ def sync(cli, store: Store, now: int) -> None:
 def cycle(cli, store: Store, now: int) -> None:
     syms = symbols()
     deviations: Dict[str, float] = {}
-    if not store.get("halted"):
+    if store.get("halted"):
+        after_halt(cli, store, syms, now)
+    else:
         clean_start(cli, store, syms, now)
         open_pairs(cli, store, syms, now)
         mm = cli.account_mm_rate()
+        if mm is None:
+            store.event(now, "mm_unknown", "биржа не дала accountMMRate — опасность маржи не проверена")
         if engine.margin_danger(mm):
             emergency_close(cli, store, syms, now, f"accountMMRate {mm}")
         else:
@@ -192,7 +251,8 @@ def cycle(cli, store: Store, now: int) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from utils.log_redaction import setup_service_logging
+    setup_service_logging()
     cli = CarryClient(*keys_from_env())
     carry_dir().mkdir(parents=True, exist_ok=True)
     store = Store(str(carry_dir() / "carry.db"))
@@ -200,12 +260,18 @@ def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     while not stop.is_set():
+        error = None
         try:
             cycle(cli, store, int(time.time() * 1000))
             logger.info("цикл И13 выполнен")
         except Exception as exc:  # биржа, сеть — следующий цикл; пульс покажет долгий сбой
             logger.warning("цикл И13 не удался: %s", type(exc).__name__, exc_info=True)
-            store.event(int(time.time() * 1000), "error", f"{type(exc).__name__}: {exc}"[:300])
+            error = f"{type(exc).__name__}: {exc}"
+            store.event(int(time.time() * 1000), "error", error[:300])
+        try:
+            executor.cycle_outcome(store, int(time.time() * 1000), error, notify, "И13")
+        except Exception:
+            logger.warning("учёт сбоев цикла И13 не удался", exc_info=True)
         stop.wait(CYCLE_SEC)
 
 

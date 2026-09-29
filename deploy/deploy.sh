@@ -539,7 +539,7 @@ step_token() {
     return 0
   fi
 
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -x http://127.0.0.1:12334 "https://api.telegram.org/bot$new/getMe")
+  code=$(tg_curl "$new" getMe -o /dev/null -w '%{http_code}')
   if [ "$code" != 200 ]; then
     echo "  новый токен Telegram не принимает (HTTP $code) — .env не трогаю"
     shred -u "$secrets" 2>/dev/null || rm -f "$secrets"
@@ -556,12 +556,21 @@ step_token() {
   # shellcheck disable=SC2012
   ls -1t "$APP"/.env.bak-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do rm -f "$f"; done
 
-  old_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -x http://127.0.0.1:12334 "https://api.telegram.org/bot$old/getMe")
+  old_code=$(tg_curl "$old" getMe -o /dev/null -w '%{http_code}')
   echo "  прежний токен: getMe HTTP $old_code (401 — отозван)"
 
   echo "  пересоздаю бот и API с новым токеном"
   compose "$(current_tag)" up -d --force-recreate bot api
   if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
+}
+
+# tg_curl <токен> <метод> [аргументы curl] — запрос к Telegram через прокси хоста. Токен уходит curl-у
+# конфигом через stdin (-K -), как в notify.sh: аргументы процесса видны всем в списке процессов
+# (аудит 29.09.2026 — здесь токен стоял прямо в адресе).
+tg_curl() {
+  _t="$1"; _m="$2"; shift 2
+  printf 'url = "https://api.telegram.org/bot%s/%s"\n' "$_t" "$_m" \
+    | curl -s --max-time 20 -x "${TG_PROXY:-http://127.0.0.1:12334}" -K - "$@"
 }
 
 # Кнопка меню бота — адрес, по которому мини-апп открывают из Telegram. В коде бота
@@ -575,18 +584,17 @@ step_menu() {
   [ -n "$DOMAIN" ] || { echo "  DOMAIN не задан"; exit 1; }
   token=$(grep '^TELEGRAM_BOT_TOKEN=' "$APP/.env" | cut -d= -f2-)
   [ -n "$token" ] || { echo "  в .env нет TELEGRAM_BOT_TOKEN"; exit 1; }
-  api="https://api.telegram.org/bot$token"
   url="https://$DOMAIN/"
   body=$(printf '{"type":"web_app","text":"%s","web_app":{"url":"%s"}}' "${MENU_TEXT:-Signal Bot}" "$url")
 
-  resp=$(curl -s --max-time 20 -x http://127.0.0.1:12334 "$api/setChatMenuButton" --data-urlencode "menu_button=$body")
+  resp=$(tg_curl "$token" setChatMenuButton --data-urlencode "menu_button=$body")
   case "$resp" in
     *'"ok":true'*) echo "  setChatMenuButton: ok" ;;
     *) echo "  ОШИБКА setChatMenuButton: $resp"; exit 1 ;;
   esac
   i=0
   while [ $i -lt 12 ]; do
-    now=$(curl -s --max-time 20 -x http://127.0.0.1:12334 "$api/getChatMenuButton")
+    now=$(tg_curl "$token" getChatMenuButton)
     case "$now" in
       *"\"url\":\"$url\""*) echo "  ok  кнопка меню ведёт на $url"; return 0 ;;
     esac

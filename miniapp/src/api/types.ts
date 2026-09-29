@@ -59,7 +59,8 @@ export interface ResearchCarry {
   snapshot_at: string | null
   start_equity: number | null
   equity: number | null
-  change: number | null
+  change: number | null          // итог после всех издержек, включая комиссии открытия пар
+  opening_fees: number
   funding: number
   fees: number
   drawdown: number

@@ -44,14 +44,21 @@ class Recorder:
         self.writer = writer
         self.clock = clock
         self.last_message = 0.0
+        # Время биржи последнего применённого сообщения стакана (ts — системное, cts — движка сопоставления).
+        # Снимок пишется по местным часам, сделки — по времени биржи (T): без этих полей склейка стакана со
+        # сделками давала бы ложное опережение на задержку сети (аудит 29.09.2026).
+        self.book_ts: Dict[str, tuple] = {}
 
     def handle(self, msg: dict) -> bool:
         """Разбор сообщения биржи. False — разрыв последовательности стакана: нужно переподключение."""
         topic = msg.get("topic") or ""
         if topic.startswith("orderbook."):
-            book = self.books.get(topic.rsplit(".", 1)[-1])
-            if book is not None and book.apply(msg.get("type", ""), msg.get("data") or {}) == GAP:
-                return False
+            symbol = topic.rsplit(".", 1)[-1]
+            book = self.books.get(symbol)
+            if book is not None:
+                if book.apply(msg.get("type", ""), msg.get("data") or {}) == GAP:
+                    return False
+                self.book_ts[symbol] = (msg.get("ts"), msg.get("cts"))
         elif topic.startswith("publicTrade."):
             for tr in msg.get("data") or []:
                 self.writer.write("trades", tr["s"], int(tr["T"]),
@@ -65,7 +72,9 @@ class Recorder:
         for symbol, book in self.books.items():
             if book.ready:
                 bids, asks = book.top(TOP)
-                self.writer.write("book", symbol, t_ms, {"t": t_ms, "u": book.update_id, "b": bids, "a": asks})
+                ts, cts = self.book_ts.get(symbol, (None, None))
+                self.writer.write("book", symbol, t_ms, {"t": t_ms, "ts": ts, "cts": cts, "u": book.update_id,
+                                                         "b": bids, "a": asks})
 
     def reset(self) -> None:
         for book in self.books.values():

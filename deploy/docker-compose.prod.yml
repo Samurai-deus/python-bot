@@ -133,8 +133,8 @@ services:
       DB_PATH: /data/db/market_bot.db
       PORTFOLIO_DIR: /portfolio
       PORTFOLIO_CAPITAL_USDT: "1000"
-      # Поправка правила И14 от 14.09: догоняющая ребалансировка в неделю запуска (один раз).
-      PORTFOLIO_START_THIS_WEEK: "true"
+      # PORTFOLIO_START_THIS_WEEK (поправка 14.09, догоняющая ребалансировка недели запуска) снят 29.09:
+      # разовый флаг оставался включённым, и пропущенный понедельник догонялся бы по устаревшим сигналам.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -168,8 +168,7 @@ services:
     environment:
       BTCALTS_DIR: /btcalts
       BTCALTS_CAPITAL_USDT: "5000"
-      # Поправка 15.09 (владелец): догоняющая ребалансировка в неделю запуска (один раз).
-      BTCALTS_START_THIS_WEEK: "true"
+      # BTCALTS_START_THIS_WEEK (поправка 15.09) снят 29.09 — см. портфель выше.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
