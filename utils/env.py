@@ -30,6 +30,15 @@ _TRUE = frozenset({"true", "1", "yes", "on", "y", "t"})
 _FALSE = frozenset({"false", "0", "no", "off", "n", "f", ""})
 
 
+def signal_trading_enabled() -> bool:
+    """
+    Сигнальная торговля бота. По умолчанию ВЫКЛЮЧЕНА (аудит 29.09.2026): флаг читался в четырёх местах
+    со значением по умолчанию «включено», а выключен был только в прод-compose — любой другой запуск с
+    тем же .env (docker compose run, локальный) торговал бы на счёте И14. Включается только явно.
+    """
+    return env_flag("SIGNAL_TRADING_ENABLED", False)
+
+
 def env_flag(name: str, default: bool = False) -> bool:
     """
     Читает булев флаг окружения.

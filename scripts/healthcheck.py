@@ -29,7 +29,7 @@ def analysis_max_age() -> float:
     ошибках и низкой волатильности растёт до ADAPTIVE_INTERVAL_MAX.
     """
     base = float(os.environ.get("BOT_INTERVAL", "300"))
-    longest = max(base, float(os.environ.get("ADAPTIVE_INTERVAL_MAX", "900")))
+    longest = max(base, float(os.environ.get("ADAPTIVE_INTERVAL_MAX", str(3 * base))))    # как в runner.py
     return 2 * longest + 120
 
 

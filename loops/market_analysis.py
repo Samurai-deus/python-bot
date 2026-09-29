@@ -110,8 +110,8 @@ def veto_notice(can_trade: bool, reason: str, recommendations, signal_trading: b
 
 
 def _signal_trading_enabled() -> bool:
-    from utils.env import env_flag
-    return env_flag("SIGNAL_TRADING_ENABLED", True)
+    from utils.env import signal_trading_enabled
+    return signal_trading_enabled()
 
 
 async def check_spikes(symbols, raw_candles) -> None:
@@ -261,8 +261,10 @@ async def run_market_analysis():
     symbols = get_active_symbols() or SYMBOLS
     logger.info("🚀 Начало анализа %d символов", len(symbols))
     
-    # Проверка торгового времени
-    if not is_good_time():
+    # Проверка торгового времени — только для сигнальной торговли. Короткий цикл (свечи и резкие
+    # движения) идёт всегда: до 29.09 окна вокруг фандинга глушили и сообщения о резких движениях
+    # (~1,5 ч в сутки).
+    if _signal_trading_enabled() and not is_good_time():
         logger.info("⏸ Не торговое время - пропускаем цикл")
         return True
     

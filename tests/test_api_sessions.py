@@ -245,5 +245,14 @@ def test_api_serves_the_exchange_and_allows_the_header():
     assert '"Authorization"' in text
     ws = (ROOT / "api" / "routers" / "ws.py").read_text(encoding="utf-8")
     assert "await ws_user_async(token)" in ws
-    keys = (ROOT / "api" / "routers" / "settings.py").read_text(encoding="utf-8")
-    assert "store_keys(body: StoreKeysRequest, user=Depends(verify_admin_fresh))" in keys
+    # /api/settings (с записью ключей биржи) удалён 29.09.2026: мини-апп v2 его не зовёт, за 14 дней
+    # на проде — 3 обращения, все 404/401. Ключи меняет только deploy.sh bybit-key.
+    assert not (ROOT / "api" / "routers" / "settings.py").exists()
+    assert "settings.router" not in text
+
+
+def test_init_data_header_lives_an_hour_not_a_day(client):
+    """Аудит 29.09: initData в заголовке открывал API сутки — утёкший initData владельца давал и запись."""
+    import time
+    assert client.get("/read", headers=headers_for(OWNER, auth_date=time.time() - 30 * 60)).status_code == 200
+    assert client.get("/read", headers=headers_for(OWNER, auth_date=time.time() - 2 * 3600)).status_code == 401
