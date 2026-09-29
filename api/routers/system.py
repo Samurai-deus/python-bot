@@ -1,12 +1,16 @@
 """
-System health and balance endpoints.
+System health endpoint.
+
+Баланс кошелька (/api/system/balance) удалён 29.09.2026 (аудит, пакет 8): ради него API держал ключи общего
+демо-счёта бота и И14, а мини-апп его не вызывал. Баланс бота — в /api/system/health (capital, без ключей
+при общем счёте).
 """
 import logging
 from datetime import datetime, UTC
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from api.deps import run_sync, verify_auth
-from api.models import SystemHealthResponse, BalanceResponse
+from api.models import SystemHealthResponse
 
 logger = logging.getLogger(__name__)
 
@@ -35,23 +39,4 @@ async def get_health(_: dict = Depends(verify_auth)):
         balance_usdt=balance,
         timestamp=datetime.now(UTC).isoformat(),
         trading_mode=get_trading_mode().value,
-    )
-
-
-@router.get("/balance", response_model=BalanceResponse)
-async def get_balance(_: dict = Depends(verify_auth)):
-    from exchange.bybit_client import get_bybit_client
-
-    client = get_bybit_client()
-    try:
-        b = await run_sync(client.get_wallet_balance, "USDT")
-    except Exception as exc:
-        logger.error("Bybit balance request failed: %s: %s", type(exc).__name__, exc, exc_info=True)
-        raise HTTPException(status_code=503, detail="Balance service unavailable") from exc
-
-    return BalanceResponse(
-        equity=b.total_equity,
-        available=b.available_balance,
-        wallet_balance=b.wallet_balance,
-        coin=b.coin,
     )

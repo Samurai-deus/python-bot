@@ -40,12 +40,24 @@ STAGE=/tmp/market-bot-deploy
 KEEP=3
 CONF="$APP/deploy.conf"
 CONTAINERS="market-bot market-bot-api market-bot-redis"
+# Сервисы с файлом окружения (deploy/service-secrets.conf). Замена токена или ключа в .env пересоздаёт их все:
+# до 29.09.2026 шаг token пересоздавал только bot и api, и исполнители И13/И14/И18 и новости оставались бы
+# с отозванным токеном — без сообщений владельцу.
+ENV_SERVICES="bot api portfolio btcalts carry news"
 
 DOMAIN=""
 [ -f "$CONF" ] && . "$CONF"
 
+# Файлы окружения по сервисам — из общего .env перед каждым up (аудит 29.09.2026, пакет 8).
+split_env() {
+  if [ -x "$APP/split-env.sh" ] && [ -f "$APP/service-secrets.conf" ]; then
+    "$APP/split-env.sh" "$APP/service-secrets.conf" "$APP/.env" "$APP/env"
+  fi
+}
+
 compose() {
   tag="$1"; shift
+  [ "${1:-}" = up ] && split_env
   RELEASE_TAG="$tag" docker compose -p market-bot -f "$APP/docker-compose.yml" --env-file "$APP/.env" "$@"
 }
 
@@ -163,11 +175,14 @@ install_support_files() {
   done
   [ "$changed" = 1 ] && systemctl daemon-reload
   # Переименованием, а не перезаписью: таймер может запустить скрипт посреди копирования.
-  for f in backup.sh watchdog.sh notify.sh; do
+  for f in backup.sh watchdog.sh notify.sh split-env.sh; do
     cp "$rel/deploy/$f" "$APP/$f.next"
     chmod 755 "$APP/$f.next"
     mv -f "$APP/$f.next" "$APP/$f"
   done
+  cp "$rel/deploy/service-secrets.conf" "$APP/service-secrets.conf.next"
+  mv -f "$APP/service-secrets.conf.next" "$APP/service-secrets.conf"
+  split_env
   # Ключ шифрования копий базы, уходящих за пределы хоста. Создаётся один раз и
   # никогда не перезаписывается: им зашифрованы уже отправленные копии.
   if [ ! -s "$APP/backup.passphrase" ]; then
@@ -519,6 +534,17 @@ step_smoke() {
   done
   if [ -s "$APP/backup.passphrase" ]; then echo "  ok  ключ шифрования бэкапов на месте"; else echo "  ОШИБКА нет $APP/backup.passphrase"; fail=1; fi
 
+  # Секреты по сервисам (аудит 29.09.2026, пакет 8): у API, который смотрит в интернет, нет ключей биржи и
+  # ключа расшифровки ключей из базы. Проверяются имена, значения не читаются.
+  for svc in $ENV_SERVICES; do
+    [ -f "$APP/env/$svc.env" ] || { echo "  ОШИБКА нет $APP/env/$svc.env"; fail=1; }
+  done
+  if [ -f "$APP/env/api.env" ] && grep -qE '^([A-Z_]*BYBIT_API_(KEY|SECRET)|ENCRYPTION_KEY)=' "$APP/env/api.env"; then
+    echo "  ОШИБКА env/api.env: у API ключи биржи"; fail=1
+  elif [ -f "$APP/env/api.env" ]; then
+    echo "  ok  env/api.env без ключей биржи"
+  fi
+
   if [ "$fail" = 0 ]; then echo "  SMOKE OK"; else echo "  SMOKE FAIL"; exit 1; fi
 }
 
@@ -564,8 +590,9 @@ step_token() {
   old_code=$(tg_curl "$old" getMe -o /dev/null -w '%{http_code}')
   echo "  прежний токен: getMe HTTP $old_code (401 — отозван)"
 
-  echo "  пересоздаю бот и API с новым токеном"
-  compose "$(current_tag)" up -d --force-recreate bot api
+  echo "  пересоздаю все сервисы с файлом окружения: $ENV_SERVICES"
+  # shellcheck disable=SC2086
+  compose "$(current_tag)" up -d --force-recreate $ENV_SERVICES
   if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
 }
 
@@ -651,8 +678,9 @@ step_ai_key() {
   # shellcheck disable=SC2012
   ls -1t "$APP"/.env.bak-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do rm -f "$f"; done
 
-  echo "  пересоздаю бот и API с ключом OpenRouter"
-  compose "$(current_tag)" up -d --force-recreate bot api
+  # Ключ OpenRouter читают бот (ИИ-трейдер) и сборщик новостей (разметка).
+  echo "  пересоздаю бот, API и сборщик новостей с ключом OpenRouter"
+  compose "$(current_tag)" up -d --force-recreate bot api news
   if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
 }
 
