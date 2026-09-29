@@ -41,7 +41,8 @@ logger = logging.getLogger(__name__)
 
 # ========== ENDPOINTS ==========
 
-_MAINNET_BASE = "https://api.bybit.com"
+MAINNET_REST = "https://api.bybit.com"          # единственный источник адреса основной биржи
+_MAINNET_BASE = MAINNET_REST
 _TESTNET_BASE = "https://api-testnet.bybit.com"
 _DEMO_BASE = "https://api-demo.bybit.com"  # демо-счёт основного аккаунта (BYBIT_DEMO)
 
@@ -129,7 +130,6 @@ class InstrumentFilters:
 
 # ========== CLIENT ==========
 
-MAINNET_REST = "https://api.bybit.com"
 TESTNET_REST = "https://api-testnet.bybit.com"
 INSTRUMENTS_PATH = "/v5/market/instruments-info"     # один источник адреса для всех модулей
 

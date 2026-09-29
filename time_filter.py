@@ -8,6 +8,10 @@ Provides session-based confidence multiplier.
 from datetime import datetime, UTC
 
 
+# Часы выплаты фандинга Bybit (UTC) у 8-часовых контрактов — один источник для фильтра времени и
+# гейткипера (до 29.09.2026 — два списка). У части контрактов интервал 4 или 1 ч — фильтр их не знает.
+FUNDING_HOURS_UTC = (0, 8, 16)
+
 def is_good_time(symbol: str = None) -> bool:
     """Check if current time is good for trading.
 
@@ -24,11 +28,10 @@ def is_good_time(symbol: str = None) -> bool:
     hour = now.hour
     minute = now.minute
 
-    # 45 min before settlement hour
-    if hour in (23, 7, 15) and minute >= 45:
+    # 45 минут до часа выплаты и 15 после
+    if (hour + 1) % 24 in FUNDING_HOURS_UTC and minute >= 45:
         return False
-    # 15 min after settlement hour
-    if hour in (0, 8, 16) and minute <= 15:
+    if hour in FUNDING_HOURS_UTC and minute <= 15:
         return False
 
     return True

@@ -31,7 +31,8 @@ logger = logging.getLogger("btcalts")
 
 
 def capital() -> float:
-    return float(os.environ.get("BTCALTS_CAPITAL_USDT", "5000"))
+    from utils.env import env_float
+    return env_float("BTCALTS_CAPITAL_USDT", 5000.0)
 
 
 def root_dir() -> Path:
@@ -101,10 +102,11 @@ def rebalance(cli, store: Store, t: int, now: int) -> None:
 
 
 def cycle(cli, store: Store, now: int) -> None:
+    store.set("capital", capital())
     if store.get("halted"):
         executor.after_halt(cli, store, now, notify, "И18")
     elif ready_to_start(cli, store, now):
-        reason = executor.drawdown_confirmed(cli, store, capital(), now)
+        reason = executor.drawdown_confirmed(cli, store, capital(), now, engine.MAX_DRAWDOWN)     # стоп правила И18
         if reason:
             executor.halt(cli, store, now, reason, notify, "И18")
         else:

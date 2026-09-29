@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 # ---------------------------------------------------------------------------
 
 BYBIT_MAKER_FEE = 0.0002   # 0.02%
-BYBIT_TAKER_FEE = 0.00055  # 0.055%
+from backtest.portfolio import TAKER_FEE as BYBIT_TAKER_FEE  # noqa: E402 — одна ставка тейкера на всю программу
 
 
 # ---------------------------------------------------------------------------

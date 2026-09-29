@@ -9,13 +9,14 @@ Decision Core - сердце экосистемы
 from datetime import datetime, UTC
 from dataclasses import dataclass, asdict
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
 # ========== FAULT INJECTION (для тестирования устойчивости) ==========
 
-FAULT_INJECT_DECISION_EXCEPTION = os.environ.get("FAULT_INJECT_DECISION_EXCEPTION", "false").lower() == "true"
+from utils.env import env_flag  # noqa: E402
+
+FAULT_INJECT_DECISION_EXCEPTION = env_flag("FAULT_INJECT_DECISION_EXCEPTION", False)
 
 
 @dataclass

@@ -4,7 +4,9 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-BASE_URL = "https://api.bybit.com/v5/market/kline"
+from exchange.bybit_client import MAINNET_REST  # noqa: E402
+
+BASE_URL = MAINNET_REST + "/v5/market/kline"
 from exchange.bybit_client import instruments_url      # один источник адреса (23.09.2026)
 
 INSTRUMENTS_URL = instruments_url()

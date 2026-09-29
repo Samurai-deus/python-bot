@@ -13,6 +13,7 @@ from carry import engine
 from carry.__main__ import carry_dir, notional, symbols
 
 DAY = 86_400_000
+OUTSIDE_MAX = 0.01          # правило И13: хедж вне ±5 % — меньше 1 % времени
 FUNDING_PAGE = 200
 OPENING_WINDOW_MS = 15 * 60_000
 

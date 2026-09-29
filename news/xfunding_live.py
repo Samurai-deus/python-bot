@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 HOUR_MS = 3_600_000
 SCHEMA = ("CREATE TABLE IF NOT EXISTS snap (hour_ms INTEGER, ex TEXT, key TEXT, rate REAL, next_ms INTEGER, interval_h REAL,"
           " bid REAL, ask REAL, turnover24h REAL, taken_ms INTEGER, PRIMARY KEY (hour_ms, ex, key))")
-BYBIT = "https://api.bybit.com/v5/market"
+from exchange.bybit_client import MAINNET_REST  # noqa: E402
+
+BYBIT = MAINNET_REST + "/v5/market"
 BITGET = "https://api.bitget.com/api/v2/mix/market"
 OKX = "https://www.okx.com/api/v5"
 Row = tuple[str, float, int | None, float | None, float, float, float]   # key, rate, next_ms, interval_h, bid, ask, turnover

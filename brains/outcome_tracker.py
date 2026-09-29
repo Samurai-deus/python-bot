@@ -19,7 +19,9 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-_BYBIT_KLINE_URL = "https://api.bybit.com/v5/market/kline"
+from exchange.bybit_client import MAINNET_REST  # noqa: E402
+
+_BYBIT_KLINE_URL = MAINNET_REST + "/v5/market/kline"
 _session: requests.Session | None = None
 
 MAX_CANDLES = 24       # Максимум свечей для проверки (24h при интервале 1h)

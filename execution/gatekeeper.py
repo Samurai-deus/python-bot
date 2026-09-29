@@ -1063,7 +1063,8 @@ class Gatekeeper:
             # H-20: Compute time_context based on UTC hour
             hour = datetime.now(UTC).hour
             # Bybit funding: 00:00, 08:00, 16:00 UTC — avoid 30 min before
-            if hour in (23, 7, 15):
+            from time_filter import FUNDING_HOURS_UTC
+            if (hour + 1) % 24 in FUNDING_HOURS_UTC:
                 time_context = TimeContext.SESSION_END
             elif 8 <= hour <= 16:
                 # London/NY overlap — most active period

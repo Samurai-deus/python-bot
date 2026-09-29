@@ -41,6 +41,7 @@ export interface ResearchPortfolio {
   started_at: string | null
   snapshot_at: string | null
   capital: number
+  stop_fraction: number          // стоп правила: доля капитала (из движка исполнителя)
   start_equity: number | null
   equity: number | null
   change: number | null
@@ -61,6 +62,9 @@ export interface ResearchCarry {
   equity: number | null
   change: number | null          // итог после всех издержек, включая комиссии открытия пар
   opening_fees: number
+  mm_stop: number                // экстренное закрытие при mm rate ≥ этого
+  hedge_band: number             // хедж «вне» — расхождение больше этого
+  outside_max: number            // критерий: доля времени вне полосы меньше этого
   funding: number
   fees: number
   drawdown: number

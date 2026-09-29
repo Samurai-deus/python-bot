@@ -321,7 +321,8 @@ def test_ai_key_step_validates_before_editing_and_never_exposes_key():
     step = step_body(script, "step_ai_key")
     assert step.index("/api/v1/key") < step.index('cp -p "$APP/.env"'), "проверка у OpenRouter — до правки .env"
     assert step.index('cp -p "$APP/.env"') < step.index('mv -f "$APP/.env.new" "$APP/.env"'), "копия .env — до замены"
-    assert "-x http://127.0.0.1:12334" in step and "AI_PROXY_URL" in step
+    assert '-x "$HOST_PROXY"' in step and "AI_PROXY_URL" in step
+    assert script.count("12334") == 1, "порт прокси хоста — в одном месте (PROXY_PORT)"
     assert "curl -s -K -" in step, "ключ — конфигом через stdin, не аргументом curl"
     assert 'ENVIRON["AI_KEY"]' in step and "-v k=" not in step, "ключ — через окружение, не аргументом awk"
     assert "--force-recreate" in step, "env_file читается только при создании контейнера"
