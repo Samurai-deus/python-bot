@@ -202,12 +202,8 @@ def h18_weeks(db: str, start: int, end: int) -> Dict[int, float]:
     data = ws.load(conn, start, end)
     atl = at.Atlas(data, start, end)
 
-    def fn(t, t_next):
-        alts = [s for s in atl.top(t // DAY_MS, 31) if s != BTC and data[s].open.get(t) and data[s].open.get(t_next)][:30]
-        if len(alts) < 10 or not data[BTC].open.get(t_next):
-            return {}
-        return {BTC: 0.5, **{s: -0.5 / len(alts) for s in alts}}
-    return {w.entry_t: w.r for w in at.simulate_weights(atl, fn, mx.mondays(start, end))}
+    from backtest import h18
+    return {w.entry_t: w.r for w in at.simulate_weights(atl, h18.btc_vs_alts(atl), mx.mondays(start, end))}
 
 
 def verdict(s: dict, corr: Optional[float]) -> dict:

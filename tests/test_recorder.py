@@ -117,6 +117,16 @@ def test_a_book_gap_asks_for_a_reconnect_and_only_reliable_books_are_sampled():
     assert rec.handle({"op": "subscribe", "success": True}) and rec.last_message == before, "ответ на подписку — не данные"
 
 
+def test_book_sample_carries_the_exchange_time_of_the_last_update():
+    """Снимок — по местным часам, сделки — по времени биржи: без ts/cts склейка давала бы ложное опережение."""
+    w = FakeWriter()
+    rec = Recorder(["BTCUSDT"], w)
+    rec.handle({"topic": "orderbook.50.BTCUSDT", "type": "snapshot", "ts": 1789280051875, "cts": 1789280051870, "data": SNAP})
+    rec.sample(1789280052000)
+    row = w.rows[0][3]
+    assert row["t"] == 1789280052000 and row["ts"] == 1789280051875 and row["cts"] == 1789280051870
+
+
 def test_topics_are_subscribed_in_chunks_of_ten():
     t = topics(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "BNBUSDT", "XAUUSDT"])
     assert t[:2] == ["orderbook.50.BTCUSDT", "publicTrade.BTCUSDT"] and len(t) == 14
