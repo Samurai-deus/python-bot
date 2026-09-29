@@ -112,8 +112,21 @@ def orders_to_target(targets_usdt: Mapping[str, float], positions_qty: Mapping[s
         qty, err = round_qty(abs(delta) / mark, f)
         if err or qty <= 0:
             continue
+        if float(qty) * mark < float(getattr(f, "min_notional", 0) or 0):
+            # Округление вниз до шага увело ордер под минимум биржи: он был бы отклонён — и так каждый час
+            # (шаг 0,1 при цене 40: разница 7 USDT → 0,1 → 4 USDT < 5). Это пыль, а не непрошедший ордер.
+            continue
         out.append(Order(s, "Buy" if delta > 0 else "Sell", qty, reduce_only=False))
     return out
+
+
+def untradeable(targets_usdt: Mapping[str, float], marks: Mapping[str, float], filters: Mapping[str, object]) -> List[str]:
+    """
+    Монеты с ненулевой целью, которые нельзя довести без цены (mark ≤ 0 — клиент так сообщает о сбое)
+    или параметров инструмента. До 29.09 orders_to_target молча их пропускал, и неделя считалась сделанной.
+    """
+    return sorted(s for s, v in targets_usdt.items()
+                  if abs(v) >= 1e-9 and (not (marks.get(s) or 0) > 0 or filters.get(s) is None))
 
 
 def close_order(symbol: str, qty_have: float) -> Order:

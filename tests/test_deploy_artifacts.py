@@ -379,6 +379,32 @@ def test_backup_sends_only_a_copy_that_decrypts_back():
     assert 'offsite "$DIR/$name.gz" || exit 1' in script, "сбой вывоза роняет юнит — его видит сторож"
 
 
+def test_backup_covers_every_executor_database():
+    """
+    Аудит 29.09.2026: бэкапилась только база бота, а базы исполнителей (пик стоимости, отметка
+    остановки, дата старта) — нет. Список берётся из compose: сервис `python -m X` со своим
+    каталогом <X>_DIR и базой Store(... "<имя>.db") в X/__main__.py обязан быть в backup.sh.
+    Запись стакана (/recorder) — почасовые файлы до 20 ГБ, не база состояния: вне правила.
+    """
+    compose = (DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    script = (DEPLOY / "backup.sh").read_text(encoding="utf-8")
+    executors = []
+    for block in re.split(r"\n  (?=\w[\w-]*:\n)", compose):
+        name = re.search(r"container_name:\s*(\S+)", block)
+        home = re.search(r"\n\s+[A-Z]+_DIR:\s*(/\S+)", block)
+        module = re.search(r'command:\s*\["python",\s*"-m",\s*"(\w+)"\]', block)
+        if not (name and home and module):
+            continue
+        db = re.search(r'Store\(str\(\w+\(\) / "(\w+\.db)"\)\)', (ROOT / module.group(1) / "__main__.py").read_text(encoding="utf-8"))
+        if db:
+            executors.append(f"{name.group(1)}:{home.group(1)}/{db.group(1)}")
+    assert len(executors) >= 3, executors
+    for spec in executors:
+        assert spec in script, f"база {spec} не попадает в бэкап"
+    assert 'offsite "$work.tar.gz" || exit 1' in script, "копия баз исполнителей тоже уходит вне сервера"
+    assert "xfunding_live.db" in script, "форвардная запись И19б — хотя бы локальная копия"
+
+
 def test_support_files_install_watchdog_and_keep_the_backup_key():
     script = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
     body = step_body(script, "install_support_files")
