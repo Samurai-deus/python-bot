@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 
+from exchange.bybit_client import MAINNET_REST
+
 logger = logging.getLogger(__name__)
 
 _BINANCE = ("https://www.binance.com/bapi/composite/v1/public/cms/article/list/query"
@@ -19,7 +21,7 @@ SOURCES = (
     ("cointelegraph", "rss", "https://cointelegraph.com/rss"),
     ("theblock", "rss", "https://www.theblock.co/rss.xml"),
     ("fed", "rss", "https://www.federalreserve.gov/feeds/press_all.xml"),
-    ("bybit", "bybit", "https://api.bybit.com/v5/announcements/index?locale=en-US&limit=20"),
+    ("bybit", "bybit", MAINNET_REST + "/v5/announcements/index?locale=en-US&limit=20"),
     ("binance_listing", "binance", _BINANCE.format(48)),
     ("binance_delisting", "binance", _BINANCE.format(161)),
 )

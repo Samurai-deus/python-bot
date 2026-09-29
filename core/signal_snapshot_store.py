@@ -4,12 +4,13 @@ SignalSnapshotStore - абстракция для persistence layer.
 Обеспечивает единую точку входа для всех операций сохранения/загрузки snapshots
 с гарантией fault injection в самом начале.
 """
-import os
 from core.signal_snapshot import SignalSnapshot
 
 # ========== FAULT INJECTION (для тестирования устойчивости) ==========
 
-FAULT_INJECT_STORAGE_FAILURE = os.environ.get("FAULT_INJECT_STORAGE_FAILURE", "false").lower() == "true"
+from utils.env import env_flag  # noqa: E402
+
+FAULT_INJECT_STORAGE_FAILURE = env_flag("FAULT_INJECT_STORAGE_FAILURE", False)
 
 
 def _check_fault_injection(operation: str):

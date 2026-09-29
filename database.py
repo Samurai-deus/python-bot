@@ -81,9 +81,9 @@ DB_PATH = os.environ.get("DB_PATH", "market_bot.db")
 
 # ========== FAULT INJECTION (для тестирования устойчивости) ==========
 
-FAULT_INJECT_STORAGE_FAILURE = (
-    os.environ.get("FAULT_INJECT_STORAGE_FAILURE", "false").lower() == "true"
-)
+from utils.env import env_flag as _env_flag  # noqa: E402
+
+FAULT_INJECT_STORAGE_FAILURE = _env_flag("FAULT_INJECT_STORAGE_FAILURE", False)
 
 # ========== POSTGRESQL POOL ==========
 

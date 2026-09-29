@@ -18,7 +18,7 @@ WEEK_MS = 7 * DAY_MS
 PROGRAM: dict[str, Any] = {
     "portfolio": {
         "title": "И14 — рисковый портфель: тренд И4 + моментум И3 + продолжение И17а (с 21.09)",
-        "risk": "40 % годовых (И4 ×1,61, И3 ×0,78, И17а ×0,48 с 21.09); на увиденной истории ≈ +28 %/год, просадка 30 %",
+        "risk": "40 % годовых (И4 ×{k_trend}, И3 ×{k_momentum}, И17а ×{k_cont} с 21.09); на увиденной истории ≈ +28 %/год, просадка 30 %",
         "start": "2026-09-14", "end": "2026-12-07", "verdict": "2026-12-14",
         "rebalance": "понедельник 00:02 UTC",
         "criteria": [
@@ -65,6 +65,18 @@ PROGRAM: dict[str, Any] = {
 }
 
 
+
+def program() -> dict[str, Any]:
+    """PROGRAM с множителями ног из portfolio.engine (до 29.09.2026 — ручная копия чисел правила)."""
+    import copy
+
+    from portfolio import engine as pe
+    out = copy.deepcopy(PROGRAM)
+    fmt = lambda x: f"{x:.2f}".replace(".", ",")  # noqa: E731
+    out["portfolio"]["risk"] = out["portfolio"]["risk"].format(
+        k_trend=fmt(pe.K_TREND), k_momentum=fmt(pe.K_MOMENTUM), k_cont=fmt(pe.K_CONTINUATION))
+    return out
+
 def calendar_items(now_ms: int) -> list[dict[str, Any]]:
     """Контрольные даты плана (portfolio/calendar.py) с числом дней до события (отрицательное — прошло)."""
     from portfolio.calendar import CHECKPOINTS
@@ -86,7 +98,8 @@ def _iso(ms) -> str | None:
     return None if not ms else datetime.fromtimestamp(int(ms) / 1000, UTC).isoformat()
 
 
-def read_portfolio(path: str, capital: float, now_ms: int | None = None) -> dict[str, Any] | None:
+def read_portfolio(path: str, capital: float, now_ms: int | None = None,
+                   stop_fraction: float = 0.25) -> dict[str, Any] | None:
     conn = _ro(path)
     if conn is None:
         return None
@@ -104,6 +117,8 @@ def read_portfolio(path: str, capital: float, now_ms: int | None = None) -> dict
         conn.close()
     started = int(state["started_at"]) if state.get("started_at") else None
     start_eq = float(state["start_equity"]) if state.get("start_equity") else None
+    # Капитал — тот, что исполнитель записал себе (с 29.09.2026); до первой записи — значение из окружения API.
+    capital = float(state.get("capital") or capital)
     peak, dd = start_eq or 0.0, 0.0
     for ts, eq, _ in snaps:
         if started is None or ts < started:
@@ -117,7 +132,7 @@ def read_portfolio(path: str, capital: float, now_ms: int | None = None) -> dict
         "status": "halted" if state.get("halted") else ("running" if started else "waiting"),
         "halted_reason": state.get("halted"),
         "started_at": _iso(started), "snapshot_at": _iso(last_ts),
-        "capital": capital,
+        "capital": capital, "stop_fraction": stop_fraction,
         "start_equity": start_eq, "equity": last_eq,
         "change": (last_eq - start_eq) if (last_eq is not None and start_eq is not None) else None,
         "drawdown": dd,
@@ -143,7 +158,8 @@ def read_carry(path: str, now_ms: int | None = None) -> dict[str, Any] | None:
         opened = int(state["opened_at"]) if state.get("opened_at") else 0
         # Итоги — тем же расчётом, что отчёт И13 (carry.report.summary): до 29.09 здесь была своя копия, и
         # поправка «итог после комиссий открытия» разошлась бы с мини-аппом.
-        from carry.report import summary
+        from carry import engine as carry_engine
+        from carry.report import OUTSIDE_MAX, summary
         s = summary(conn)
         events = conn.execute("SELECT ts, kind, detail FROM events ORDER BY ts DESC LIMIT 10").fetchall()
     finally:
@@ -158,6 +174,7 @@ def read_carry(path: str, now_ms: int | None = None) -> dict[str, Any] | None:
         "opened_at": _iso(opened), "snapshot_at": _iso(last[0]) if last else None,
         "start_equity": start_eq, "equity": last[1] if last else None,
         "change": s["change_after_costs"], "opening_fees": s["opening_fees"],
+        "mm_stop": carry_engine.DANGER_MM_RATE, "hedge_band": carry_engine.NEAR_HEDGE, "outside_max": OUTSIDE_MAX,
         "funding": s["funding"], "fees": s["fees_usdt"], "drawdown": s["drawdown_usdt"],
         "mm_rate": last[2] if last else None, "outside_share": s["outside_share"],
         "positions": [{"symbol": s, "spot": p.get("spot", 0.0), "short": p.get("short", 0.0), "price": p.get("price"),
@@ -227,15 +244,18 @@ def read_news(day: str) -> dict[str, Any]:
 
 
 def overview(now: float | None = None) -> dict[str, Any]:
+    from btcalts import engine as be
+    from portfolio import engine as pe
     now = now or time.time()
     now_ms = int(now * 1000)
     capital = float(os.environ.get("PORTFOLIO_CAPITAL_USDT", "1000"))
     return {
         "generated_at": datetime.fromtimestamp(now, UTC).isoformat(),
-        "program": PROGRAM,
-        "portfolio": read_portfolio(os.environ.get("RESEARCH_PORTFOLIO_DB", "/portfolio/portfolio.db"), capital, now_ms),
+        "program": program(),
+        "portfolio": read_portfolio(os.environ.get("RESEARCH_PORTFOLIO_DB", "/portfolio/portfolio.db"), capital, now_ms,
+                                    pe.MAX_DRAWDOWN),
         "btcalts": read_portfolio(os.environ.get("RESEARCH_BTCALTS_DB", "/btcalts/btcalts.db"),
-                                  float(os.environ.get("BTCALTS_CAPITAL_USDT", "5000")), now_ms),
+                                  float(os.environ.get("BTCALTS_CAPITAL_USDT", "5000")), now_ms, be.MAX_DRAWDOWN),
         "calendar": calendar_items(now_ms),
         "carry": read_carry(os.environ.get("RESEARCH_CARRY_DB", "/carry/carry.db"), now_ms),
         "recorder": read_recorder(os.environ.get("RESEARCH_RECORDER_DIR", "/recorder"), now_ms),

@@ -97,7 +97,7 @@ def trade_to_weights(cli, store: Store, weights: dict[str, float], cap: float, l
     return done, failed
 
 
-def drawdown_confirmed(cli, store: Store, cap: float, now: int) -> str | None:
+def drawdown_confirmed(cli, store: Store, cap: float, now: int, max_drawdown: float) -> str | None:
     """
     Причина остановки или None. Пик обновляется по текущей стоимости; превышение порога проверяется
     вторым чтением: остановка необратима, и один сбойный ответ биржи не должен закончить эксперимент.
@@ -105,13 +105,14 @@ def drawdown_confirmed(cli, store: Store, cap: float, now: int) -> str | None:
     equity = cli.usdt_equity()
     peak = max(float(store.get("peak_equity") or 0), equity)
     store.set("peak_equity", peak)
-    if not engine.drawdown_halt(peak, equity, cap):
+    # Порог — из правила своего исполнителя (И14 и И18 записаны отдельно; до 29.09 И18 брал порог И14).
+    if peak - equity <= max_drawdown * cap:
         return None
     again = cli.usdt_equity()
-    if not engine.drawdown_halt(peak, again, cap):
+    if peak - again <= max_drawdown * cap:
         store.event(now, "drawdown_unconfirmed", f"пик {peak:.2f}, чтение {equity:.2f}, повторное {again:.2f}")
         return None
-    return f"просадка {peak - again:.0f} USDT > {engine.MAX_DRAWDOWN * cap:.0f}"
+    return f"просадка {peak - again:.0f} USDT > {max_drawdown * cap:.0f}"
 
 
 def close_positions(cli, positions: Mapping[str, float]) -> list[str]:

@@ -8,7 +8,9 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://api.bybit.com"
+from exchange.bybit_client import MAINNET_REST  # noqa: E402
+
+BASE_URL = MAINNET_REST
 TIMEOUT = 10
 
 # Кэш: {symbol: (timestamp, data)} — TTL 5 минут

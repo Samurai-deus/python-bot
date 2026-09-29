@@ -6,6 +6,7 @@ import { PageHeader, SummaryTile, Row, Section } from '../../components/ProgramU
 import { usd, signed, pctOf, day, ruDate } from '../../lib/program'
 import { formatDate } from '../../lib/formatters'
 import type { ResearchOverview, ResearchPortfolio } from '../../api/types'
+import { WARN_SHARE, pctLabel } from '../../lib/limits'
 
 /** Обзор: что работает сейчас, сколько стоит, что дальше. Всё — по docs/TRADER_PLAN.md. */
 export function Overview() {
@@ -41,7 +42,7 @@ function ExecutorTile({ title, p }: { title: string; p: ResearchPortfolio | null
         status={p.status}
         rows={[
           { label: 'Результат', value: `${signed(p.change)}${pctOf(p.change, p.capital)}`, accent: change >= 0 ? 'var(--green)' : 'var(--red)' },
-          { label: 'Просадка от пика', value: `${(p.drawdown / p.capital * 100).toFixed(1)} % · стоп при 25 %`, accent: p.drawdown > p.capital * 0.15 ? 'var(--amber)' : undefined },
+          { label: 'Просадка от пика', value: `${(p.drawdown / p.capital * 100).toFixed(1)} % · стоп при ${pctLabel(p.stop_fraction)}`, accent: p.drawdown > p.capital * p.stop_fraction * WARN_SHARE ? 'var(--amber)' : undefined },
           { label: 'Позиции · валовая', value: `${p.positions.length} · ${(p.gross / p.capital).toFixed(2)}× капитала ${usd(p.capital, 0)}` },
           { label: 'Следующая ребалансировка', value: day(p.next_rebalance) },
         ]}
@@ -61,7 +62,7 @@ function CarryTile({ data }: { data: ResearchOverview }) {
         rows={[
           { label: 'Результат', value: signed(c.change), accent: (c.change ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' },
           { label: 'Фандинг · комиссии', value: `${signed(c.funding)} · ${usd(c.fees)}` },
-          { label: 'Хедж вне ±5 %', value: `${(c.outside_share * 100).toFixed(1)} % времени`, accent: c.outside_share > 0.01 ? 'var(--amber)' : undefined },
+          { label: `Хедж вне ±${pctLabel(c.hedge_band)}`, value: `${(c.outside_share * 100).toFixed(1)} % времени`, accent: c.outside_share > c.outside_max ? 'var(--amber)' : undefined },
         ]}
       />
     </Link>

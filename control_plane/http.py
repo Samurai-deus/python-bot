@@ -13,7 +13,6 @@ runner передаёт один раз через configure().
 import asyncio
 import json
 import logging
-import os
 import time
 from types import SimpleNamespace
 
@@ -250,7 +249,8 @@ async def handle_chaos_inject(state):
     """
     # GLOBAL STATE (intentional)
     # Проверка доступа (только в debug mode)
-    chaos_enabled = os.environ.get("CHAOS_ENABLED", "false").lower() == "true"
+    from utils.env import env_flag
+    chaos_enabled = env_flag("CHAOS_ENABLED", False)
     if not chaos_enabled:
         return 403, json.dumps({
             "error": "chaos_disabled",
@@ -323,7 +323,8 @@ async def handle_chaos_stop(state):
     - Если chaos был активен И произошёл heartbeat miss → SAFE_MODE обязателен
     """
     # GLOBAL STATE (intentional)
-    chaos_enabled = os.environ.get("CHAOS_ENABLED", "false").lower() == "true"
+    from utils.env import env_flag
+    chaos_enabled = env_flag("CHAOS_ENABLED", False)
     if not chaos_enabled:
         return 403, json.dumps({
             "error": "chaos_disabled"
@@ -389,7 +390,8 @@ def build_http_routes():
     }
     
     # Chaos endpoints (только если включён)
-    chaos_enabled = os.environ.get("CHAOS_ENABLED", "false").lower() == "true"
+    from utils.env import env_flag
+    chaos_enabled = env_flag("CHAOS_ENABLED", False)
     if chaos_enabled:
         routes[("POST", "/admin/chaos/inject")] = handle_chaos_inject
         routes[("POST", "/admin/chaos/stop")] = handle_chaos_stop
@@ -439,7 +441,8 @@ async def start_http_server(get_state, shutdown_evt, host="127.0.0.1", port=8080
     routes = build_http_routes()
     
     # Жёсткая проверка: chaos routes должны быть зарегистрированы если включён
-    chaos_enabled = os.environ.get("CHAOS_ENABLED", "false").lower() == "true"
+    from utils.env import env_flag
+    chaos_enabled = env_flag("CHAOS_ENABLED", False)
     if chaos_enabled:
         assert ("POST", "/admin/chaos/inject") in routes, \
             "CHAOS ROUTE NOT REGISTERED — CONTROL PLANE BROKEN"

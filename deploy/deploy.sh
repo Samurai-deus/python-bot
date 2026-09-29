@@ -30,6 +30,11 @@
 #   status           контейнеры, текущий релиз, хвост логов
 set -eu
 
+# Прокси хоста (sing-box) — единственное место номера порта (аудит 29.09.2026: был в 9 местах).
+# С хоста — 127.0.0.1, из контейнеров — host.docker.internal (extra_hosts в compose).
+PROXY_PORT="${PROXY_PORT:-12334}"
+HOST_PROXY="http://127.0.0.1:$PROXY_PORT"
+CONTAINER_PROXY="http://host.docker.internal:$PROXY_PORT"
 APP=/opt/market-bot
 STAGE=/tmp/market-bot-deploy
 KEEP=3
@@ -107,7 +112,7 @@ ALLOWED_USER_IDS=
 
 TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID=$OWNER_TELEGRAM_ID
-TELEGRAM_PROXY_URL=http://host.docker.internal:12334
+TELEGRAM_PROXY_URL=$CONTAINER_PROXY
 
 # Бумажная торговля: биржа вызывается только за рыночными данными
 PAPER_TRADING=true
@@ -570,7 +575,7 @@ step_token() {
 tg_curl() {
   _t="$1"; _m="$2"; shift 2
   printf 'url = "https://api.telegram.org/bot%s/%s"\n' "$_t" "$_m" \
-    | curl -s --max-time 20 -x "${TG_PROXY:-http://127.0.0.1:12334}" -K - "$@"
+    | curl -s --max-time 20 -x "$HOST_PROXY" -K - "$@"
 }
 
 # Кнопка меню бота — адрес, по которому мини-апп открывают из Telegram. В коде бота
@@ -623,7 +628,7 @@ step_ai_key() {
   esac
 
   answer=$(printf 'header = "Authorization: Bearer %s"\n' "$key" \
-    | curl -s -K - --max-time 20 -x http://127.0.0.1:12334 -w '\n%{http_code}' https://openrouter.ai/api/v1/key) || true
+    | curl -s -K - --max-time 20 -x "$HOST_PROXY" -w '\n%{http_code}' https://openrouter.ai/api/v1/key) || true
   code=$(printf '%s\n' "$answer" | tail -n 1)
   if [ "$code" != 200 ]; then
     echo "  OpenRouter ключ не принял (HTTP $code) — .env не трогаю"
@@ -633,7 +638,7 @@ step_ai_key() {
 
   cp -p "$APP/.env" "$APP/.env.bak-$(date +%s)"
   umask 077
-  AI_KEY="$key" awk -v proxy="http://host.docker.internal:12334" '
+  AI_KEY="$key" awk -v proxy="$CONTAINER_PROXY" '
     /^OPENROUTER_API_KEY=/ { print "OPENROUTER_API_KEY=" ENVIRON["AI_KEY"]; seen_key = 1; next }
     /^AI_PROXY_URL=/       { print "AI_PROXY_URL=" proxy; seen_proxy = 1; next }
     { print }

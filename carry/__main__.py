@@ -38,7 +38,8 @@ def symbols() -> list[str]:
 
 
 def notional() -> float:
-    return float(os.environ.get("CARRY_NOTIONAL_USDT", "10000"))
+    from utils.env import env_float
+    return env_float("CARRY_NOTIONAL_USDT", 10000.0)
 
 
 def carry_dir() -> Path:

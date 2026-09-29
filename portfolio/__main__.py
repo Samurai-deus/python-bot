@@ -29,7 +29,8 @@ logger = logging.getLogger("portfolio")
 
 
 def capital() -> float:
-    return float(os.environ.get("PORTFOLIO_CAPITAL_USDT", "1000"))
+    from utils.env import env_float
+    return env_float("PORTFOLIO_CAPITAL_USDT", 1000.0)
 
 
 def start_this_week() -> bool:
@@ -96,10 +97,11 @@ def rebalance(cli, store: Store, t: int, now: int) -> None:
 
 
 def cycle(cli, store: Store, now: int) -> None:
+    store.set("capital", capital())      # капитал в базе исполнителя — мини-апп берёт его отсюда, а не из своей копии
     if store.get("halted"):
         executor.after_halt(cli, store, now, notify, "И14")
     elif ready_to_start(cli, store, now):
-        reason = executor.drawdown_confirmed(cli, store, capital(), now)
+        reason = executor.drawdown_confirmed(cli, store, capital(), now, engine.MAX_DRAWDOWN)
         if reason:
             executor.halt(cli, store, now, reason, notify, "И14")
         else:

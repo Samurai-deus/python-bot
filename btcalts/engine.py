@@ -23,6 +23,3 @@ def weights(data: Mapping[str, dict], candidates: Sequence[str]) -> dict[str, fl
         return {}
     return {BTC: BTC_WEIGHT, **{s: -(1 - BTC_WEIGHT) / len(alts) for s in alts}}
 
-
-def drawdown_halt(peak_equity: float, equity: float, capital: float) -> bool:
-    return peak_equity - equity > MAX_DRAWDOWN * capital

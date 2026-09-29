@@ -77,7 +77,7 @@ ADAPTIVE_STABLE_CYCLES = int(os.environ.get("ADAPTIVE_STABLE_CYCLES", "3"))  # �
 AUTO_RESUME_SAFE_MODE_DELAY = int(os.environ.get("AUTO_RESUME_SAFE_MODE_DELAY", "60"))  # Задержка перед auto-resume (секунды)
 
 # Adaptive system feature flags
-ADAPTIVE_INTERVAL_ENABLED = os.environ.get("ADAPTIVE_INTERVAL_ENABLED", "true").lower() == "true"
+ADAPTIVE_INTERVAL_ENABLED = env_flag("ADAPTIVE_INTERVAL_ENABLED", True)
 
 # Validate interval bounds at startup
 if ADAPTIVE_INTERVAL_MIN >= ADAPTIVE_INTERVAL_MAX:
@@ -85,7 +85,7 @@ if ADAPTIVE_INTERVAL_MIN >= ADAPTIVE_INTERVAL_MAX:
         f"ADAPTIVE_INTERVAL_MIN ({ADAPTIVE_INTERVAL_MIN}) must be strictly less than "
         f"ADAPTIVE_INTERVAL_MAX ({ADAPTIVE_INTERVAL_MAX})"
     )
-AUTO_RESUME_TRADING_ENABLED = os.environ.get("AUTO_RESUME_TRADING_ENABLED", "true").lower() == "true"
+AUTO_RESUME_TRADING_ENABLED = env_flag("AUTO_RESUME_TRADING_ENABLED", True)
 AUTO_RESUME_SUCCESS_CYCLES = int(os.environ.get("AUTO_RESUME_SUCCESS_CYCLES", "3"))  # Количество успешных циклов для auto-resume
 
 # Analysis timing limits
@@ -113,8 +113,8 @@ HEALTH_SERVER_PORT = int(os.environ.get("HEALTH_SERVER_PORT", "8080"))
 # Global reference to control plane server for graceful shutdown
 _control_plane_server = None
 SYNTHETIC_DECISION_TICK_INTERVAL = 10.0  # 10 секунд для synthetic decision tick
-ENABLE_SYNTHETIC_DECISION_TICK = os.environ.get("ENABLE_SYNTHETIC_DECISION_TICK", "false").lower() == "true"
-FAULT_INJECT_LOOP_STALL = os.environ.get("FAULT_INJECT_LOOP_STALL", "false").lower() == "true"
+ENABLE_SYNTHETIC_DECISION_TICK = env_flag("ENABLE_SYNTHETIC_DECISION_TICK", False)
+FAULT_INJECT_LOOP_STALL = env_flag("FAULT_INJECT_LOOP_STALL", False)
 LOOP_STALL_DURATION = 120.0  # 120 секунд для loop stall
 HEARTBEAT_MISS_THRESHOLD = 2.0  # Пропуск 2 heartbeats = stall detected
 STARTUP_GRACE_SECONDS = 60.0  # Первые 60с после старта — stall check пропускается
