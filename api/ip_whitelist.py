@@ -18,7 +18,7 @@ API_IP_WHITELIST — IP или CIDR через запятую. Пустое зн
 
 Убран из защищаемых /api/system/health: им пользуется экран Mini App у всех
 допущенных пользователей, и с включённым списком они видели бы Forbidden.
-Баланс (/api/system/balance) под защитой остался.
+Баланс (/api/system/balance) удалён 29.09.2026; путь в списке оставлен — вернётся ручка, вернётся под защиту.
 """
 import ipaddress
 import logging

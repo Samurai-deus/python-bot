@@ -14,13 +14,6 @@ class SystemHealthResponse(BaseModel):
     trading_mode: str = "DRY_RUN"
 
 
-class BalanceResponse(BaseModel):
-    equity: float
-    available: float
-    wallet_balance: float
-    coin: str
-
-
 class ConfidenceBucketResponse(BaseModel):
     label: str
     total: int
