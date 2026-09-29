@@ -539,3 +539,25 @@ def test_health_by_heartbeat_age(tmp_path):
     assert not health.check(hb, 1000.0)
     hb.write_text("1000\n", encoding="utf-8")
     assert health.check(hb, 1000.0 + health.MAX_AGE) and not health.check(hb, 1001.0 + health.MAX_AGE)
+
+
+def test_cycle_failures_alert_the_owner_after_three_in_a_row_and_on_recovery(tmp_path):
+    from btcalts import __main__ as bm
+    from carry import __main__ as cm
+    from portfolio import executor
+    import inspect
+    store = Store(str(tmp_path / "x.db"))
+    sent = []
+    note = lambda text: sent.append(text) or True
+    for i in range(2):
+        executor.cycle_outcome(store, i, "BybitUnavailable: нет ответа", note, "И14")
+    assert sent == [], "два сбоя — ещё не повод"
+    executor.cycle_outcome(store, 3, "BybitUnavailable: нет ответа", note, "И14")
+    executor.cycle_outcome(store, 4, "BybitUnavailable: нет ответа", note, "И14")
+    assert len(sent) == 1 and "3 цикла подряд" in sent[0], "одно сообщение на серию"
+    executor.cycle_outcome(store, 5, None, note, "И14")
+    assert len(sent) == 2 and "снова проходит" in sent[1]
+    executor.cycle_outcome(store, 6, None, note, "И14")
+    assert len(sent) == 2
+    for mod in (pm, bm, cm):
+        assert "executor.cycle_outcome(" in inspect.getsource(mod.main), mod.__name__

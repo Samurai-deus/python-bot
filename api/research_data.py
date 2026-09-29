@@ -141,22 +141,14 @@ def read_carry(path: str, now_ms: Optional[int] = None) -> Optional[Dict[str, An
         sel = "ts, equity, mm_rate, deviations" + (", positions" if "positions" in cols else ", NULL")
         snaps = conn.execute(f"SELECT {sel} FROM snapshots ORDER BY ts").fetchall()
         opened = int(state["opened_at"]) if state.get("opened_at") else 0
-        funding = conn.execute("SELECT COALESCE(SUM(change), 0) FROM funding WHERE ts >= ?", (opened,)).fetchone()[0]
-        fees = conn.execute("SELECT COALESCE(SUM(fee * CASE WHEN fee_coin IN ('USDT', '') THEN 1 ELSE price END), 0)"
-                            " FROM fills WHERE ts >= ?", (opened,)).fetchone()[0]
+        # Итоги — тем же расчётом, что отчёт И13 (carry.report.summary): до 29.09 здесь была своя копия, и
+        # поправка «итог после комиссий открытия» разошлась бы с мини-аппом.
+        from carry.report import summary
+        s = summary(conn)
         events = conn.execute("SELECT ts, kind, detail FROM events ORDER BY ts DESC LIMIT 10").fetchall()
     finally:
         conn.close()
-    start_eq = float(state["start_equity"]) if state.get("start_equity") else None
-    peak, dd, outside, total = None, 0.0, 0, 0
-    for ts, eq, _, devs, _ in snaps:
-        if not opened or ts < opened:
-            continue
-        peak = eq if peak is None else max(peak, eq)
-        dd = max(dd, peak - eq)
-        for v in json.loads(devs or "{}").values():
-            total += 1
-            outside += v > 0.05
+    start_eq = s["start_equity"]
     last = snaps[-1] if snaps else None
     positions = json.loads((last[4] if last else None) or "{}")
     deviations = json.loads((last[3] if last else None) or "{}")
@@ -165,9 +157,9 @@ def read_carry(path: str, now_ms: Optional[int] = None) -> Optional[Dict[str, An
         "halted_reason": state.get("halted"),
         "opened_at": _iso(opened), "snapshot_at": _iso(last[0]) if last else None,
         "start_equity": start_eq, "equity": last[1] if last else None,
-        "change": (last[1] - start_eq) if (last and start_eq is not None) else None,
-        "funding": float(funding), "fees": float(fees), "drawdown": dd,
-        "mm_rate": last[2] if last else None, "outside_share": (outside / total) if total else 0.0,
+        "change": s["change_after_costs"], "opening_fees": s["opening_fees"],
+        "funding": s["funding"], "fees": s["fees_usdt"], "drawdown": s["drawdown_usdt"],
+        "mm_rate": last[2] if last else None, "outside_share": s["outside_share"],
         "positions": [{"symbol": s, "spot": p.get("spot", 0.0), "short": p.get("short", 0.0), "price": p.get("price"),
                        "notional": p.get("spot", 0.0) * (p.get("price") or 0), "deviation": deviations.get(s)}
                       for s, p in sorted(positions.items())],

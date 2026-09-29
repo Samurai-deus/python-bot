@@ -93,3 +93,19 @@ def no_external_network(monkeypatch):
         raise RuntimeError(f"тест ходит во внешнюю сеть: {request.method} {request.url} — используйте httpx.MockTransport")
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", blocked_handle)
+
+
+@pytest.fixture(autouse=True)
+def no_real_owner_messages(request, monkeypatch):
+    """
+    Сообщение владельцу из теста — ошибка сразу. 29.09.2026: тесты И13 (время — понедельник днём) слали
+    еженедельную сводку; сеть блокировалась выше, но send_owner_blocking глотал ошибку и повторял с паузами
+    2 и 4 с — файл шёл 75 с вместо 4, а тест оставался зелёным. Тест самой отправки — test_telegram_owner.
+    """
+    if request.module.__name__.endswith("test_telegram_owner"):
+        return
+    import telegram_bot
+
+    def refuse(text, attempts=3):
+        raise AssertionError(f"тест отправляет сообщение владельцу: {text[:80]!r} — подмените notify")
+    monkeypatch.setattr(telegram_bot, "send_owner_blocking", refuse)

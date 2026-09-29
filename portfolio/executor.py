@@ -17,6 +17,7 @@ HOUR_MS = 3_600_000
 # случайно стартовал (28.09 — 00:13). Пять секунд — запас на часы хоста.
 CYCLE_OFFSET_MS = engine.REBALANCE_DELAY_MS + 5_000
 NO_PRICE = "нет цены или параметров инструмента"
+FAIL_ALERT_AFTER = 3        # циклов подряд со сбоем до сообщения владельцу
 
 
 def next_cycle_ms(now_ms: int) -> int:
@@ -150,3 +151,24 @@ def after_halt(cli, store: Store, now: int, notify: Callable[[str], bool], name:
                 + (f"НЕ ЗАКРЫТО {len(failed)} позиций — повтор через час." if failed else "Все позиции закрыты."))
         if notify(text):
             store.set("notice:halt", now)
+
+
+def cycle_outcome(store, now: int, error: Optional[str], notify: Callable[[str], bool], name: str) -> None:
+    """
+    Сбои цикла исполнителя (И13/И14/И18): после FAIL_ALERT_AFTER подряд — сообщение владельцу, после
+    восстановления — ещё одно. До 29.09 сбой оставался только в журнале событий, а сторож замечал его по
+    возрасту пульса через 2,5 ч. store — любое хранилище с get/set (у И13 своё).
+    """
+    streak = int(store.get("fail_streak") or 0)
+    if error:
+        streak += 1
+        store.set("fail_streak", streak)
+        if streak >= FAIL_ALERT_AFTER and not store.get("fail_alerted"):
+            if notify(f"⚠️ {name}: {streak} цикла подряд со сбоем, последний: {error[:200]}"):
+                store.set("fail_alerted", now)
+        return
+    if streak:
+        store.set("fail_streak", 0)
+    if store.get("fail_alerted"):
+        if notify(f"✅ {name}: цикл снова проходит (перед этим сбоев подряд: {streak})"):
+            store.set("fail_alerted", "")
