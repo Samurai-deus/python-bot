@@ -71,8 +71,10 @@ MAX_CONSECUTIVE_ERRORS = int(os.environ.get("MAX_CONSECUTIVE_ERRORS", "5"))
 ERROR_PAUSE = int(os.environ.get("ERROR_PAUSE", "600"))  # 10 минут
 
 # Adaptive system parameters
-ADAPTIVE_INTERVAL_MIN = float(os.environ.get("ADAPTIVE_INTERVAL_MIN", "300"))  # Минимальный интервал (базовый)
-ADAPTIVE_INTERVAL_MAX = float(os.environ.get("ADAPTIVE_INTERVAL_MAX", "900"))  # Максимальный интервал (3x базового)
+# Границы адаптивного интервала — от BOT_INTERVAL (база … 3× база). До 29.09 были числами 300/900: с
+# BOT_INTERVAL=1800 (22.09) цикл всё равно шёл раз в 300–900 с — настройка молча не действовала.
+ADAPTIVE_INTERVAL_MIN = float(os.environ.get("ADAPTIVE_INTERVAL_MIN", str(ANALYSIS_INTERVAL)))
+ADAPTIVE_INTERVAL_MAX = float(os.environ.get("ADAPTIVE_INTERVAL_MAX", str(3 * ANALYSIS_INTERVAL)))
 ADAPTIVE_INTERVAL_MULTIPLIER = float(os.environ.get("ADAPTIVE_INTERVAL_MULTIPLIER", "1.5"))  # Множитель при ошибках
 ADAPTIVE_STABLE_CYCLES = int(os.environ.get("ADAPTIVE_STABLE_CYCLES", "3"))  # Количество успешных циклов для уменьшения интервала
 AUTO_RESUME_SAFE_MODE_DELAY = int(os.environ.get("AUTO_RESUME_SAFE_MODE_DELAY", "60"))  # Задержка перед auto-resume (секунды)
@@ -95,8 +97,8 @@ MAX_ANALYSIS_TIME = float(os.environ.get("MAX_ANALYSIS_TIME", "30"))  # секу
 
 def _signal_trading_enabled() -> bool:
     """Сигнальная торговля бота включена. Выключена (счёт у И14) — паузу ставить не от чего."""
-    from utils.env import env_flag
-    return env_flag("SIGNAL_TRADING_ENABLED", True)
+    from utils.env import signal_trading_enabled
+    return signal_trading_enabled()
 ALERT_ANALYSIS_TIME = float(os.environ.get("ALERT_ANALYSIS_TIME", "60"))  # секунд - порог для алерта
 ALERT_COOLDOWN = int(os.environ.get("ALERT_COOLDOWN", "300"))  # секунд - cooldown между алертами
 METRICS_LOG_INTERVAL = int(os.environ.get("METRICS_LOG_INTERVAL", "600"))  # секунд - интервал логирования метрик

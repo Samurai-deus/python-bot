@@ -96,6 +96,16 @@ def no_external_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def signal_trading_machinery_on(monkeypatch):
+    """
+    С 29.09.2026 сигнальная торговля по умолчанию ВЫКЛЮЧЕНА (utils.env.signal_trading_enabled). Тесты
+    проверяют её механику (выключатель, Risk Core, капитал, журнал) — включаем явно; значение по умолчанию
+    проверяет test_env_defaults, а сценарии «счёт отдан И14» ставят false сами.
+    """
+    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "true")
+
+
+@pytest.fixture(autouse=True)
 def no_real_owner_messages(request, monkeypatch):
     """
     Сообщение владельцу из теста — ошибка сразу. 29.09.2026: тесты И13 (время — понедельник днём) слали

@@ -606,3 +606,12 @@ def test_prod_compose_runs_the_btcalts_executor_on_its_own_subaccount():
     assert "market-bot-btcalts" in step_body(deploy, "step_smoke")
     watchdog = (DEPLOY / "watchdog.sh").read_text(encoding="utf-8")
     assert "market-bot-btcalts" in watchdog.split('CONTAINERS="', 1)[1].split('"', 1)[0]
+
+
+
+def test_deploy_scripts_never_put_the_bot_token_into_curl_arguments():
+    """Аргументы процесса видны всем на хосте; токен — только конфигом через stdin (-K -)."""
+    for script in ("deploy.sh", "notify.sh", "backup.sh", "watchdog.sh"):
+        text = (DEPLOY / script).read_text(encoding="utf-8")
+        assert not re.search(r'curl[^\n|]*api\.telegram\.org/bot\$', text), script
+        assert not re.search(r'"https://api\.telegram\.org/bot\$', text), script
