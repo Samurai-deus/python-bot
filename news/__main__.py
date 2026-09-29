@@ -45,7 +45,8 @@ def poll_once(http, now_ms: int) -> Tuple[int, int]:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from utils.log_redaction import setup_service_logging
+    setup_service_logging()
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
