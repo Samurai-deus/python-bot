@@ -157,7 +157,8 @@ def cycle(cli, store: Store, now: int) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from utils.log_redaction import setup_service_logging
+    setup_service_logging()
     cli = PortfolioClient()
     root_dir().mkdir(parents=True, exist_ok=True)
     store = Store(str(root_dir() / "portfolio.db"))
