@@ -181,6 +181,7 @@ class FakeBybit:
                 "orderId": oid, "orderLinkId": link, "symbol": body["symbol"], "side": body["side"],
                 "orderStatus": self.create_status, "qty": body["qty"],
                 "cumExecQty": body["qty"] if filled else "0",
+                "avgPrice": str(self.marks.get(body["symbol"], 0)) if filled else "0",
             }
             if filled and self.auto_positions and not body.get("reduceOnly"):
                 self.positions.append({

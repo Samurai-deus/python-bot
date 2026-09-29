@@ -613,15 +613,6 @@ class Gatekeeper:
             # сообщении, и бумажные результаты расходились с тем, что разрешил риск.
             caller_signal_data["approved_position_size"] = signal_data.get("position_size")
 
-            # Одобренное действие — в журнал Risk Core. До 10.09.2026 add_signal не
-            # вызывался нигде: лимиты действий в час и сутки и пауза между
-            # действиями видели пустой журнал и не срабатывали никогда.
-            if system_state is not None:
-                system_state.add_signal({
-                    "symbol": symbol,
-                    "side": signal_data.get("side"),
-                    "timestamp": datetime.now(UTC),
-                })
 
             # Второе мнение ИИ (docs/AI_TRADER_PLAN.md). Этап 0 — тень: сигнал уходит в
             # фоновую очередь, цикл не ждёт (бюджет итерации 60 с), на торговлю мнение
@@ -634,7 +625,19 @@ class Gatekeeper:
 
             # ========== EXECUTION (Phase 2) ==========
             # Размещаем ордер если режим TESTNET/LIVE
-            self._execute_order(symbol, signal_data, sizing_result)
+            placed = self._execute_order(symbol, signal_data, sizing_result)
+            if placed is False:
+                # Ордер не ушёл (аудит 29.09.2026): до этого сигнал всё равно считался действием и
+                # занимал лимиты Risk Core, хотя позиции нет.
+                return False
+            # Действие — в журнал Risk Core (лимиты в час/сутки, пауза между действиями). До 10.09.2026
+            # add_signal не вызывался нигде; с 29.09 — только когда ордер ушёл или режим симуляции.
+            if system_state is not None:
+                system_state.add_signal({
+                    "symbol": symbol,
+                    "side": signal_data.get("side"),
+                    "timestamp": datetime.now(UTC),
+                })
             return True
         except Exception as e:
             # Критическая ошибка
@@ -654,7 +657,7 @@ class Gatekeeper:
         symbol: str,
         signal_data: dict,
         sizing_result,
-    ) -> None:
+    ) -> bool | None:
         """
         Размещает ордер через OrderExecutor если режим TESTNET или LIVE.
         DRY_RUN / PAPER_TRADING → только логирование, биржа не вызывается.
@@ -667,11 +670,11 @@ class Gatekeeper:
         mode = get_trading_mode()
         if mode in (TradingMode.DRY_RUN, TradingMode.PAPER_TRADING):
             logger.info("[%s] Order not placed for %s (simulation mode)", mode.value, symbol)
-            return
+            return None
 
         if mode not in (TradingMode.TESTNET, TradingMode.LIVE):
             logger.warning("Unknown trading mode %s, skipping execution for %s", mode, symbol)
-            return
+            return False
 
         entry_price = signal_data.get("entry")
         stop_loss = signal_data.get("stop")
@@ -683,12 +686,12 @@ class Gatekeeper:
                 "[EXECUTOR] Missing required signal fields for %s: entry=%s stop=%s side=%s",
                 symbol, entry_price, stop_loss, side,
             )
-            return
+            return False
 
         position_size_usd = signal_data.get("position_size") or 0.0
         if position_size_usd <= 0:
             logger.error("[EXECUTOR] Invalid position_size_usd=%.2f for %s", position_size_usd, symbol)
-            return
+            return False
 
         from exchange.bybit_client import get_bybit_client
         client = get_bybit_client()
@@ -701,7 +704,7 @@ class Gatekeeper:
         busy = open_position_reason(symbol, client, _get_tracker())
         if busy:
             logger.info("[EXECUTOR] %s: ордер не отправлен — %s", symbol, busy)
-            return
+            return False
 
         # Проверяем что контракт активен на бирже
         try:
@@ -711,7 +714,7 @@ class Gatekeeper:
                     "[EXECUTOR] Skipping order for %s: contract status=%s (not Trading)",
                     symbol, contract_status,
                 )
-                return
+                return False
         except Exception as _st_err:
             logger.warning("[EXECUTOR] Could not check contract status for %s: %s", symbol, _st_err)
 
@@ -735,7 +738,7 @@ class Gatekeeper:
                 send_message_async(f"⏭ Сигнал {symbol} {side} не исполнен: цена уже прошла стоп."),
                 timeout=15.0,
             )
-            return
+            return False
 
         # Сигнал устарел и тогда, когда цена ушла от входа больше чем на 1 ATR (3.15):
         # вход по такой цене — уже другая сделка, с другим соотношением риска и цели.
@@ -748,7 +751,7 @@ class Gatekeeper:
                 send_message_async(f"⏭ Сигнал {symbol} {side} не исполнен: цена ушла от входа больше чем на 1 ATR."),
                 timeout=15.0,
             )
-            return
+            return False
 
         # Use mark_price as better approximation of actual fill
         actual_entry = mark_price if mark_price > 0 else entry_price
@@ -759,7 +762,7 @@ class Gatekeeper:
         qty = position_size_usd / actual_entry  # use mark_price, not signal entry
         if qty <= 0:
             logger.error("[EXECUTOR] Calculated qty=%.4f invalid for %s", qty, symbol)
-            return
+            return False
 
         # Корректируем SL/TP по текущей рыночной цене.
         # Сигнал генерируется по историческим свечам, цена может уйти.
@@ -815,12 +818,14 @@ class Gatekeeper:
                 send_message_async(f"❌ Ошибка размещения ордера {symbol} {side}: внутренняя ошибка исполнителя."),
                 timeout=15.0,
             )
-            return
+            return False
 
         if result.success:
             order_id = result.order_id
-            # Записываем то, что ушло на биржу: количество и цены после округления.
+            # Записываем то, что исполнила биржа: объём и среднюю цену после сверки (аудит 29.09.2026).
             qty = result.qty
+            if result.avg_price:
+                actual_entry = result.avg_price
             stop_loss = result.stop_loss
             take_profit = result.take_profit
             logger.info(
@@ -894,6 +899,7 @@ class Gatekeeper:
                 ),
                 timeout=15.0,
             )
+            return True
         elif result.state_unknown:
             logger.critical("[EXECUTOR] Order state unknown for %s: %s", symbol, result.error)
             AsyncToSyncAdapter.call_async(
@@ -904,6 +910,8 @@ class Gatekeeper:
                 ),
                 timeout=15.0,
             )
+            # Ордер мог уйти — для лимитов Risk Core считаем его действием (осторожная сторона).
+            return True
         else:
             logger.error("[EXECUTOR] Order failed for %s: %s", symbol, result.error)
             AsyncToSyncAdapter.call_async(
@@ -913,6 +921,7 @@ class Gatekeeper:
                 ),
                 timeout=15.0,
             )
+        return False
 
     def _check_portfolio(self, snapshot: SignalSnapshot, open_trades: list | None = None) -> PortfolioAnalysis | None:
         """

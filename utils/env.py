@@ -38,6 +38,15 @@ def signal_trading_enabled() -> bool:
     return env_flag("SIGNAL_TRADING_ENABLED", False)
 
 
+def signal_account_dedicated() -> bool:
+    """
+    У сигнальной торговли свой демо-субсчёт (аудит 29.09.2026). Пока его нет, бот делит счёт с И14: позиции
+    по одной монете сливаются (односторонний режим), SL бота закрыл бы ногу И14, ребалансировка И14 «доводила»
+    бы позиции бота, а убытки бота съедали бы стоп И14. Выключатель не пускает сигналы на общий счёт.
+    """
+    return env_flag("SIGNAL_ACCOUNT_DEDICATED", False)
+
+
 def env_flag(name: str, default: bool = False) -> bool:
     """
     Читает булев флаг окружения.

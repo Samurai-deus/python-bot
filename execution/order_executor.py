@@ -89,6 +89,7 @@ class TradeResult:
     error: str | None = None
     order_link_id: str | None = None
     state_unknown: bool = False
+    avg_price: float | None = None     # средняя цена исполнения по бирже (рыночный ордер после сверки)
 
 
 # ========== ROUNDING ==========
@@ -144,14 +145,14 @@ class OrderExecutor:
         )
 
     def _ok(self, request: TradeRequest, order_id: str, qty: Decimal, sl: Decimal | None,
-            tp: Decimal | None, link_id: str | None) -> TradeResult:
+            tp: Decimal | None, link_id: str | None, avg_price: float | None = None) -> TradeResult:
         return TradeResult(
             success=True, order_id=order_id,
             symbol=request.symbol, side=request.side, qty=float(qty),
             entry_price=request.entry_price,
             stop_loss=float(sl) if sl is not None else 0.0,
             take_profit=float(tp) if tp is not None else None,
-            dry_run=False, order_link_id=link_id,
+            dry_run=False, order_link_id=link_id, avg_price=avg_price,
         )
 
     def _validate_qty(self, symbol: str, qty: float) -> tuple[float, str | None]:
@@ -315,7 +316,39 @@ class OrderExecutor:
 
         logger.info("Order placed: %s %s %s qty=%s order_id=%s link=%s",
                     symbol, bybit_side, order_type, qty, result.order_id, link_id)
+        if order_type == "Market":
+            return self._confirm_fill(request, result.order_id, qty, sl, tp, link_id)
         return self._ok(request, result.order_id, qty, sl, tp, link_id)
+
+    def _confirm_fill(self, request: TradeRequest, order_id: str, qty: Decimal, sl: Decimal | None,
+                      tp: Decimal | None, link_id: str) -> TradeResult:
+        """
+        Рыночный ордер «создан» — ещё не «исполнен» (аудит 29.09.2026: журнал писал FILLED с запрошенным
+        объёмом, и ордер, отклонённый после создания, становился фантомной сделкой, блокирующей символ).
+        Исполнение подтверждает сам ордер на бирже: исполненный объём и средняя цена — в результат.
+        """
+        last_error: Exception | None = None
+        status = ""
+        for attempt in range(1, RECONCILE_ATTEMPTS + 1):
+            try:
+                found = self._client.find_order(request.symbol, link_id)
+            except Exception as e:
+                found, last_error = None, e
+            if found:
+                executed = Decimal(str(found.get("cumExecQty") or "0"))
+                status = found.get("orderStatus", "")
+                if executed > 0:
+                    avg = found.get("avgPrice")
+                    return self._ok(request, found.get("orderId") or order_id, executed, sl, tp, link_id,
+                                    avg_price=float(avg) if avg not in (None, "", "0") else None)
+                if status not in _LIVE_STATUSES and status not in ("Created", ""):
+                    return self._fail(request, f"ордер {link_id} не исполнен биржей (status={status})",
+                                      qty=qty, link_id=link_id)
+            if attempt < RECONCILE_ATTEMPTS:
+                self._sleep(RECONCILE_DELAY_SECONDS)
+        detail = f" ({last_error})" if last_error else (f" (status={status})" if status else "")
+        return self._fail(request, f"исполнение ордера {link_id} не подтверждено биржей{detail} — проверьте позицию вручную",
+                          qty=qty, link_id=link_id, state_unknown=True)
 
     def _reconcile(self, request: TradeRequest, qty: Decimal, sl: Decimal | None,
                    tp: Decimal | None, link_id: str) -> TradeResult:

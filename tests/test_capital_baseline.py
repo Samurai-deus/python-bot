@@ -85,7 +85,7 @@ def test_shared_account_drawdown_comes_from_the_bots_own_trades(real, monkeypatc
     capital.current_drawdown_pct()
     wallet.equity = 250.0
     assert capital.current_drawdown_pct() > 20, "счёт бота — просадка по кошельку"
-    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    monkeypatch.setenv("SIGNAL_ACCOUNT_DEDICATED", "false")
     monkeypatch.setattr(capital, "_capital_cap", lambda: 1000.0)
     assert capital.current_drawdown_pct() == 0.0, "сделок бота нет — просадки бота нет"
     add_closed(database, [50.0, -30.0, 10.0])
@@ -98,7 +98,7 @@ def test_shared_account_capital_is_the_bots_own(real, monkeypatch):
     capital.get_initial_balance()
     wallet.equity = 5000.0
     assert capital.get_current_balance() == pytest.approx(5000.0), "свой счёт — по кошельку"
-    monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "false")
+    monkeypatch.setenv("SIGNAL_ACCOUNT_DEDICATED", "false")
     monkeypatch.setattr(capital, "_capital_cap", lambda: 1000.0)
     assert capital.get_current_balance() == pytest.approx(1000.0), "счёт у И14 — потолок бота без его сделок"
     add_closed(database, [40.0, -15.0])
