@@ -2,6 +2,7 @@
 StrategyManager: оркестрирует стратегии, выбирает лучший сигнал.
 """
 import logging
+import os
 
 from strategies.base_strategy import StrategySignal
 from strategies.trend_following import TrendFollowingStrategy
@@ -12,6 +13,16 @@ logger = logging.getLogger(__name__)
 
 # Минимальный confidence для того чтобы сигнал считался валидным
 MIN_CONFIDENCE = 0.5
+
+
+def enabled_strategies() -> set:
+    """
+    Включённые стратегии — SIGNAL_STRATEGIES (через запятую: trend_following, mean_reversion,
+    momentum_breakout, legacy). По умолчанию — ни одной (аудит 29.09.2026): все три отвергнуты проверкой Ф2
+    (−0,33 R на сделку, все периоды в минусе), а флага по одной не было. Стратегия включается только после
+    записанной проверки (Ф2/Ф7). Читается при каждой оценке: менеджер создаётся при импорте модуля.
+    """
+    return {s.strip() for s in os.environ.get("SIGNAL_STRATEGIES", "").split(",") if s.strip()}
 
 
 class StrategyManager:
@@ -37,8 +48,11 @@ class StrategyManager:
         Возвращает None если ни одна стратегия не даёт сигнал.
         """
         signals = []
+        enabled = enabled_strategies()
 
         for strategy in self.strategies:
+            if strategy.name() not in enabled:
+                continue
             if not strategy.is_applicable(market_regime, volatility_level):
                 continue
             try:

@@ -309,8 +309,10 @@ def account_shared_with_portfolio() -> bool:
     Счёт отдан портфелю И14 (правило И14, 14.09.2026: SIGNAL_TRADING_ENABLED=false): equity кошелька
     двигают позиции И14 и демо-монеты, это не капитал бота.
     """
-    from utils.env import signal_trading_enabled
-    return not signal_trading_enabled()
+    # Общий счёт — пока у сигналов нет своего субсчёта (аудит 29.09.2026: до этого «общий» выводился из
+    # выключателя торговли, и его включение тихо переводило капитал бота на equity счёта И14).
+    from utils.env import signal_account_dedicated
+    return not signal_account_dedicated()
 
 
 def own_trades_drawdown_pct() -> float:

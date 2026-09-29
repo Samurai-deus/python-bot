@@ -51,6 +51,10 @@ def trading_halt_reason(system_state=None, state_machine=None, risk_core=None,
         from utils.env import signal_trading_enabled
         if not signal_trading_enabled():
             return "сигнальная торговля выключена (SIGNAL_TRADING_ENABLED=false) — счёт отдан портфелю И14"
+        from utils.env import signal_account_dedicated
+        if not signal_account_dedicated():
+            return ("сигнальная торговля на общем счёте с И14 запрещена: нужен свой субсчёт "
+                    "(SIGNAL_ACCOUNT_DEDICATED=true и его ключ)")
 
         from system_state_machine import SystemState as MachineState
 

@@ -270,7 +270,10 @@ def evaluate_setup(symbol: str, candles_map: dict, *, market_correlations: dict,
             symbol, strategy_name, side, entry, stop, target, rr_ratio, strategy_signal.confidence,
         )
     else:
-        # ── Fallback: старая entry_conditions логика ──
+        # ── Fallback: старая entry_conditions логика — тоже стратегия, включается флагом «legacy» ──
+        from strategies.strategy_manager import enabled_strategies
+        if "legacy" not in enabled_strategies():
+            return Skip("no_entry_conditions", "нет сигнала включённой стратегии (legacy выключена)")
         entry_conditions = get_entry_conditions(states, directions, score_details)
         if not entry_conditions:
             logger.debug("%s: no strategy signal and no entry conditions, skipping", symbol)

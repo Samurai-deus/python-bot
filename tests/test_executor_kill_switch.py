@@ -150,6 +150,7 @@ def test_signal_trading_is_off_unless_set_explicitly(monkeypatch):
     machine = SimpleNamespace(state=MachineState.RUNNING, trading_paused=False)
     system = SimpleNamespace(system_health=SimpleNamespace(trading_paused=False))
     monkeypatch.delenv("SIGNAL_TRADING_ENABLED", raising=False)
+    monkeypatch.delenv("SIGNAL_ACCOUNT_DEDICATED", raising=False)
     assert signal_trading_enabled() is False
     assert trading_halt_reason(system_state=system, state_machine=machine, include_risk_core=False)
     assert not runner._signal_trading_enabled() and not market_analysis._signal_trading_enabled()

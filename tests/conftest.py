@@ -95,13 +95,19 @@ def no_external_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def signal_trading_machinery_on(monkeypatch):
+def signal_trading_machinery_on(monkeypatch, tmp_path):
     """
-    С 29.09.2026 сигнальная торговля по умолчанию ВЫКЛЮЧЕНА (utils.env.signal_trading_enabled). Тесты
-    проверяют её механику (выключатель, Risk Core, капитал, журнал) — включаем явно; значение по умолчанию
-    проверяет test_env_defaults, а сценарии «счёт отдан И14» ставят false сами.
+    С 29.09.2026 сигнальная торговля по умолчанию ВЫКЛЮЧЕНА (utils.env.signal_trading_enabled), как и её
+    предохранители: свой субсчёт (SIGNAL_ACCOUNT_DEDICATED) и стратегии (SIGNAL_STRATEGIES). Тесты
+    проверяют механику (выключатель, Risk Core, капитал, журнал, стратегии) — включаем явно; значения по
+    умолчанию проверяют test_env_defaults и test_signal_safety, сценарии «счёт отдан И14» ставят false сами.
+    Ручная пауза и защёлка Risk Core пишутся в файлы — в тестах во временный каталог, не в /data/db.
     """
     monkeypatch.setenv("SIGNAL_TRADING_ENABLED", "true")
+    monkeypatch.setenv("SIGNAL_ACCOUNT_DEDICATED", "true")
+    monkeypatch.setenv("SIGNAL_STRATEGIES", "trend_following,mean_reversion,momentum_breakout,legacy")
+    monkeypatch.setenv("MANUAL_PAUSE_FILE", str(tmp_path / "manual_pause"))
+    monkeypatch.setenv("RISK_HALT_FILE", str(tmp_path / "risk_halt"))
 
 
 @pytest.fixture(autouse=True)

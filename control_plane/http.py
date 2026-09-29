@@ -76,6 +76,8 @@ async def handle_admin_pause(state):
             # Атомарное обновление состояния
             # HARDENING: safe_mode НЕ изменяется здесь - он остается как есть
             cp_state.control_plane_state["manual_pause_active"] = True
+            from control_plane.pause_store import remember
+            remember(True)
             # HARDENING: Синхронизируем trading_paused через state machine
             state_machine = get_state_machine()
             state_machine.sync_to_system_state(state, manual_pause_active=True)
@@ -139,6 +141,8 @@ async def handle_admin_resume(state):
         # Атомарное обновление состояния
         # HARDENING: safe_mode НЕ изменяется здесь - он остается как есть
         cp_state.control_plane_state["manual_pause_active"] = False
+        from control_plane.pause_store import remember
+        remember(False)
         # HARDENING: Синхронизируем trading_paused через state machine
         state_machine = get_state_machine()
         state_machine.sync_to_system_state(state, manual_pause_active=False)

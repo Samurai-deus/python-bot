@@ -370,6 +370,9 @@ def pause_trading_manually():
             return False  # Уже приостановлена
         _control_plane_state["manual_pause_active"] = True
         _prometheus_metrics["admin_commands_total"]["pause"]["success"] += 1
+    from control_plane.pause_store import remember
+    remember(True)
+    with _metrics_lock:
         _adaptive_system_state["recovery_cycles"] = 0
 
     # HARDENING: Синхронизируем trading_paused через state machine (вне лока — не использует _metrics_lock)
@@ -378,6 +381,18 @@ def pause_trading_manually():
 
     logger.info("Trading paused manually via control plane")
     return True
+
+def restore_manual_pause(state_machine) -> bool:
+    """Ручная пауза, поставленная до перезапуска, действует и после (control_plane.pause_store)."""
+    from control_plane.pause_store import remembered
+    if not remembered():
+        return False
+    with _metrics_lock:
+        _control_plane_state["manual_pause_active"] = True
+    state_machine.sync_to_system_state(system_state, manual_pause_active=True)
+    logger.warning("Ручная пауза восстановлена после перезапуска — снимается командой /resume")
+    return True
+
 
 def resume_trading_manually():
     """
@@ -401,6 +416,9 @@ def resume_trading_manually():
 
         _control_plane_state["manual_pause_active"] = False
         _prometheus_metrics["admin_commands_total"]["resume"]["success"] += 1
+    from control_plane.pause_store import remember
+    remember(False)
+    with _metrics_lock:
         _adaptive_system_state["recovery_cycles"] = 0
 
     # HARDENING: Синхронизируем trading_paused через state machine (вне лока — не использует _metrics_lock)
@@ -546,9 +564,11 @@ async def evaluate_and_send_alerts(duration: float):
                         f"Duration: {duration:.2f}s (max: {MAX_ANALYSIS_TIME:.2f}s)\n"
                         f"Uptime: {uptime:.0f}s\n"
                         f"Analysis runs: {metrics.get('analysis_count', 0)}\n"
-                        f"**Trading paused for safety.**"
+                        f"Trading continues — check the host."
                     ),
-                    "pause_trading": True
+                    # Аудит 29.09.2026: долгий цикл — повод посмотреть, не бессрочная пауза. Раньше один медленный
+                    # цикл (сеть, GC) ставил ручную паузу, снять которую мог только владелец командой.
+                    "pause_trading": False
                 })
                 _mark_alert_sent(alert_key)
                 logger.error("CRITICAL alert: Analysis duration %.2fs > %.2fs", duration, MAX_ANALYSIS_TIME)
@@ -1073,6 +1093,7 @@ async def main():
     from core.system_guardian import AsyncToSyncAdapter
     AsyncToSyncAdapter.set_main_loop(loop)
     logger.critical("ASYNC_TO_SYNC_ADAPTER: Main event loop registered")
+    restore_manual_pause(state_machine)
     
     # ========== THREAD-BASED WATCHDOG STARTUP ==========
     # HARDENING: ThreadWatchdog использует state machine, не system_state

@@ -19,6 +19,8 @@ from enum import Enum
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, UTC
 import logging
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -193,13 +195,16 @@ class RiskCore:
     - Has veto power
     """
     
-    def __init__(self, config: RiskCoreConfig | None = None):
+    def __init__(self, config: RiskCoreConfig | None = None, halt_file: Path | None = None):
         """
         Initialize Risk Core.
         
         ADR-TRADING-RISK-CORE-001 Section 1: Risk Core as Independent Module
+        halt_file — где защёлка HALTED переживает перезапуск (аудит 29.09.2026: до этого перезапуск
+        контейнера молча снимал «терминальную» остановку). None — только в памяти (тесты, разовые оценки).
         """
         self.config = config or RiskCoreConfig()
+        self._halt_file = halt_file
         
         # FSM state (only state allowed)
         self._risk_state = RiskState.SAFE
@@ -213,6 +218,10 @@ class RiskCore:
         # владелец командой /risk_reset с подтверждением кодом.
         self._halt_latched: bool = False
         self._halt_reason: str | None = None
+        if halt_file is not None and halt_file.exists():
+            self._halt_latched = True
+            self._halt_reason = (halt_file.read_text(encoding="utf-8").strip() or "причина не записана") + " (до перезапуска)"
+            logger.critical("Risk Core: HALTED восстановлен после перезапуска — %s. Сброс — /risk_reset", self._halt_reason)
         
         # Rolling counters (allowed state)
         self._behavioral_counters = BehavioralCounters(
@@ -751,6 +760,20 @@ class RiskCore:
             logger.critical("Risk Core: HALTED — торговля остановлена до ручного сброса. Причина: %s", reason)
         self._halt_latched = True
         self._halt_reason = reason
+        self._remember_halt(reason)
+
+    def _remember_halt(self, reason: str | None) -> None:
+        """Записать (reason) или стереть (None) защёлку; сбой записи — в лог, защёлка в памяти уже стоит."""
+        if self._halt_file is None:
+            return
+        try:
+            if reason is not None:
+                self._halt_file.parent.mkdir(parents=True, exist_ok=True)
+                self._halt_file.write_text(reason + "\n", encoding="utf-8")
+            elif self._halt_file.exists():
+                self._halt_file.unlink()
+        except OSError:
+            logger.error("Risk Core: не удалось сохранить защёлку HALTED в %s", self._halt_file, exc_info=True)
 
     @property
     def halt_latched(self) -> bool:
@@ -771,6 +794,7 @@ class RiskCore:
         self._halt_latched = False
         self._halt_reason = None
         self._risk_state = RiskState.SAFE
+        self._remember_halt(None)
         return True
 
     def reset(self):
@@ -824,7 +848,8 @@ def get_risk_core(config: RiskCoreConfig | None = None) -> RiskCore:
     """Get global Risk Core instance."""
     global _risk_core
     if _risk_core is None:
-        _risk_core = RiskCore(config or config_from_settings())
+        _risk_core = RiskCore(config or config_from_settings(),
+                              halt_file=Path(os.environ.get("RISK_HALT_FILE", "/data/db/risk_halt")))
     return _risk_core
 
 

@@ -229,8 +229,10 @@ def test_stats_show_spend_and_opinions(db, key, offline_market):
 def test_gatekeeper_submits_after_approval_and_before_execution():
     text = (ROOT / "execution" / "gatekeeper.py").read_text(encoding="utf-8")
     submit_at = text.index("ai_submit(symbol, signal_data, snapshot)")
-    assert text.index("system_state.add_signal(") < submit_at
-    assert submit_at < text.index("self._execute_order(symbol, signal_data, sizing_result)")
+    execute_at = text.index("self._execute_order(symbol, signal_data, sizing_result)")
+    assert text.index('caller_signal_data["approved_position_size"]') < submit_at < execute_at
+    # С 29.09.2026 действие попадает в журнал Risk Core после исполнения — только если ордер ушёл.
+    assert execute_at < text.index("system_state.add_signal(")
 
 
 def test_bot_registers_ai_commands_and_the_old_assistant_is_gone():

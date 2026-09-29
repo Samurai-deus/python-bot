@@ -74,6 +74,11 @@ def _ai_review(status, moment, mode, fields):
     submit(fields["symbol"], signal_data, None, fate=status, signal_ts=moment.isoformat())
 
 
+import threading  # noqa: E402
+
+_GENERATION_LOCK = threading.Lock()
+
+
 def generate_signals_for_symbols(
     all_candles,
     market_correlations,
@@ -97,6 +102,21 @@ def generate_signals_for_symbols(
     Returns:
         dict: Статистика по обработанным сигналам
     """
+    # Один генератор за раз (аудит 29.09.2026): цикл ждёт генератор через wait_for(to_thread(...), 120),
+    # и по таймауту отменяется только ожидание — поток продолжает работать и может выставить ордер, пока
+    # следующий оборот запускает второй. Пока предыдущий не закончил, новый оборот сигналов не генерирует.
+    if not _GENERATION_LOCK.acquire(blocking=False):
+        logger.warning("Предыдущая генерация сигналов ещё идёт — оборот без сигналов")
+        return {"processed": 0, "signals_sent": 0, "signals_blocked": 0, "errors": 0, "skipped_busy": True}
+    try:
+        return _generate_signals(all_candles, market_correlations, good_time, decision_core,
+                                 opportunity_awareness, gatekeeper, system_state)
+    finally:
+        _GENERATION_LOCK.release()
+
+
+def _generate_signals(all_candles, market_correlations, good_time, decision_core, opportunity_awareness,
+                      gatekeeper, system_state):
     if decision_core is None:
         decision_core = get_decision_core()
     if opportunity_awareness is None:

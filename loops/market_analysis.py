@@ -900,6 +900,8 @@ async def market_analysis_loop():
                     # Флаг ручной паузы без самой паузы — устаревший, снимаем
                     if manual_pause and not system_state.system_health.trading_paused:
                         _control_plane_state["manual_pause_active"] = False
+                        from control_plane.pause_store import remember
+                        remember(False)
             else:
                 # Auto-resume отключен - используем старую логику на основе safe_mode exit
                 if adaptive_state["last_safe_mode_state"] and not system_state.system_health.safe_mode:
