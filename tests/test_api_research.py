@@ -98,7 +98,9 @@ def test_carry_summary_counts_funding_only_since_opening(env):
     c = rd.read_carry(str(env / "carry.db"), NOW)
     assert c["status"] == "running" and c["funding"] == pytest.approx(3.5), "начисление до открытия не в счёт"
     assert c["fees"] == pytest.approx(0.0001 * 80_000)
-    assert c["change"] == pytest.approx(10.0) and c["outside_share"] == pytest.approx(0.5)
+    assert c["opening_fees"] == pytest.approx(0.0001 * 80_000), "исполнение в момент открытия — комиссия открытия"
+    assert c["change"] == pytest.approx(10.0 - 8.0), "итог после всех издержек (правило И13)"
+    assert c["outside_share"] == pytest.approx(0.5)
     assert c["positions"] == [{"symbol": "BTCUSDT", "spot": 0.128, "short": 0.128, "price": 80_000.0,
                                "notional": pytest.approx(10_240.0), "deviation": 0.001}]
 

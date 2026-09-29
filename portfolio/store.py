@@ -1,7 +1,7 @@
 """Своя база И14 (SQLite в томе /portfolio): состояние, ребалансировки, снимки, фандинг, события."""
 import json
 import sqlite3
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Set, Tuple
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT)",
@@ -53,6 +53,17 @@ class Store:
         for w, o in self.conn.execute("SELECT weights, orders FROM rebalance_runs"):
             out |= set(json.loads(w)) | {x[0] for x in json.loads(o)}
         return out
+
+    def week_retry(self, t: int) -> Optional[Tuple[Dict[str, float], Set[str]]]:
+        """
+        Повтор недели t: цели последнего её прогона и монеты, где ордер тогда не прошёл. None — прогонов
+        недели ещё не было. Цели не пересчитываются: повтор доводит те же, а не новые по сдвинувшимся ценам.
+        """
+        row = self.conn.execute("SELECT weights, failed FROM rebalance_runs WHERE t = ? ORDER BY done_ms DESC LIMIT 1",
+                                (t,)).fetchone()
+        if row is None:
+            return None
+        return json.loads(row[0]), {f[0] for f in json.loads(row[1])}
 
     def has_rebalance(self, t: int) -> bool:
         return self.conn.execute("SELECT 1 FROM rebalances WHERE t = ?", (t,)).fetchone() is not None

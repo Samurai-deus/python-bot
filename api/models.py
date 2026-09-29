@@ -1,7 +1,7 @@
 """
 Pydantic v2 response schemas (схемы удалённых роутеров убраны 23.09.2026) for the FastAPI backend.
 """
-from typing import Dict, List, Optional, Union
+from typing import Dict, List
 from pydantic import BaseModel
 
 
@@ -20,27 +20,6 @@ class BalanceResponse(BaseModel):
     available: float
     wallet_balance: float
     coin: str
-
-
-class SettingItem(BaseModel):
-    key: str
-    value: Union[str, float, int, bool]
-    data_type: str
-    updated_at: str
-
-
-class SettingsResponse(BaseModel):
-    settings: List[SettingItem]
-    requires_restart: List[str]
-
-
-class UpdateSettingsRequest(BaseModel):
-    risk_percent: Optional[float] = None        # 0.5–5.0
-    min_position_size: Optional[float] = None   # $10–$500
-    max_position_size: Optional[float] = None   # $100–$5000
-    bot_interval: Optional[int] = None          # 60–600s
-    trading_mode: Optional[str] = None          # DRY_RUN | PAPER_TRADING
-    symbols_enabled: Optional[List[str]] = None
 
 
 class ConfidenceBucketResponse(BaseModel):

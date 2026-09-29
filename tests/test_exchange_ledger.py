@@ -88,7 +88,8 @@ def test_trade_closed_while_offline_gets_the_exchange_pnl(db, fake, client, trac
     assert tracker.active_count() == 0
 
 
-def test_exchange_position_without_a_journal_row_is_adopted(db, fake, client, tracker):
+def test_exchange_position_without_a_journal_row_is_adopted(db, fake, client, tracker, monkeypatch):
+    monkeypatch.setenv("ADOPT_EXCHANGE_POSITIONS", "true")       # с 29.09 усыновление — только явно
     fake.positions = [position("XRPUSDT", side="Sell", sl="")]
     report = ledger.reconcile_on_startup(client, tracker)
     assert report.adopted == ["XRPUSDT"]
@@ -268,3 +269,12 @@ def test_foreign_positions_are_not_adopted_when_the_flag_is_off(db, fake, client
     report = ledger.reconcile_on_startup(client, tracker)
     assert report.adopted == [] and db.get_open_trades() == [] and tracker.active_count() == 0
     assert "ADOPT_EXCHANGE_POSITIONS" in report.messages[0]
+
+
+
+def test_foreign_positions_are_not_adopted_by_default(db, fake, client, tracker, monkeypatch):
+    """Аудит 29.09: по умолчанию бот усыновлял все позиции счёта — на общем счёте это ~27 позиций И14."""
+    monkeypatch.delenv("ADOPT_EXCHANGE_POSITIONS", raising=False)
+    fake.positions = [position("XRPUSDT", side="Sell", sl="")]
+    report = ledger.reconcile_on_startup(client, tracker)
+    assert report.adopted == [] and db.get_open_trades() == [] and tracker.active_count() == 0

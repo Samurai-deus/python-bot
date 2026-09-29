@@ -153,6 +153,7 @@ class BybitClient:
 
     ORDER_LINK_DUPLICATE = 110072
     LEVERAGE_NOT_MODIFIED = 110043
+    STALE_REQUEST = 10002             # метка времени вне recv_window
 
     def __init__(
         self,
@@ -563,6 +564,7 @@ class BybitClient:
             target = url
 
         attempt = 0
+        stale_retried = False
         while True:
             attempt += 1
             headers = self._build_auth_headers(payload) if signed else {}
@@ -572,6 +574,16 @@ class BybitClient:
                 else:
                     resp = self._session.post(target, data=payload.encode("utf-8"), headers=headers, timeout=10)
                 return self._parse_response(resp, path)
+            except BybitAPIError as e:
+                # 10002: запрос дошёл позже recv_window (27.09.2026 на проде — через 8–10 с, часы хоста
+                # синхронны). Биржа его отвергла, поэтому повтор безопасен и для создания ордера: один раз,
+                # с новой меткой времени и подписью.
+                if e.code != self.STALE_REQUEST or stale_retried:
+                    raise
+                stale_retried = True
+                logger.warning("%s %s: %s — повтор с новой меткой времени", method, path, e)
+                attempt -= 1
+                continue
             except _RateLimited as e:
                 err: Exception = e
             except _ServerError as e:

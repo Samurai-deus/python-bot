@@ -62,3 +62,15 @@ def install_log_redaction(logger: logging.Logger = None) -> None:
     for handler in target.handlers:
         if not any(isinstance(f, SecretRedactingFilter) for f in handler.filters):
             handler.addFilter(SecretRedactingFilter())
+
+
+def setup_service_logging() -> logging.Logger:
+    """
+    Логирование отдельного сервиса (python -m portfolio / btcalts / carry / news): формат и
+    защита токена в одном вызове. 28.09.2026 эти сервисы настраивали логирование своим
+    basicConfig без фильтра, и каждое уведомление писало в лог контейнера URL с токеном бота.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    root = logging.getLogger()
+    install_log_redaction(root)
+    return root

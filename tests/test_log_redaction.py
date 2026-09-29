@@ -92,3 +92,37 @@ def test_runner_logging_setup_installs_the_filter():
     assert root.handlers, "у корневого логгера нет обработчиков"
     for handler in root.handlers:
         assert any(isinstance(f, SecretRedactingFilter) for f in handler.filters), handler
+
+
+
+def test_api_logging_setup_installs_the_filter(monkeypatch):
+    """Под uvicorn у корневого логгера нет обработчиков — фильтр API до 29.09 не вешался никуда."""
+    import logging
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [])
+    from api.main import create_app
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", FAKE_TOKEN)
+    monkeypatch.setenv("ADMIN_CHAT_ID", "1")
+    create_app()
+    assert root.handlers and all(any(isinstance(f, SecretRedactingFilter) for f in h.filters) for h in root.handlers)
+    root.handlers = []
+
+
+def test_sentry_event_loses_body_and_locals():
+    from api.main import _scrub_event
+    event = {"request": {"headers": {"X-Telegram-Init-Data": "x", "Accept": "a"}, "data": {"bybit_api_secret": "s"},
+                         "cookies": {"a": "b"}},
+             "exception": {"values": [{"stacktrace": {"frames": [{"vars": {"body": "secret"}, "lineno": 1}]}}]}}
+    out = _scrub_event(event, None)
+    assert out["request"]["headers"]["X-Telegram-Init-Data"] == "[скрыто]" and out["request"]["headers"]["Accept"] == "a"
+    assert "data" not in out["request"] and "cookies" not in out["request"]
+    assert "vars" not in out["exception"]["values"][0]["stacktrace"]["frames"][0]
+
+
+def test_rate_limit_log_shows_the_redis_host_not_the_password(caplog):
+    import logging
+    from api.rate_limit import RateLimitMiddleware
+    with caplog.at_level(logging.INFO, logger="api.rate_limit"):
+        RateLimitMiddleware(lambda *a: None, redis_url="redis://:pw-SECRET-123@redis:6379/0")
+    assert "pw-SECRET-123" not in caplog.text
