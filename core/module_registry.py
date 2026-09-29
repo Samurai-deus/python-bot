@@ -4,7 +4,8 @@ ModuleRegistry - Реестр модулей с классификацией к�
 ЦЕЛЬ: Централизованное управление модулями и их критичностью.
 """
 import logging
-from typing import Dict, Optional, Callable, List, Any
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import Enum
@@ -23,8 +24,8 @@ class ModuleHealth:
     """Здоровье модуля"""
     available: bool
     valid: bool
-    last_heartbeat: Optional[datetime] = None
-    error: Optional[str] = None
+    last_heartbeat: datetime | None = None
+    error: str | None = None
 
 
 @dataclass
@@ -46,7 +47,7 @@ class ModuleRegistry:
     """
     
     def __init__(self):
-        self._modules: Dict[str, ModuleInfo] = {}
+        self._modules: dict[str, ModuleInfo] = {}
         self._default_criticality = ModuleCriticality.NON_CRITICAL
         self._default_timeout = 5.0
     
@@ -55,7 +56,7 @@ class ModuleRegistry:
         name: str,
         criticality: ModuleCriticality,
         get_instance: Callable[[], Any],
-        timeout_seconds: Optional[float] = None,
+        timeout_seconds: float | None = None,
         description: str = ""
     ):
         """
@@ -84,22 +85,22 @@ class ModuleRegistry:
             name, criticality.value, timeout_seconds or self._default_timeout
         )
     
-    def get_module(self, name: str) -> Optional[ModuleInfo]:
+    def get_module(self, name: str) -> ModuleInfo | None:
         """Получить информацию о модуле"""
         return self._modules.get(name)
     
-    def list_modules(self) -> List[str]:
+    def list_modules(self) -> list[str]:
         """Список всех зарегистрированных модулей"""
         return list(self._modules.keys())
     
-    def get_critical_modules(self) -> List[str]:
+    def get_critical_modules(self) -> list[str]:
         """Список всех CRITICAL модулей"""
         return [
             name for name, info in self._modules.items()
             if info.criticality == ModuleCriticality.CRITICAL
         ]
     
-    def get_non_critical_modules(self) -> List[str]:
+    def get_non_critical_modules(self) -> list[str]:
         """Список всех NON_CRITICAL модулей"""
         return [
             name for name, info in self._modules.items()
@@ -133,7 +134,7 @@ class ModuleRegistry:
 
 
 # Глобальный экземпляр
-_module_registry: Optional[ModuleRegistry] = None
+_module_registry: ModuleRegistry | None = None
 
 
 def get_module_registry() -> ModuleRegistry:

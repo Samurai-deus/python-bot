@@ -4,13 +4,12 @@ Gatekeeper - между сигналами и пользователем
 Проверяет сигналы через Decision Core и Portfolio Brain перед отправкой пользователю.
 """
 from database import open_notional  # остаток позиции после частичного закрытия
-from typing import Dict, Optional, List
 from trading_mode import get_trading_mode, TradingMode
 from core.decision_core import get_decision_core, TradingDecision
 from core.portfolio_brain import (
-    get_portfolio_brain, PortfolioBrain, PortfolioAnalysis,
+    get_portfolio_brain, PortfolioAnalysis,
     convert_trades_to_positions, calculate_portfolio_state,
-    PortfolioDecision, PortfolioState
+    PortfolioDecision
 )
 from core.signal_snapshot import SignalSnapshot
 from core.system_guardian import get_system_guardian
@@ -20,10 +19,10 @@ from core.risk_core import (
     TradingPermission
 )
 from trade_manager import get_open_trades
-from capital import get_current_balance, get_available_capital, get_initial_balance, RISK_PERCENT, MIN_POSITION_SIZE
-from telegram_bot import send_message, send_chart, send_message_async, send_chart_async
+from capital import get_current_balance, get_available_capital, get_initial_balance, MIN_POSITION_SIZE
+from telegram_bot import send_message_async, send_chart_async
 from core.system_guardian import AsyncToSyncAdapter
-from datetime import datetime, UTC, timedelta
+from datetime import datetime, UTC
 from bot_statistics import get_trade_statistics
 import logging
 
@@ -148,7 +147,7 @@ class Gatekeeper:
             "total": 0
         }
     
-    def check_signal(self, symbol: str, signal_data: Dict, system_state=None) -> bool:
+    def check_signal(self, symbol: str, signal_data: dict, system_state=None) -> bool:
         """
         Проверяет сигнал через Decision Core.
         
@@ -192,10 +191,10 @@ class Gatekeeper:
             self._update_state()
             return False
     
-    def send_signal(self, symbol: str, signal_data: Dict,
-                   states: Dict, directions: Dict,
+    def send_signal(self, symbol: str, signal_data: dict,
+                   states: dict, directions: dict,
                    risk: str, score: int, mode: str, reasons: list,
-                   system_state=None, snapshot: Optional[SignalSnapshot] = None) -> bool:
+                   system_state=None, snapshot: SignalSnapshot | None = None) -> bool:
         """
         Отправляет сигнал пользователю (если прошел проверку).
 
@@ -576,7 +575,7 @@ class Gatekeeper:
             
             # Добавляем портфельный анализ (если есть)
             if portfolio_analysis:
-                extra += f"\n\n🧺 Portfolio:"
+                extra += "\n\n🧺 Portfolio:"
                 extra += f"\n• Решение: {portfolio_analysis.decision.value}"
                 extra += f"\n• Причина: {portfolio_analysis.reason}"
                 if portfolio_analysis.risk_utilization_ratio > 0:
@@ -585,9 +584,9 @@ class Gatekeeper:
             extra += f"\n✅ Decision Core: {decision.reason}"
             
             if decision.recommendations:
-                extra += f"\n\n💡 Рекомендации:\n" + "\n".join(f"• {r}" for r in decision.recommendations)
+                extra += "\n\n💡 Рекомендации:\n" + "\n".join(f"• {r}" for r in decision.recommendations)
             
-            extra += f"\n\nПричины:\n- " + "\n- ".join(reasons)
+            extra += "\n\nПричины:\n- " + "\n- ".join(reasons)
             
             # Отправляем
             logger.info("Отправка сигнала через Gatekeeper для %s...", symbol)
@@ -653,7 +652,7 @@ class Gatekeeper:
     def _execute_order(
         self,
         symbol: str,
-        signal_data: Dict,
+        signal_data: dict,
         sizing_result,
     ) -> None:
         """
@@ -915,7 +914,7 @@ class Gatekeeper:
                 timeout=15.0,
             )
 
-    def _check_portfolio(self, snapshot: SignalSnapshot, open_trades: Optional[List] = None) -> Optional[PortfolioAnalysis]:
+    def _check_portfolio(self, snapshot: SignalSnapshot, open_trades: list | None = None) -> PortfolioAnalysis | None:
         """
         Проверяет сигнал через Portfolio Brain.
 
@@ -965,7 +964,7 @@ class Gatekeeper:
                 recommended_size_multiplier=0.0
             )
     
-    def _check_signal_quality(self, signal_data: Dict, decision: TradingDecision) -> bool:
+    def _check_signal_quality(self, signal_data: dict, decision: TradingDecision) -> bool:
         """
         Проверяет качество сигнала.
         
@@ -1006,8 +1005,8 @@ class Gatekeeper:
         self,
         snapshot: SignalSnapshot,
         system_state,
-        open_trades: Optional[List] = None,
-    ) -> Optional[MetaDecisionResult]:
+        open_trades: list | None = None,
+    ) -> MetaDecisionResult | None:
         """
         Проверяет сигнал через MetaDecisionBrain.
 
@@ -1062,8 +1061,7 @@ class Gatekeeper:
             recent_outcomes = None
 
             # H-20: Compute time_context based on UTC hour
-            from datetime import timezone as _tz
-            hour = datetime.now(_tz.utc).hour
+            hour = datetime.now(UTC).hour
             # Bybit funding: 00:00, 08:00, 16:00 UTC — avoid 30 min before
             if hour in (23, 7, 15):
                 time_context = TimeContext.SESSION_END
@@ -1108,9 +1106,9 @@ class Gatekeeper:
     def _calculate_position_size(
         self,
         snapshot: SignalSnapshot,
-        portfolio_analysis: Optional[PortfolioAnalysis],
-        open_trades: Optional[List] = None,
-        signal_data: Optional[Dict] = None,
+        portfolio_analysis: PortfolioAnalysis | None,
+        open_trades: list | None = None,
+        signal_data: dict | None = None,
     ):
         """
         Рассчитывает размер позиции через PositionSizer.
@@ -1216,8 +1214,8 @@ class Gatekeeper:
     def _save_decision_trace(
         self,
         symbol: str,
-        snapshot: Optional[SignalSnapshot],
-        trace_entries: List[tuple],
+        snapshot: SignalSnapshot | None,
+        trace_entries: list[tuple],
         final_decision: str
     ):
         """
@@ -1285,10 +1283,10 @@ class Gatekeeper:
     def _check_risk_core(
         self,
         symbol: str,
-        signal_data: Dict,
+        signal_data: dict,
         system_state,
-        open_trades: Optional[List] = None,
-    ) -> Optional[tuple]:
+        open_trades: list | None = None,
+    ) -> tuple | None:
         """
         Проверяет сигнал через Risk Core.
 
@@ -1442,7 +1440,7 @@ class Gatekeeper:
             )
             raise  # Propagate exception - caller enforces DENY + HALTED
     
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Получить статистику Gatekeeper"""
         # Используем явное состояние
         self._update_state()

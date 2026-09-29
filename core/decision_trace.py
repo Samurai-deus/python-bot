@@ -14,9 +14,9 @@ DecisionTrace НЕ влияет на торговую логику.
 - Явная схема таблицы
 - Готов к расширению для Replay / Drift Detector
 """
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, UTC, timedelta
-from typing import List, Optional, Dict, Any
+from typing import Any
 from enum import Enum
 import sqlite3
 import os
@@ -59,9 +59,9 @@ class DecisionRecord:
     allow_trading: bool
     block_level: BlockLevel
     reason: str
-    context_snapshot: Dict[str, Any]
+    context_snapshot: dict[str, Any]
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Преобразует запись в словарь для сохранения в БД"""
         return {
             "timestamp": self.timestamp.isoformat(),
@@ -74,7 +74,7 @@ class DecisionRecord:
         }
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DecisionRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "DecisionRecord":
         """Создаёт DecisionRecord из словаря из БД"""
         return cls(
             timestamp=datetime.fromisoformat(data["timestamp"]),
@@ -185,8 +185,8 @@ class DecisionTrace:
         allow_trading: bool,
         block_level: BlockLevel,
         reason: str,
-        context_snapshot: Optional[Dict[str, Any]] = None,
-        timestamp: Optional[datetime] = None
+        context_snapshot: dict[str, Any] | None = None,
+        timestamp: datetime | None = None
     ) -> int:
         """
         Записывает решение в базу данных.
@@ -246,10 +246,10 @@ class DecisionTrace:
     def get_recent_decisions(
         self,
         limit: int = 100,
-        symbol: Optional[str] = None,
-        decision_source: Optional[str] = None,
-        allow_trading: Optional[bool] = None
-    ) -> List[DecisionRecord]:
+        symbol: str | None = None,
+        decision_source: str | None = None,
+        allow_trading: bool | None = None
+    ) -> list[DecisionRecord]:
         """
         Получает последние решения из базы данных.
         
@@ -348,8 +348,8 @@ class DecisionTrace:
     def get_statistics(
         self,
         days: int = 7,
-        symbol: Optional[str] = None
-    ) -> Dict[str, Any]:
+        symbol: str | None = None
+    ) -> dict[str, Any]:
         """
         Получает статистику по решениям за период.
         
@@ -396,8 +396,6 @@ class DecisionTrace:
             total = 0
             total_allowed = 0
             total_blocked = 0
-            total_hard = 0
-            total_soft = 0
             by_source = {}
 
             for row in rows:
@@ -470,8 +468,8 @@ class DecisionReplay:
         self,
         start_time: datetime,
         end_time: datetime,
-        symbol: Optional[str] = None
-    ) -> List[DecisionRecord]:
+        symbol: str | None = None
+    ) -> list[DecisionRecord]:
         """
         Воспроизводит решения за период.
         
@@ -512,7 +510,7 @@ class DriftDetector:
         baseline_days: int = 7,
         comparison_days: int = 7,
         threshold: float = 0.2
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Обнаруживает дрейф в решениях.
         

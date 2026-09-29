@@ -16,7 +16,7 @@
 import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from typing import Dict, Iterable, List, Optional
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def seconds_until_next_report(now: datetime) -> float:
     return (moment - now).total_seconds()
 
 
-def trade_r(trade: Dict) -> Optional[float]:
+def trade_r(trade: dict) -> float | None:
     """Результат сделки в R: PnL / риск при входе. None — риск не определить."""
     entry = trade.get("entry") or 0.0
     stop = trade.get("original_stop") or trade.get("stop") or 0.0
@@ -49,7 +49,7 @@ def trade_r(trade: Dict) -> Optional[float]:
     return (trade.get("pnl") or 0.0) / risk_usd
 
 
-def signal_r(fate: Dict) -> Optional[float]:
+def signal_r(fate: dict) -> float | None:
     """Результат сигнала по свечам в R; None — исхода ещё нет."""
     outcome = fate.get("outcome")
     if outcome == "WIN":
@@ -69,8 +69,8 @@ def _r(value: float) -> str:
     return f"{value:+.2f} R".replace(".", ",")
 
 
-def trades_section(trades: Iterable[Dict], capital: Optional[float]) -> List[str]:
-    by_strategy: Dict[str, List[Dict]] = defaultdict(list)
+def trades_section(trades: Iterable[dict], capital: float | None) -> list[str]:
+    by_strategy: dict[str, list[dict]] = defaultdict(list)
     for trade in trades:
         by_strategy[trade.get("strategy_name") or "без стратегии"].append(trade)
     if not by_strategy:
@@ -92,7 +92,7 @@ def trades_section(trades: Iterable[Dict], capital: Optional[float]) -> List[str
     return lines
 
 
-def _fate_line(label: str, group: List[Dict], flag: bool) -> str:
+def _fate_line(label: str, group: list[dict], flag: bool) -> str:
     outcomes = [f.get("outcome") for f in group]
     rs = [r for r in (signal_r(f) for f in group) if r is not None]
     text = (f"• {label}: {len(group)} — цель {outcomes.count('WIN')}, стоп {outcomes.count('LOSS')}, "
@@ -105,12 +105,12 @@ def _fate_line(label: str, group: List[Dict], flag: bool) -> str:
     return text
 
 
-def signals_section(fates: Iterable[Dict]) -> List[str]:
+def signals_section(fates: Iterable[dict]) -> list[str]:
     fates = list(fates)
     if not fates:
         return ["Сигналов в журнале за неделю нет."]
-    by_fate: Dict[str, List[Dict]] = defaultdict(list)
-    by_strategy: Dict[str, List[Dict]] = defaultdict(list)
+    by_fate: dict[str, list[dict]] = defaultdict(list)
+    by_strategy: dict[str, list[dict]] = defaultdict(list)
     for fate in fates:
         status = fate.get("status") or ""
         by_fate[_FATE_LABELS.get(status) or fate.get("reason_code") or status.lower()].append(fate)
@@ -133,7 +133,7 @@ def signals_section(fates: Iterable[Dict]) -> List[str]:
 _AI_LABELS = {"approve": "одобрил бы", "reduce": "уменьшил бы", "reject": "отклонил бы"}
 
 
-def ai_section(verdicts: Iterable[Dict]) -> List[str]:
+def ai_section(verdicts: Iterable[dict]) -> list[str]:
     """Исходы сигналов по решению ИИ: у одобренных ожидание должно быть выше, чем у отклонённых."""
     verdicts = list(verdicts)
     if not verdicts:
@@ -141,7 +141,7 @@ def ai_section(verdicts: Iterable[Dict]) -> List[str]:
     decided = [v for v in verdicts if v.get("decision")]
     lines = [f"ИИ (тень): мнений {len(decided)}, без мнения {len(verdicts) - len(decided)}. "
              "Исходы сигналов по его решению:"]
-    by_decision: Dict[str, List[Dict]] = defaultdict(list)
+    by_decision: dict[str, list[dict]] = defaultdict(list)
     for verdict in decided:
         by_decision[verdict["decision"]].append(verdict)
     for decision, label in _AI_LABELS.items():
@@ -150,7 +150,7 @@ def ai_section(verdicts: Iterable[Dict]) -> List[str]:
     return lines
 
 
-def build_weekly_report(now: Optional[datetime] = None) -> str:
+def build_weekly_report(now: datetime | None = None) -> str:
     """Текст отчёта за 7 дней до now по сделкам текущего режима и журналу сигналов."""
     import database
     from capital import get_current_balance

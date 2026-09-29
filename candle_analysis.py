@@ -1,10 +1,10 @@
 """
 Продвинутый анализ свечных паттернов и объемов
 """
-from typing import Optional, Dict, List, Any
+from typing import Any
 
 
-def analyze_candlestick_pattern(candles: List) -> Dict[str, Any]:
+def analyze_candlestick_pattern(candles: list) -> dict[str, Any]:
     """
     Анализирует свечные паттерны на последних свечах.
     
@@ -125,7 +125,7 @@ def analyze_candlestick_pattern(candles: List) -> Dict[str, Any]:
     }
 
 
-def analyze_volume_profile(candles: List) -> Dict[str, any]:
+def analyze_volume_profile(candles: list) -> dict[str, any]:
     """
     Анализирует профиль объема (если доступен) или ценовой профиль.
     
@@ -164,7 +164,7 @@ def analyze_volume_profile(candles: List) -> Dict[str, any]:
     }
 
 
-def get_candle_analysis(candles: List) -> Dict[str, any]:
+def get_candle_analysis(candles: list) -> dict[str, any]:
     """
     Полный анализ свечей: паттерны + объемы.
     

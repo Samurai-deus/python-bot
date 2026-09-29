@@ -3,7 +3,6 @@
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, Dict
 
 
 @dataclass
@@ -17,7 +16,7 @@ class StrategySignal:
     target: float
     reason: str
     rr_ratio: float = 0.0
-    metadata: Dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
 
 
 class BaseStrategy(ABC):
@@ -31,11 +30,11 @@ class BaseStrategy(ABC):
     def evaluate(
         self,
         symbol: str,
-        candles_map: Dict,
-        directions: Dict,
-        momentum_data: Dict,
-        states: Dict,
-    ) -> Optional[StrategySignal]:
+        candles_map: dict,
+        directions: dict,
+        momentum_data: dict,
+        states: dict,
+    ) -> StrategySignal | None:
         ...
 
     @abstractmethod

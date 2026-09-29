@@ -5,7 +5,7 @@ Avoids trading around funding settlement times (00:00, 08:00, 16:00 UTC)
 when liquidation cascades cause erratic price action.
 Provides session-based confidence multiplier.
 """
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 
 def is_good_time(symbol: str = None) -> bool:
@@ -20,7 +20,7 @@ def is_good_time(symbol: str = None) -> bool:
     Returns:
         True if safe to trade, False around funding settlements.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     hour = now.hour
     minute = now.minute
 
@@ -45,7 +45,7 @@ def get_session_multiplier() -> float:
     Asian low-volume (01:00-07:00 UTC) = 0.9
     Default = 1.0
     """
-    hour = datetime.now(timezone.utc).hour
+    hour = datetime.now(UTC).hour
     if 13 <= hour <= 16:
         return 1.1  # London/NY overlap — peak crypto liquidity
     elif 1 <= hour <= 7:

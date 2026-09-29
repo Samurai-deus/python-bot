@@ -7,6 +7,8 @@
 # PR на экосистему, а мажорные приходят по одному — их надо смотреть глазами.
 version: 2
 updates:
+  # PR по pip меняет requirements.txt, а образ ставится из замка requirements.lock: tests/test_lock.py
+  # сделает такой PR красным, пока замок не пересобран (команда — в шапке requirements.lock).
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -43,11 +45,9 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 3
     ignore:
-      # Мажорную версию базового образа не бампаем автоматически. PR на
-      # python:3.14-slim выглядел бы безобидным — меняется одна строка Dockerfile, —
-      # но для psycopg2-binary==2.9.10 колёс под cp314 не существует, sdist требует
-      # libpq-dev и pg_config, которых в образе нет, и сборка падает. Переход на
-      # новый минор Python — отдельная работа с обновлением всех зависимостей.
+      # Минор/мажор Python автоматически не бампаем: переход — отдельная работа (замок requirements.lock
+      # собирается под версию, CI и Dockerfile меняются вместе). 29.09.2026 — переход 3.12 → 3.14 (у
+      # psycopg2-binary 2.9.13 появились колёса cp314). Обновления хэша 3.14-slim приходят как обычно.
       - dependency-name: "python"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
     labels:

@@ -16,7 +16,7 @@ import sys
 import os
 from datetime import datetime, UTC
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 import logging
 
 # Скрипт лежит в tools/: корень проекта по умолчанию — уровнем выше.
@@ -37,7 +37,7 @@ class RSOReader:
     Все методы только читают данные, никогда не модифицируют.
     """
     
-    def __init__(self, project_root: Optional[str] = None):
+    def __init__(self, project_root: str | None = None):
         """
         Инициализация RSO.
         
@@ -55,7 +55,7 @@ class RSOReader:
             sys.path.insert(0, str(self.project_root))
             self._sys_path_added = True
     
-    def read_fsm_state(self) -> Optional[Dict[str, Any]]:
+    def read_fsm_state(self) -> dict[str, Any] | None:
         """
         Читает текущее состояние FSM (State Machine).
         
@@ -101,7 +101,7 @@ class RSOReader:
             logger.warning("Failed to read FSM state: %s", e)
             return None
     
-    def read_system_state(self) -> Optional[Dict[str, Any]]:
+    def read_system_state(self) -> dict[str, Any] | None:
         """
         Читает состояние системы (SystemState).
         
@@ -150,7 +150,7 @@ class RSOReader:
             logger.warning("Failed to read system state: %s", e)
             return None
     
-    def read_structured_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def read_structured_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         """
         Читает структурированные логи из файла runner.log.
         
@@ -167,7 +167,7 @@ class RSOReader:
             return logs
         
         try:
-            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(log_file, encoding='utf-8', errors='ignore') as f:
                 lines = f.readlines()
                 
             # Читаем последние limit строк
@@ -216,7 +216,7 @@ class RSOReader:
         
         return logs
     
-    def read_fsm_transitions(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def read_fsm_transitions(self, limit: int = 50) -> list[dict[str, Any]]:
         """
         Читает переходы FSM (State Machine transitions).
         
@@ -262,11 +262,11 @@ class RSOOutput:
     
     @staticmethod
     def generate_json_report(
-        fsm_state: Optional[Dict],
-        system_state: Optional[Dict],
-        logs: List[Dict],
-        transitions: List[Dict]
-    ) -> Dict[str, Any]:
+        fsm_state: dict | None,
+        system_state: dict | None,
+        logs: list[dict],
+        transitions: list[dict]
+    ) -> dict[str, Any]:
         """
         Генерирует JSON отчет согласно схеме.
         
@@ -296,10 +296,10 @@ class RSOOutput:
     
     @staticmethod
     def generate_markdown_report(
-        fsm_state: Optional[Dict],
-        system_state: Optional[Dict],
-        logs: List[Dict],
-        transitions: List[Dict]
+        fsm_state: dict | None,
+        system_state: dict | None,
+        logs: list[dict],
+        transitions: list[dict]
     ) -> str:
         """
         Генерирует Markdown отчет согласно схеме.
@@ -317,7 +317,7 @@ class RSOOutput:
         md.append("# Runtime Safety Observer (RSO) v1.0 Report")
         md.append("")
         md.append(f"**Observation Time:** {datetime.now(UTC).isoformat()}")
-        md.append(f"**Observer Mode:** External (Read-Only)")
+        md.append("**Observer Mode:** External (Read-Only)")
         md.append("")
         
         # FSM State

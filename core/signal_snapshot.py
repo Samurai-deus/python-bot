@@ -8,11 +8,10 @@ SignalSnapshot - immutable доменный объект для представ
 - Готова для логирования, статистики, портфельной логики, backtest/replay
 """
 from dataclasses import dataclass, field
-from datetime import datetime, UTC
-from typing import Dict, Optional
+from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
-from core.market_state import MarketState, normalize_states_dict
+from core.market_state import MarketState
 from core.decision_core import MarketRegime
 
 
@@ -76,10 +75,10 @@ class SignalSnapshot:
     timeframe_anchor: str  # Основной таймфрейм (например "15m")
     
     # ========== РЫНОЧНОЕ СОСТОЯНИЕ ==========
-    states: Dict[str, Optional[MarketState]]  # ТОЛЬКО enum, не строки
-    market_regime: Optional[MarketRegime] = None
-    volatility_level: Optional[VolatilityLevel] = None
-    correlation_level: Optional[float] = None  # Средняя корреляция с рынком (0-1)
+    states: dict[str, MarketState | None]  # ТОЛЬКО enum, не строки
+    market_regime: MarketRegime | None = None
+    volatility_level: VolatilityLevel | None = None
+    correlation_level: float | None = None  # Средняя корреляция с рынком (0-1)
     
     # ========== ОЦЕНКИ ==========
     score: int = 0
@@ -89,19 +88,19 @@ class SignalSnapshot:
     
     # ========== РИСК ==========
     risk_level: RiskLevel = RiskLevel.MEDIUM
-    recommended_leverage: Optional[float] = None
-    tp: Optional[float] = None  # Take profit
-    sl: Optional[float] = None  # Stop loss
-    entry: Optional[float] = None  # Entry price
-    side: Optional[str] = None  # "LONG" | "SHORT"
+    recommended_leverage: float | None = None
+    tp: float | None = None  # Take profit
+    sl: float | None = None  # Stop loss
+    entry: float | None = None  # Entry price
+    side: str | None = None  # "LONG" | "SHORT"
     
     # ========== РЕШЕНИЕ ==========
     decision: SignalDecision = SignalDecision.SKIP
     decision_reason: str = ""
     
     # ========== ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ ==========
-    directions: Dict[str, str] = field(default_factory=dict)  # Направления трендов
-    score_details: Dict = field(default_factory=dict)  # Детали скоринга
+    directions: dict[str, str] = field(default_factory=dict)  # Направления трендов
+    score_details: dict = field(default_factory=dict)  # Детали скоринга
     reasons: list = field(default_factory=list)  # Причины решения
     
     def __post_init__(self):
@@ -180,7 +179,7 @@ class SignalSnapshot:
         return self.entry is not None and self.tp is not None and self.sl is not None
     
     @property
-    def rr_ratio(self) -> Optional[float]:
+    def rr_ratio(self) -> float | None:
         """Risk/Reward ratio"""
         if not self.has_entry_zone:
             return None
@@ -250,7 +249,7 @@ def risk_string_to_enum(risk: str) -> RiskLevel:
     return mapping.get(risk, RiskLevel.MEDIUM)
 
 
-def volatility_string_to_enum(volatility: str) -> Optional[VolatilityLevel]:
+def volatility_string_to_enum(volatility: str) -> VolatilityLevel | None:
     """
     Преобразует строковое значение волатильности в VolatilityLevel enum.
     

@@ -12,7 +12,6 @@ supply, капитализация, цена — таблица coin_supply ба
 """
 import logging
 import time
-from typing import Dict, List, Optional, Set
 
 from backtest.wide_search import base_of, is_crypto_instrument
 from market_data.instrument_limits import INSTRUMENTS_URL as BYBIT_INSTRUMENTS_URL
@@ -33,13 +32,13 @@ def week_start_ms(now_ms: int) -> int:
     return (now_ms - 4 * 86_400_000) // WEEK_MS * WEEK_MS + 4 * 86_400_000
 
 
-def _num(v) -> Optional[float]:
+def _num(v) -> float | None:
     return None if v in (None, "") else float(v)
 
 
-def fetch_markets(http, pages: int = PAGES, pause_s: float = PAGE_PAUSE_S) -> List[dict]:
+def fetch_markets(http, pages: int = PAGES, pause_s: float = PAGE_PAUSE_S) -> list[dict]:
     """Монеты по убыванию капитализации; короткая страница — конец списка."""
-    out: List[dict] = []
+    out: list[dict] = []
     for page in range(1, pages + 1):
         if page > 1 and pause_s:
             time.sleep(pause_s)
@@ -57,7 +56,7 @@ def fetch_markets(http, pages: int = PAGES, pause_s: float = PAGE_PAUSE_S) -> Li
     return out
 
 
-def fetch_bybit_bases(http) -> Set[str]:
+def fetch_bybit_bases(http) -> set[str]:
     """Базы крипто-контрактов USDT-perp Bybit (публичный список, страницами; признак биржи + имена)."""
     bases, cursor = set(), ""
     for _ in range(10):
@@ -77,9 +76,9 @@ def fetch_bybit_bases(http) -> Set[str]:
     return bases
 
 
-def match(rows: List[dict], bases: Set[str]) -> Dict[str, str]:
+def match(rows: list[dict], bases: set[str]) -> dict[str, str]:
     """{база Bybit: cg_id} — первая монета с таким тикером по капитализации (тёзки ниже не в счёт)."""
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for c in rows:
         if c["symbol"] in bases and c["symbol"] not in out:
             out[c["symbol"]] = c["cg_id"]
@@ -100,7 +99,7 @@ def record(http, now_ms: int) -> dict:
     return {"week_ms": week, "coins": len(rows), "saved": saved, "bases": len(bases), "matched": len(matched)}
 
 
-def maybe_record(http, now_ms: int) -> Optional[dict]:
+def maybe_record(http, now_ms: int) -> dict | None:
     """Раз в неделю; после сбоя — не раньше чем через RETRY_MS. None — ничего не делалось."""
     global _next_try_ms
     import database

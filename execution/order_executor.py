@@ -26,7 +26,7 @@ import logging
 import time
 from dataclasses import dataclass, replace
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
-from typing import Callable, Dict, Optional, Tuple
+from collections.abc import Callable
 
 from exchange.bybit_client import (
     BybitAPIError,
@@ -67,33 +67,33 @@ class TradeRequest:
     symbol: str
     side: str            # "LONG" | "SHORT"
     qty: float           # Количество контрактов (сырое: к шагу приводит исполнитель)
-    entry_price: Optional[float]   # None → Market ордер
+    entry_price: float | None   # None → Market ордер
     stop_loss: float
-    take_profit: Optional[float] = None
-    client_order_id: Optional[str] = None
-    leverage: Optional[float] = None
+    take_profit: float | None = None
+    client_order_id: str | None = None
+    leverage: float | None = None
 
 
 @dataclass
 class TradeResult:
     """Результат исполнения торгового намерения."""
     success: bool
-    order_id: Optional[str]
+    order_id: str | None
     symbol: str
     side: str
     qty: float
-    entry_price: Optional[float]
+    entry_price: float | None
     stop_loss: float
-    take_profit: Optional[float]
+    take_profit: float | None
     dry_run: bool
-    error: Optional[str] = None
-    order_link_id: Optional[str] = None
+    error: str | None = None
+    order_link_id: str | None = None
     state_unknown: bool = False
 
 
 # ========== ROUNDING ==========
 
-def round_qty(qty, filters: InstrumentFilters) -> Tuple[Decimal, Optional[str]]:
+def round_qty(qty, filters: InstrumentFilters) -> tuple[Decimal, str | None]:
     """Количество вниз к шагу лота; ошибка — если вне пределов инструмента."""
     try:
         q = Decimal(str(qty))
@@ -121,11 +121,11 @@ def round_price(price, filters: InstrumentFilters) -> Decimal:
 class OrderExecutor:
     """Размещает ордера через BybitClient."""
 
-    def __init__(self, client: Optional[BybitClient] = None, sleep: Callable[[float], None] = time.sleep):
+    def __init__(self, client: BybitClient | None = None, sleep: Callable[[float], None] = time.sleep):
         self._client = client or get_bybit_client()
         self._dry_run = _is_dry_run()
         self._sleep = sleep
-        self._leverage_set: Dict[str, Decimal] = {}
+        self._leverage_set: dict[str, Decimal] = {}
         env = getattr(self._client, "environment", "TESTNET" if self._client._testnet else "MAINNET")
         mode = "DRY_RUN" if self._dry_run else ("LIVE" if env == "MAINNET" else env)
         logger.info("OrderExecutor initialized [%s]", mode)
@@ -133,7 +133,7 @@ class OrderExecutor:
     # ------------------------------------------------------------------ #
 
     def _fail(self, request: TradeRequest, error: str, *, qty=None,
-              link_id: Optional[str] = None, state_unknown: bool = False) -> TradeResult:
+              link_id: str | None = None, state_unknown: bool = False) -> TradeResult:
         return TradeResult(
             success=False, order_id=None,
             symbol=request.symbol, side=request.side,
@@ -143,8 +143,8 @@ class OrderExecutor:
             error=error, order_link_id=link_id, state_unknown=state_unknown,
         )
 
-    def _ok(self, request: TradeRequest, order_id: str, qty: Decimal, sl: Optional[Decimal],
-            tp: Optional[Decimal], link_id: Optional[str]) -> TradeResult:
+    def _ok(self, request: TradeRequest, order_id: str, qty: Decimal, sl: Decimal | None,
+            tp: Decimal | None, link_id: str | None) -> TradeResult:
         return TradeResult(
             success=True, order_id=order_id,
             symbol=request.symbol, side=request.side, qty=float(qty),
@@ -154,7 +154,7 @@ class OrderExecutor:
             dry_run=False, order_link_id=link_id,
         )
 
-    def _validate_qty(self, symbol: str, qty: float) -> Tuple[float, Optional[str]]:
+    def _validate_qty(self, symbol: str, qty: float) -> tuple[float, str | None]:
         """Количество, приведённое к фильтрам инструмента, и ошибка (или None)."""
         try:
             filters = self._client.get_instrument_filters(symbol)
@@ -250,7 +250,7 @@ class OrderExecutor:
             take_profit=request.take_profit, dry_run=True,
         )
 
-    def _prepare_leverage(self, request: TradeRequest, filters: InstrumentFilters, mark: Decimal) -> Optional[str]:
+    def _prepare_leverage(self, request: TradeRequest, filters: InstrumentFilters, mark: Decimal) -> str | None:
         """Проверить и выставить плечо. Причина отказа — или None."""
         lev = request.leverage
         if not lev or lev <= 0:
@@ -317,10 +317,10 @@ class OrderExecutor:
                     symbol, bybit_side, order_type, qty, result.order_id, link_id)
         return self._ok(request, result.order_id, qty, sl, tp, link_id)
 
-    def _reconcile(self, request: TradeRequest, qty: Decimal, sl: Optional[Decimal],
-                   tp: Optional[Decimal], link_id: str) -> TradeResult:
+    def _reconcile(self, request: TradeRequest, qty: Decimal, sl: Decimal | None,
+                   tp: Decimal | None, link_id: str) -> TradeResult:
         """После неоднозначного сбоя: найти ордер по orderLinkId и решить по факту."""
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(1, RECONCILE_ATTEMPTS + 1):
             try:
                 found = self._client.find_order(request.symbol, link_id)
@@ -348,7 +348,7 @@ class OrderExecutor:
 
 # ========== SINGLETON ==========
 
-_executor: Optional[OrderExecutor] = None
+_executor: OrderExecutor | None = None
 
 
 def get_order_executor() -> OrderExecutor:

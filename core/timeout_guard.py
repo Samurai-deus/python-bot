@@ -5,8 +5,10 @@ TimeoutGuard - Защита от таймаутов
 """
 import asyncio
 import logging
-from typing import TypeVar, Coroutine, Any, Optional
+from typing import TypeVar, Any
+from collections.abc import Coroutine
 from functools import wraps
+import builtins
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +42,14 @@ async def timeout_guard(
     try:
         result = await asyncio.wait_for(coro, timeout=timeout_seconds)
         return result
-    except asyncio.TimeoutError:
+    except builtins.TimeoutError:
         logger.error(
             f"Operation {operation_name} exceeded timeout ({timeout_seconds}s)"
         )
-        raise TimeoutError(f"Operation {operation_name} exceeded timeout ({timeout_seconds}s)")
+        raise TimeoutError(f"Operation {operation_name} exceeded timeout ({timeout_seconds}s)") from None
 
 
-def with_timeout(timeout_seconds: float, operation_name: Optional[str] = None):
+def with_timeout(timeout_seconds: float, operation_name: str | None = None):
     """
     Декоратор для добавления таймаута к async функции.
     

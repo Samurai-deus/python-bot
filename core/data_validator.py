@@ -5,7 +5,7 @@ DataValidator - Валидация данных для торговых реше
 """
 import math
 import logging
-from typing import Any, Optional, Dict, List
+from typing import Any
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 class ValidationResult:
     """Результат валидации"""
     valid: bool
-    errors: List[str]
-    warnings: List[str] = None
+    errors: list[str]
+    warnings: list[str] = None
     
     def __post_init__(self):
         if self.warnings is None:
@@ -27,8 +27,8 @@ class DataValidator:
     """Валидатор данных"""
     
     @staticmethod
-    def validate_float(value: Any, name: str, min_value: Optional[float] = None, 
-                     max_value: Optional[float] = None, allow_none: bool = False) -> ValidationResult:
+    def validate_float(value: Any, name: str, min_value: float | None = None, 
+                     max_value: float | None = None, allow_none: bool = False) -> ValidationResult:
         """
         Валидирует float значение.
         
@@ -122,7 +122,7 @@ class DataValidator:
         return ValidationResult(valid=True, errors=[], warnings=[])
     
     @staticmethod
-    def validate_list(value: Any, name: str, min_length: Optional[int] = None,
+    def validate_list(value: Any, name: str, min_length: int | None = None,
                      allow_none: bool = False) -> ValidationResult:
         """Валидирует список"""
         errors = []
@@ -144,7 +144,7 @@ class DataValidator:
         return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=[])
     
     @staticmethod
-    def validate_dict(value: Any, name: str, required_keys: Optional[List[str]] = None,
+    def validate_dict(value: Any, name: str, required_keys: list[str] | None = None,
                      allow_none: bool = False) -> ValidationResult:
         """Валидирует словарь"""
         errors = []
@@ -169,7 +169,7 @@ class DataValidator:
 
 
 # Глобальный экземпляр
-_data_validator: Optional[DataValidator] = None
+_data_validator: DataValidator | None = None
 
 
 def get_data_validator() -> DataValidator:

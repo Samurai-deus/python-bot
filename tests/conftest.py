@@ -3,7 +3,6 @@
 """
 import pytest
 from dataclasses import dataclass
-from typing import Optional, Dict
 from core.decision_core import MarketRegime, RiskExposure, CognitiveState
 
 
@@ -18,10 +17,10 @@ class _SystemHealth:
 class MockSystemState:
     def __init__(self):
         self.system_health = _SystemHealth()
-        self.cognitive_state: Optional[CognitiveState] = None
-        self.market_regime: Optional[MarketRegime] = None
-        self.risk_state: Optional[RiskExposure] = None
-        self.opportunities: Dict = {}
+        self.cognitive_state: CognitiveState | None = None
+        self.market_regime: MarketRegime | None = None
+        self.risk_state: RiskExposure | None = None
+        self.opportunities: dict = {}
         self._can_trade_val = True
 
     def update_trading_decision(self, val: bool):

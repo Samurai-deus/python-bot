@@ -10,12 +10,10 @@
 """
 import logging
 import math
-from typing import List, Optional, Tuple
-from datetime import datetime, UTC, timedelta
 from capital import get_current_balance
 from capital import get_initial_balance
 from database import get_trades_statistics
-from core.market_state import MarketState, normalize_state
+from core.market_state import normalize_state
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +72,7 @@ def get_signals_statistics(limit=20):
     
     signals = []
     try:
-        with open("signals_log.csv", "r", encoding="utf-8") as f:
+        with open("signals_log.csv", encoding="utf-8") as f:
             # Сначала пробуем прочитать как DictReader (если есть заголовки)
             f.seek(0)
             reader = csv.DictReader(f)
@@ -210,12 +208,12 @@ def format_statistics_report(stats):
     win_rate_emoji = "🟢" if has_trades and win_rate >= 50 else "🟡" if has_trades and win_rate >= 30 else "🔴"
     win_rate_str = f"`{win_rate:.1f}%`" if has_trades else "`N/A`"
 
-    report = f"💰 **БАЛАНС:**\n"
+    report = "💰 **БАЛАНС:**\n"
     report += f"• Начальный: `{stats['initial_balance']:.2f}` USDT\n"
     report += f"• Текущий: `{stats['current_balance']:.2f}` USDT\n"
     report += f"• {pnl_emoji} P&L: `{stats['total_pnl']:+.2f}` USDT (`{stats['total_pnl_pct']:+.2f}%`)\n\n"
 
-    report += f"📈 **СДЕЛКИ:**\n"
+    report += "📈 **СДЕЛКИ:**\n"
     report += f"• Всего: `{stats['total_trades']}`\n"
     report += f"• Открыто: `{stats['open_trades']}`\n"
     report += f"• Закрыто: `{stats['total_trades'] - stats['open_trades']}`\n"
@@ -224,12 +222,12 @@ def format_statistics_report(stats):
     report += f"• {win_rate_emoji} Win Rate: {win_rate_str}\n\n"
     
     if stats.get('best_trade'):
-        report += f"🏆 **Лучшая сделка:**\n"
+        report += "🏆 **Лучшая сделка:**\n"
         report += f"• `{stats['best_trade']['symbol']}` {stats['best_trade'].get('side', '')}\n"
         report += f"• P&L: `{stats['best_trade']['pnl']:+.2f}` USDT\n\n"
     
     if stats.get('worst_trade'):
-        report += f"📉 **Худшая сделка:**\n"
+        report += "📉 **Худшая сделка:**\n"
         report += f"• `{stats['worst_trade']['symbol']}` {stats['worst_trade'].get('side', '')}\n"
         report += f"• P&L: `{stats['worst_trade']['pnl']:+.2f}` USDT\n\n"
     
@@ -243,7 +241,9 @@ def format_statistics_report(stats):
         
         report += "📊 **Топ-3 символа по P&L:**\n"
         for symbol, data in sorted_symbols:
+            # До 29.09.2026 доля побед считалась и отбрасывалась: под заголовком не было ни одной строки.
             win_rate_symbol = (data['wins'] / data['trades'] * 100) if data['trades'] > 0 else 0
+            report += f"• {symbol}: `{data['pnl']:+.2f}` USDT, побед {win_rate_symbol:.0f} % из {data['trades']}\n"
     return report
 
 
@@ -252,10 +252,10 @@ def format_statistics_report(stats):
 # ---------------------------------------------------------------------------
 
 def calculate_sharpe_ratio(
-    equity_curve: List[float],
+    equity_curve: list[float],
     risk_free: float = 0.0,
     periods_per_year: int = 252,
-) -> Optional[float]:
+) -> float | None:
     """
     Sharpe Ratio на основе дневных доходностей equity curve.
 
@@ -293,7 +293,7 @@ def calculate_sharpe_ratio(
     return round(sharpe, 4)
 
 
-def calculate_max_drawdown(equity_curve: List[float]) -> Tuple[float, float]:
+def calculate_max_drawdown(equity_curve: list[float]) -> tuple[float, float]:
     """
     Максимальная просадка по equity curve.
 
@@ -323,7 +323,7 @@ def calculate_max_drawdown(equity_curve: List[float]) -> Tuple[float, float]:
     return round(max_dd_abs, 4), round(max_dd_pct, 6)
 
 
-def calculate_profit_factor(trades: List[dict]) -> Optional[float]:
+def calculate_profit_factor(trades: list[dict]) -> float | None:
     """
     Profit Factor = валовая прибыль / валовый убыток.
 
@@ -343,9 +343,9 @@ def calculate_profit_factor(trades: List[dict]) -> Optional[float]:
 
 
 def calculate_recovery_factor(
-    trades: List[dict],
-    equity_curve: List[float],
-) -> Optional[float]:
+    trades: list[dict],
+    equity_curve: list[float],
+) -> float | None:
     """
     Recovery Factor = чистая прибыль / Max Drawdown (абс.).
 
@@ -365,7 +365,7 @@ def calculate_recovery_factor(
     return round(total_net_profit / max_dd_abs, 4)
 
 
-def calculate_expectancy(trades: List[dict]) -> Optional[float]:
+def calculate_expectancy(trades: list[dict]) -> float | None:
     """
     Математическое ожидание за сделку.
 

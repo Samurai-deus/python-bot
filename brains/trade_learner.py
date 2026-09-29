@@ -12,13 +12,12 @@ Cache is refreshed every 30 minutes to avoid DB queries on every tick.
 """
 import logging
 import time
-from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 # ── Cache settings ──
 _CACHE_TTL_SECONDS = 1800  # 30 minutes
-_cache: Dict = {}
+_cache: dict = {}
 _cache_ts: float = 0.0
 
 # ── Thresholds ──
@@ -46,7 +45,7 @@ def _refresh_cache() -> None:
             return
 
         # ── By symbol ──
-        by_symbol: Dict[str, Dict] = {}
+        by_symbol: dict[str, dict] = {}
         for r in rows:
             sym = r["symbol"]
             if sym not in by_symbol:
@@ -58,7 +57,7 @@ def _refresh_cache() -> None:
                 by_symbol[sym]["losses"] += 1
 
         # ── By symbol + direction ──
-        by_symbol_dir: Dict[str, Dict] = {}
+        by_symbol_dir: dict[str, dict] = {}
         for r in rows:
             key = f"{r['symbol']}_{r.get('direction', 'UNKNOWN')}"
             if key not in by_symbol_dir:
@@ -78,7 +77,7 @@ def _refresh_cache() -> None:
             conf = r.get("confidence")
             if conf is None:
                 continue
-            for bname, bdata in buckets.items():
+            for _bname, bdata in buckets.items():
                 lo, hi = bdata["range"]
                 if lo <= conf < hi:
                     if r["outcome"] == "WIN":

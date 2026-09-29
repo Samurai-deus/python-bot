@@ -17,7 +17,6 @@ WATCHDOG:
 import os
 import sys
 import logging
-from typing import Optional
 from enum import IntEnum
 
 logger = logging.getLogger(__name__)
@@ -142,7 +141,7 @@ class SystemdIntegration:
 
 
 # Глобальный экземпляр
-_systemd_integration: Optional[SystemdIntegration] = None
+_systemd_integration: SystemdIntegration | None = None
 
 
 def get_systemd_integration() -> SystemdIntegration:

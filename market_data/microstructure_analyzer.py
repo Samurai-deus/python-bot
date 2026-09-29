@@ -8,7 +8,6 @@
   - Extreme funding           → crowded trade, реверсия вероятнее
 """
 import logging
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +21,10 @@ PRICE_CHANGE_THRESHOLD = 0.5
 
 def analyze_microstructure(
     symbol: str,
-    candles_15m: List,
-    oi_data: List[Dict],
-    funding_data: List[Dict],
-) -> Dict:
+    candles_15m: list,
+    oi_data: list[dict],
+    funding_data: list[dict],
+) -> dict:
     """
     Анализирует микроструктуру и возвращает:
       - oi_trend: "RISING" | "FALLING" | "FLAT"

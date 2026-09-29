@@ -5,15 +5,14 @@
 "u": номер обновления, "seq"}; объём "0" — уровень удалён; u идёт подряд; u = 1 — биржа
 перезапустила поток и это снимок. Цены — строки как пришли (ключи без округления).
 """
-from typing import Dict, List, Tuple
 
 OK, IGNORED, GAP = "ok", "ignored", "gap"
 
 
 class OrderBook:
     def __init__(self) -> None:
-        self.bids: Dict[str, str] = {}
-        self.asks: Dict[str, str] = {}
+        self.bids: dict[str, str] = {}
+        self.asks: dict[str, str] = {}
         self.ready = False
         self.update_id = None
 
@@ -42,7 +41,7 @@ class OrderBook:
         self.update_id = u
         return OK
 
-    def top(self, n: int) -> Tuple[List[List[str]], List[List[str]]]:
+    def top(self, n: int) -> tuple[list[list[str]], list[list[str]]]:
         """Лучшие n уровней: покупки по убыванию цены, продажи по возрастанию."""
         bids = sorted(self.bids.items(), key=lambda kv: -float(kv[0]))[:n]
         asks = sorted(self.asks.items(), key=lambda kv: float(kv[0]))[:n]

@@ -6,7 +6,6 @@ Decision Core - сердце экосистемы
 
 Принцип: Decision First - сначала "можно ли", потом "что именно"
 """
-from typing import Dict, Optional, List
 from datetime import datetime, UTC
 from dataclasses import dataclass, asdict
 import logging
@@ -25,7 +24,7 @@ class MarketRegime:
     trend_type: str  # "TREND" | "RANGE" | "MIXED" (consumers treat MIXED as RANGE)
     volatility_level: str  # "HIGH" | "MEDIUM" | "LOW"
     risk_sentiment: str  # "RISK_ON" | "RISK_OFF" | "NEUTRAL"
-    macro_pressure: Optional[str] = None
+    macro_pressure: str | None = None
     confidence: float = 0.0  # 0.0 - 1.0
 
 
@@ -66,9 +65,9 @@ class TradingDecision:
     can_trade: bool  # Можно ли торговать
     reason: str  # Причина решения
     risk_level: str  # "LOW" | "MEDIUM" | "HIGH"
-    max_position_size: Optional[float] = None  # Максимальный размер позиции
-    max_leverage: Optional[float] = None  # Максимальное плечо
-    recommendations: List[str] = None  # Рекомендации
+    max_position_size: float | None = None  # Максимальный размер позиции
+    max_leverage: float | None = None  # Максимальное плечо
+    recommendations: list[str] = None  # Рекомендации
     drawdown_size_multiplier: float = 1.0  # Множитель размера из-за drawdown (0.0-1.0)
 
     def __post_init__(self):
@@ -117,7 +116,7 @@ class DecisionCore:
         """
         pass
     
-    def should_i_trade(self, symbol: Optional[str] = None, system_state=None) -> TradingDecision:
+    def should_i_trade(self, symbol: str | None = None, system_state=None) -> TradingDecision:
         """
         Главный вопрос: можно ли торговать?
         
@@ -330,7 +329,7 @@ class DecisionCore:
                 recommendations=["Система временно недоступна", "Проверьте логи для деталей"]
             )
     
-    def get_risk_status(self, system_state=None) -> Dict:
+    def get_risk_status(self, system_state=None) -> dict:
         """
         Получить статус риска.
         
@@ -373,7 +372,7 @@ class DecisionCore:
                 "risk_level": "HIGH"
             }
     
-    def get_full_context(self, system_state=None) -> Dict:
+    def get_full_context(self, system_state=None) -> dict:
         """
         Получить полный контекст для отладки.
         

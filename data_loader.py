@@ -3,7 +3,6 @@ from requests.adapters import HTTPAdapter
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
 
 BASE_URL = "https://api.bybit.com/v5/market/kline"
 from exchange.bybit_client import instruments_url      # один источник адреса (23.09.2026)
@@ -88,8 +87,8 @@ def get_candles(symbol, interval, limit=120):
     return []  # недостижимо, но для mypy
 
 
-def get_candles_parallel(symbols: List[str], timeframes: Dict[str, str], 
-                         limit: int = 120, max_workers: int = 20) -> Dict[str, Dict[str, List]]:
+def get_candles_parallel(symbols: list[str], timeframes: dict[str, str], 
+                         limit: int = 120, max_workers: int = 20) -> dict[str, dict[str, list]]:
     """
     Параллельно загружает свечи для всех символов и таймфреймов.
     
@@ -138,8 +137,8 @@ TIMEFRAME_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
                 "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 
 
-def closed_candles(candles_by_symbol: Dict[str, Dict[str, List]], now_ms: int,
-                   keep: Optional[int] = None) -> Dict[str, Dict[str, List]]:
+def closed_candles(candles_by_symbol: dict[str, dict[str, list]], now_ms: int,
+                   keep: int | None = None) -> dict[str, dict[str, list]]:
     """
     Только закрытые свечи {symbol: {tf: [...]}} — без текущей, чей бар ещё не закончился
     (Ф1 плана трейдера, шаг 2б). Bybit отдаёт последней незакрытую свечу: решения по ней
@@ -147,7 +146,7 @@ def closed_candles(candles_by_symbol: Dict[str, Dict[str, List]], now_ms: int,
     последних закрытых оставить. Строки без разбираемого времени и незнакомые таймфреймы
     не трогаются.
     """
-    result: Dict[str, Dict[str, List]] = {}
+    result: dict[str, dict[str, list]] = {}
     for symbol, by_tf in candles_by_symbol.items():
         result[symbol] = {}
         for tf, rows in by_tf.items():
@@ -165,14 +164,14 @@ def closed_candles(candles_by_symbol: Dict[str, Dict[str, List]], now_ms: int,
     return result
 
 
-def validate_symbols(symbols: List[str], interval: str = "60") -> List[str]:
+def validate_symbols(symbols: list[str], interval: str = "60") -> list[str]:
     """
     Проверяет каждый символ против Bybit API (одна свеча).
     Возвращает список валидных символов.
     Невалидные логирует один раз — убирает шум из основного цикла.
     """
-    valid: List[str] = []
-    invalid: List[str] = []
+    valid: list[str] = []
+    invalid: list[str] = []
 
     with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {

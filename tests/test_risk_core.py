@@ -5,7 +5,6 @@ import pytest
 from datetime import datetime, UTC, timedelta
 from core.risk_core import (
     RiskCore,
-    RiskCoreConfig,
     RiskState,
     TradingPermission,
     TradingIntent,

@@ -1,8 +1,6 @@
-from typing import Optional, Dict
-from indicators import rsi, macd, momentum, trend_strength
 from core.market_state import MarketState, normalize_states_dict
 
-def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_flat, good_time, candles_map=None, momentum_data=None):
+def calculate_score(states: dict[str, MarketState | None], directions, is_flat, good_time, candles_map=None, momentum_data=None):
     """
     Система оценки торговых возможностей с весами и проверкой силы тренда.
     
@@ -147,7 +145,7 @@ def calculate_score(states: Dict[str, Optional[MarketState]], directions, is_fla
         else:
             # MACD NEUTRAL — no momentum confirmation
             score -= 3
-            reasons.append(f"⚠️ MACD нейтрален — нет подтверждения импульса")
+            reasons.append("⚠️ MACD нейтрален — нет подтверждения импульса")
         details["macd_trend"] = macd_trend
         
         # 6. Сила тренда (10 баллов)
@@ -294,7 +292,7 @@ def market_mode(score):
         return "STOP"  # Не торговать
 
 
-def get_entry_conditions(states: Dict[str, Optional[MarketState]], directions, score_details):
+def get_entry_conditions(states: dict[str, MarketState | None], directions, score_details):
     """
     Определяет, какие условия входа выполнены.
     

@@ -4,7 +4,7 @@
 """
 import json
 import sqlite3
-from typing import Dict, Iterable, Optional
+from collections.abc import Iterable
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT)",
@@ -33,7 +33,7 @@ class Store:
             self.conn.execute("ALTER TABLE snapshots ADD COLUMN positions TEXT")
         self.conn.commit()
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
 
@@ -42,7 +42,7 @@ class Store:
                           (key, str(value)))
         self.conn.commit()
 
-    def add_fills(self, category: str, rows: Iterable[Dict]) -> int:
+    def add_fills(self, category: str, rows: Iterable[dict]) -> int:
         added = 0
         for r in rows:
             cur = self.conn.execute(
@@ -54,7 +54,7 @@ class Store:
         self.conn.commit()
         return added
 
-    def add_funding(self, rows: Iterable[Dict]) -> int:
+    def add_funding(self, rows: Iterable[dict]) -> int:
         """Начисления фандинга; итог считается по change — изменению кошелька (знак однозначный)."""
         added = 0
         for r in rows:
@@ -66,8 +66,8 @@ class Store:
         self.conn.commit()
         return added
 
-    def snapshot(self, ts: int, equity: float, mm_rate: Optional[float], deviations: Dict[str, float],
-                 positions: Optional[Dict[str, dict]] = None) -> None:
+    def snapshot(self, ts: int, equity: float, mm_rate: float | None, deviations: dict[str, float],
+                 positions: dict[str, dict] | None = None) -> None:
         """positions — {символ: {"spot": объём спота, "short": объём шорта, "price": цена}} для мини-аппа."""
         self.conn.execute("INSERT OR REPLACE INTO snapshots (ts, equity, mm_rate, deviations, positions) VALUES (?, ?, ?, ?, ?)",
                           (ts, equity, mm_rate, json.dumps(deviations), json.dumps(positions or {})))

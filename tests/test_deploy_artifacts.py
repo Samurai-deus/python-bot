@@ -615,3 +615,14 @@ def test_deploy_scripts_never_put_the_bot_token_into_curl_arguments():
         text = (DEPLOY / script).read_text(encoding="utf-8")
         assert not re.search(r'curl[^\n|]*api\.telegram\.org/bot\$', text), script
         assert not re.search(r'"https://api\.telegram\.org/bot\$', text), script
+
+
+def test_python_services_run_without_privilege_escalation_or_capabilities():
+    """Аудит 29.09.2026: процессам бота capabilities ядра не нужны; redis — исключение (меняет пользователя)."""
+    import yaml
+    compose = yaml.safe_load((DEPLOY / "docker-compose.prod.yml").read_text(encoding="utf-8"))
+    ours = {k: v for k, v in compose["services"].items() if str(v.get("image", "")).startswith("market-bot:")}
+    assert len(ours) >= 7, list(ours)
+    for name, svc in ours.items():
+        assert svc.get("cap_drop") == ["ALL"] and not svc.get("cap_add"), name
+        assert "no-new-privileges:true" in (svc.get("security_opt") or []), name

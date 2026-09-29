@@ -18,7 +18,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 def test_every_calendar_checkpoint_is_in_the_plan():
     plan = (ROOT / "docs" / "TRADER_PLAN.md").read_text(encoding="utf-8")
     missing = []
-    for day, text in calendar.CHECKPOINTS:
+    for day, _text in calendar.CHECKPOINTS:
         y, m, d = day.split("-")
         if f"{d}.{m}" not in plan:
             missing.append(day)
@@ -52,7 +52,7 @@ def test_program_dates_are_in_the_plan():
     plan = (ROOT / "docs" / "TRADER_PLAN.md").read_text(encoding="utf-8")
     dates = set()
     for meta in PROGRAM.values():
-        for k, v in meta.items():
+        for _k, v in meta.items():
             if isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
                 dates.add(v)
     missing = sorted(d for d in dates if f"{d[8:10]}.{d[5:7]}" not in plan)

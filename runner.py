@@ -30,14 +30,13 @@ import signal
 import os
 import time
 import threading
-from datetime import datetime, UTC, timedelta
+from datetime import datetime, UTC
 from enum import Enum
 from pathlib import Path
-from typing import Set, Optional
 
 # File locking (Unix only)
 try:
-    import fcntl
+    import fcntl  # noqa: F401 — проверка, что платформа POSIX
     HAS_FCNTL = True
 except ImportError:
     HAS_FCNTL = False  # Windows
@@ -45,13 +44,11 @@ except ImportError:
 # Импорты для работы бота
 from utils.env import env_flag
 from error_alert import error_alert
-from telegram_bot import send_message, send_message_async
-from health_monitor import send_heartbeat, send_heartbeat_async, HEARTBEAT_INTERVAL
+from telegram_bot import send_message_async
 from loops import fault_injection, monitors, paper_monitor, periodic, runtime_heartbeat, telegram_supervisor
 
 # Новые модули для контролируемой архитектуры
 from system_state_machine import get_state_machine, SystemState as SystemStateEnum
-from systemd_integration import get_systemd_integration, ExitCode
 
 # Импорты для анализа рынка (будем вызывать напрямую)
 from config import SYMBOLS
@@ -275,7 +272,7 @@ from system_state import set_system_state
 set_system_state(system_state)
 
 # ========== HARDENING: STATE MACHINE HELPER FUNCTIONS ==========
-async def enter_safe_mode(reason: str, owner: str, metadata: Optional[dict] = None) -> bool:
+async def enter_safe_mode(reason: str, owner: str, metadata: dict | None = None) -> bool:
     """
     HARDENING: Единая точка входа в SAFE_MODE через state machine.
     
@@ -451,7 +448,7 @@ async def dispatch_alerts(alerts_to_send) -> None:
                     _adaptive_system_state["recovery_cycles"] = 0
                 get_state_machine().sync_to_system_state(system_state, manual_pause_active=True)
                 logger.error("Trading paused due to CRITICAL alert: %s", alert['type'])
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Timeout sending alert: %s - %s", alert['level'], alert['type'])
         except Exception as e:
             logger.warning("Error sending alert %s - %s: %s: %s", alert['level'], alert['type'], type(e).__name__, e)
@@ -640,7 +637,7 @@ def check_single_instance() -> bool:
     if pid_path.exists():
         try:
             # Читаем PID
-            with open(pid_path, 'r') as f:
+            with open(pid_path) as f:
                 old_pid = int(f.read().strip())
             
             # Проверяем, жив ли процесс
@@ -653,7 +650,7 @@ def check_single_instance() -> bool:
                 # Процесс не существует - старый PID file
                 logger.info("Removing stale PID file (PID: %d no longer exists)", old_pid)
                 pid_path.unlink()
-        except (ValueError, IOError) as e:
+        except (OSError, ValueError) as e:
             logger.warning("Error reading PID file: %s. Removing it.", e)
             try:
                 pid_path.unlink()
@@ -710,7 +707,7 @@ watchdogs.configure(system_state=system_state)
 # 4. No blocking code after SIGTERM - process must exit within TimeoutStopSec
 
 # Centralized task registry - ALL running tasks must be registered here
-RUNNING_TASKS: Set[asyncio.Task] = set()
+RUNNING_TASKS: set[asyncio.Task] = set()
 
 # Shutdown event - set by signal handler, checked by all loops
 # ========== RUNTIME LIFECYCLE STATE MACHINE ==========
@@ -762,7 +759,7 @@ def set_runtime_lifecycle_state(new_state: RuntimeLifecycleState, reason: str) -
         )
         return True
 
-_shutdown_event: Optional[asyncio.Event] = None
+_shutdown_event: asyncio.Event | None = None
 
 def get_shutdown_event() -> asyncio.Event:
     """
@@ -1001,7 +998,6 @@ def _is_running() -> bool:
 # Обработчики и сервер живут в control_plane/http.py (пункт 5 плана отложенного,
 # шаг 6в). Настройки процесса передаются туда здесь, один раз; состояние процесса
 # сервер берёт функцией _state на каждый запрос (см. main()).
-import time
 
 from control_plane import http as cp_http
 cp_http.configure(analysis_interval=ANALYSIS_INTERVAL,
@@ -1121,7 +1117,7 @@ async def main():
             logger.info("System state restored from snapshot")
         else:
             logger.info("No snapshot found, starting with empty state")
-    except IOError as e:
+    except OSError as e:
         # Обработка fault injection из storage layer при загрузке
         if "FAULT_INJECTION: storage_failure" in str(e):
             logger.error(
@@ -1137,7 +1133,7 @@ async def main():
                 if not state_machine.is_safe_mode:
                     await state_machine.transition_to(
                         SystemStateEnum.SAFE_MODE,
-                        reason=f"Storage fault injection (startup): consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
+                        reason="Storage fault injection (startup): consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
                         owner="main_startup",
                         metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                     )
@@ -1162,7 +1158,7 @@ async def main():
         if not _active_symbols:
             logger.critical("Ни один символ не вернул свечи. Проверьте соединение с Bybit.")
             _active_symbols = list(SYMBOLS)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("Валидация символов превысила таймаут 30с — используем весь список")
         _active_symbols = list(SYMBOLS)
     except Exception as e:
@@ -1411,7 +1407,7 @@ async def main():
                 try:
                     await asyncio.wait_for(telegram_task_to_stop, timeout=5.0)
                     logger.info("Telegram polling stopped")
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning("Telegram polling task did not stop within timeout")
                 except asyncio.CancelledError:
                     logger.info("Telegram polling task cancelled")
@@ -1548,7 +1544,7 @@ async def main():
                     timeout=2.0
                 )
                 logger.debug("Default executor shut down")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Default executor shutdown timeout (non-critical)")
             except RuntimeError:
                 # Executor уже закрыт или event loop закрыт - это нормально
@@ -1603,7 +1599,7 @@ async def main():
                             timeout=2.0
                         )
                         logger.debug("Telegram Bot closed")
-                    except (asyncio.TimeoutError, RuntimeError, AttributeError):
+                    except (TimeoutError, RuntimeError, AttributeError):
                         # Timeout или уже закрыт - это нормально при shutdown
                         pass
                 
@@ -1617,7 +1613,7 @@ async def main():
                                 timeout=2.0
                             )
                             logger.debug("Telegram Bot HTTP client closed")
-                        except (asyncio.TimeoutError, RuntimeError, AttributeError):
+                        except (TimeoutError, RuntimeError, AttributeError):
                             logger.debug("Telegram Bot HTTP client close failed (timeout/runtime/attr)", exc_info=True)
                     # Альтернативный способ: закрыть connector напрямую (если доступен)
                     if hasattr(bot.request, '_client') and bot.request._client:
@@ -1629,7 +1625,7 @@ async def main():
                                     timeout=2.0
                                 )
                                 logger.debug("Telegram Bot HTTPX client connector closed")
-                            except (asyncio.TimeoutError, RuntimeError, AttributeError):
+                            except (TimeoutError, RuntimeError, AttributeError):
                                 logger.debug("Telegram Bot HTTPX connector close failed (timeout/runtime/attr)", exc_info=True)
         except (ImportError, AttributeError, RuntimeError):
             # Bot не импортирован или уже закрыт - это нормально
@@ -1648,7 +1644,7 @@ async def main():
                         timeout=1.0
                     )
                     logger.debug("Async generators shut down")
-                except (asyncio.TimeoutError, RuntimeError):
+                except (TimeoutError, RuntimeError):
                     logger.debug("Async generators shutdown failed (timeout/runtime)", exc_info=True)
         except RuntimeError:
             # Event loop уже закрыт - это нормально

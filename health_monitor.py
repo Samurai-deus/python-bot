@@ -82,7 +82,7 @@ def check_last_heartbeat(max_interval_seconds=7200):
         if not os.path.exists(LAST_HEARTBEAT_FILE):
             return False  # Файл не существует - первый запуск
         
-        with open(LAST_HEARTBEAT_FILE, "r", encoding="utf-8") as f:
+        with open(LAST_HEARTBEAT_FILE, encoding="utf-8") as f:
             last_heartbeat_time = float(f.read().strip())
         
         time_since_heartbeat = time.time() - last_heartbeat_time

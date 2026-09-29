@@ -42,7 +42,7 @@ async def create_session(request: Request):
         user = verify_init_data(init_data, bot_token, max_age=EXCHANGE_MAX_AGE)
     except InitDataError as exc:
         logger.info("auth: обмен отклонён — %s", exc)
-        raise HTTPException(status_code=401, detail="Invalid Telegram InitData")
+        raise HTTPException(status_code=401, detail="Invalid Telegram InitData") from None
     if not principals.is_allowed(user["user_id"]):
         logger.warning("auth: user_id=%s не в списке допущенных", user["user_id"])
         raise HTTPException(status_code=403, detail="Access denied")
@@ -56,6 +56,6 @@ async def create_session(request: Request):
         token, expires_in = await store.create(user["user_id"], user.get("username"))
     except SessionUnavailable as exc:
         logger.error("auth: хранилище сессий недоступно: %s", exc)
-        raise HTTPException(status_code=503, detail="Session service unavailable")
+        raise HTTPException(status_code=503, detail="Session service unavailable") from None
     logger.info("auth: выдана сессия user_id=%s", user["user_id"])
     return SessionResponse(token=token, expires_in=expires_in)

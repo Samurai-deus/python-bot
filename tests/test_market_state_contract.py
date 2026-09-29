@@ -9,8 +9,6 @@
 Если тесты падают - значит кто-то нарушил архитектурное правило.
 """
 import pytest
-import logging
-from typing import Dict, Optional
 from core.market_state import (
     MarketState,
     normalize_state,
@@ -20,7 +18,7 @@ from core.market_state import (
     get_state_text
 )
 from risk import risk_level
-from scoring import calculate_score, get_entry_conditions
+from scoring import calculate_score
 from signals import build_signal
 
 

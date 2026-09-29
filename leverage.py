@@ -1,7 +1,6 @@
 """
 Расчет рекомендуемого плеча на основе волатильности и риска
 """
-from indicators import atr
 from risk import risk_level
 
 

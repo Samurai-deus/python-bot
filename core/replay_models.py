@@ -12,7 +12,7 @@ Replay Engine - оффлайн-инструмент аудита для повт
 """
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
-from typing import Dict, List, Optional, Any
+from typing import Any
 from enum import Enum
 
 
@@ -38,10 +38,10 @@ class OriginalDecision:
     decision_type: DecisionType
     decision_source: str  # Источник решения (например, "MetaDecisionBrain", "PortfolioBrain")
     reason: str
-    block_level: Optional[str] = None  # HARD, SOFT, NONE
-    position_allowed: Optional[bool] = None
-    position_size_usd: Optional[float] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    block_level: str | None = None  # HARD, SOFT, NONE
+    position_allowed: bool | None = None
+    position_size_usd: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -55,10 +55,10 @@ class ReplayedDecision:
     decision_type: DecisionType
     decision_source: str
     reason: str
-    block_level: Optional[str] = None
-    position_allowed: Optional[bool] = None
-    position_size_usd: Optional[float] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    block_level: str | None = None
+    position_allowed: bool | None = None
+    position_size_usd: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -81,16 +81,16 @@ class DecisionDiff:
     original_reason: str
     replayed_reason: str
     
-    original_block_level: Optional[str]
-    replayed_block_level: Optional[str]
+    original_block_level: str | None
+    replayed_block_level: str | None
     
-    original_position_allowed: Optional[bool]
-    replayed_position_allowed: Optional[bool]
+    original_position_allowed: bool | None
+    replayed_position_allowed: bool | None
     
-    original_position_size: Optional[float]
-    replayed_position_size: Optional[float]
+    original_position_size: float | None
+    replayed_position_size: float | None
     
-    size_diff_pct: Optional[float] = None  # Процент изменения размера
+    size_diff_pct: float | None = None  # Процент изменения размера
     
     diff_summary: str = ""  # Краткое описание изменений
     
@@ -159,10 +159,10 @@ class ReplayReport:
     size_changes: int = 0  # Изменения в размере позиции
     
     # Breakdown по типам решений
-    decision_type_changes: Dict[str, int] = field(default_factory=dict)
+    decision_type_changes: dict[str, int] = field(default_factory=dict)
     
     # Детали изменений
-    changed_results: List[ReplayResult] = field(default_factory=list)
+    changed_results: list[ReplayResult] = field(default_factory=list)
     
     def __post_init__(self):
         """Вычисляет change_rate после создания"""

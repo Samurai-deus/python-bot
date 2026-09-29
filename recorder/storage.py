@@ -10,7 +10,7 @@ import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Set, Tuple
+from collections.abc import Iterable
 
 PATTERN = "*/*/*/*.jsonl.gz"
 
@@ -18,7 +18,7 @@ PATTERN = "*/*/*/*.jsonl.gz"
 class HourlyWriter:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
-        self.files: Dict[Tuple[str, str], Tuple[Path, object]] = {}
+        self.files: dict[tuple[str, str], tuple[Path, object]] = {}
 
     def path(self, kind: str, symbol: str, t_ms: int) -> Path:
         dt = datetime.fromtimestamp(t_ms / 1000, UTC)
@@ -39,7 +39,7 @@ class HourlyWriter:
         for _, fh in self.files.values():
             fh.flush()
 
-    def open_paths(self) -> Set[Path]:
+    def open_paths(self) -> set[Path]:
         return {p for p, _ in self.files.values()}
 
     def close(self) -> None:
@@ -57,11 +57,11 @@ def log_event(root: Path, event: str, **fields) -> None:
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
 
-def _chronological(files: Iterable[Path]) -> List[Path]:
+def _chronological(files: Iterable[Path]) -> list[Path]:
     return sorted(files, key=lambda p: (p.parent.name, p.name, str(p)))
 
 
-def enforce_cap(root: Path, cap_bytes: int, keep: Set[Path]) -> List[Path]:
+def enforce_cap(root: Path, cap_bytes: int, keep: set[Path]) -> list[Path]:
     """Удаляет самые старые часовые файлы, пока занято больше cap_bytes; открытые (keep) не трогает."""
     root = Path(root)
     files = _chronological(root.glob(PATTERN))

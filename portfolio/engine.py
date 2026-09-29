@@ -5,7 +5,8 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Dict, List, Mapping, Optional, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from backtest import momentum_xs as mx
 from backtest import trend_ts as tt
@@ -45,7 +46,7 @@ class Order:
     reduce_only: bool
 
 
-def continuation_universe(data: Mapping[str, dict], candidates: Sequence[str]) -> List[str]:
+def continuation_universe(data: Mapping[str, dict], candidates: Sequence[str]) -> list[str]:
     """top30 кандидатов по среднему дневному обороту за 30 дней (data[s]["turn30"]) среди старше 100 дней."""
     ok = [(d["turn30"], s) for s in candidates if (d := data.get(s)) and d.get("age_d", 0) >= CONT_MIN_AGE_D
           and d.get("turn30", 0.0) >= CONT_MIN_TURNOVER]
@@ -53,7 +54,7 @@ def continuation_universe(data: Mapping[str, dict], candidates: Sequence[str]) -
     return [s for _, s in ok[:CONT_TOP]]
 
 
-def continuation_weights(data: Mapping[str, dict], candidates: Sequence[str], t: int) -> Dict[str, float]:
+def continuation_weights(data: Mapping[str, dict], candidates: Sequence[str], t: int) -> dict[str, float]:
     """И17а: доходность за последние сутки по закрытым 4h-барам; лонг 5 лучших / шорт 5 худших по CONT_WEIGHT."""
     scores = {}
     for s in continuation_universe(data, candidates):
@@ -63,17 +64,17 @@ def continuation_weights(data: Mapping[str, dict], candidates: Sequence[str], t:
             scores[s] = b / a - 1
     if len(scores) < 2 * CONT_BASKET:
         return {}
-    ranked = sorted(scores, key=scores.get)
+    ranked = sorted(scores, key=lambda s: scores[s])
     return {**{s: CONT_WEIGHT for s in ranked[-CONT_BASKET:]}, **{s: -CONT_WEIGHT for s in ranked[:CONT_BASKET]}}
 
 
-def combined_weights(data: Mapping[str, dict], trend_symbols: Sequence[str], momentum_symbols: Sequence[str],
-                     t: int, continuation_candidates: Sequence[str] = ()) -> Dict[str, float]:
+def combined_weights(data: dict[str, dict], trend_symbols: Sequence[str], momentum_symbols: Sequence[str],
+                     t: int, continuation_candidates: Sequence[str] = ()) -> dict[str, float]:
     """
     Вес монеты в долях капитала: K_TREND × вес И4 + K_MOMENTUM × вес И3 + K_CONTINUATION × вес И17а.
     t_next = t — у И4 он нужен только для проверки цены выхода, которой вживую ещё нет.
     """
-    weights: Dict[str, float] = {}
+    weights: dict[str, float] = {}
     for s, w in tt.targets(data, trend_symbols, t, t, TREND_LOOKBACK_D).items():
         weights[s] = weights.get(s, 0.0) + K_TREND * w
     pick = mx.baskets(data, momentum_symbols, t, MOMENTUM_LOOKBACK_D)
@@ -88,7 +89,7 @@ def combined_weights(data: Mapping[str, dict], trend_symbols: Sequence[str], mom
 
 
 def orders_to_target(targets_usdt: Mapping[str, float], positions_qty: Mapping[str, float],
-                     marks: Mapping[str, float], filters: Mapping[str, object], min_order: float) -> List[Order]:
+                     marks: Mapping[str, float], filters: Mapping[str, Any], min_order: float) -> list[Order]:
     """
     Ордера, доводящие позиции (подписанный ОБЪЁМ в монетах) до целей (подписанный номинал, USDT).
     Позиция оценивается по текущей цене mark. Цель 0 — закрытие reduce_only ТОЧНЫМ объёмом позиции;
@@ -98,7 +99,7 @@ def orders_to_target(targets_usdt: Mapping[str, float], positions_qty: Mapping[s
     цены закрытие выбывшей монеты оставляло хвост (21.09 у И14 — 8 позиций вне целей), а доводка
     остальных целей ошибалась на изменение цены с момента входа.
     """
-    out: List[Order] = []
+    out: list[Order] = []
     for s in sorted(set(targets_usdt) | set(positions_qty)):
         target, qty_have = targets_usdt.get(s, 0.0), positions_qty.get(s, 0.0)
         mark, f = marks.get(s), filters.get(s)
@@ -120,7 +121,7 @@ def orders_to_target(targets_usdt: Mapping[str, float], positions_qty: Mapping[s
     return out
 
 
-def untradeable(targets_usdt: Mapping[str, float], marks: Mapping[str, float], filters: Mapping[str, object]) -> List[str]:
+def untradeable(targets_usdt: Mapping[str, float], marks: Mapping[str, float], filters: Mapping[str, object]) -> list[str]:
     """
     Монеты с ненулевой целью, которые нельзя довести без цены (mark ≤ 0 — клиент так сообщает о сбое)
     или параметров инструмента. До 29.09 orders_to_target молча их пропускал, и неделя считалась сделанной.
@@ -134,7 +135,7 @@ def close_order(symbol: str, qty_have: float) -> Order:
     return Order(symbol, "Sell" if qty_have > 0 else "Buy", Decimal(str(abs(qty_have))), reduce_only=True)
 
 
-def leftover_orders(positions_qty: Mapping[str, float], last_weights: Mapping[str, float], traded: set) -> List[Order]:
+def leftover_orders(positions_qty: Mapping[str, float], last_weights: Mapping[str, float], traded: set) -> list[Order]:
     """
     Хвосты: позиции по монетам, которыми исполнитель торговал раньше, но которых нет в целях последней
     ребалансировки, — закрыть точным объёмом. Чужие монеты (не из журнала исполнителя) не трогаются:
@@ -155,7 +156,7 @@ def monday_of(now_ms: int) -> int:
     return int(monday.timestamp() * 1000)
 
 
-def due_rebalance(now_ms: int, last_done_t: Optional[int]) -> Optional[int]:
+def due_rebalance(now_ms: int, last_done_t: int | None) -> int | None:
     """
     Момент t понедельника, чью ребалансировку пора выполнить: последний понедельник ≤ now, если
     прошло ≥ REBALANCE_DELAY_MS, тот же день (UTC) ещё идёт и она ещё не сделана. Иначе None.

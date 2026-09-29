@@ -16,7 +16,6 @@ BacktestEngine — полноценный бэктест поверх истор
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +76,7 @@ class BacktestTrade:
     entry_price: float           # с учётом slippage
     exit_price: float            # с учётом slippage
     stop_loss: float
-    take_profit: Optional[float]
+    take_profit: float | None
     quantity: float              # в базовой валюте
     position_size_usdt: float    # entry_price * quantity
     gross_pnl: float
@@ -85,8 +84,8 @@ class BacktestTrade:
     net_pnl: float
     close_reason: str            # "TP" | "SL" | "END_OF_DATA"
     balance_after: float
-    signal_confidence: Optional[float] = None
-    signal_entropy: Optional[float] = None
+    signal_confidence: float | None = None
+    signal_entropy: float | None = None
 
 
 @dataclass
@@ -107,8 +106,8 @@ class BacktestResult:
         final_balance:  Итоговый баланс.
     """
     config: BacktestConfig
-    trades: List[BacktestTrade] = field(default_factory=list)
-    equity_curve: List[float] = field(default_factory=list)
+    trades: list[BacktestTrade] = field(default_factory=list)
+    equity_curve: list[float] = field(default_factory=list)
 
     @property
     def total_trades(self) -> int:
@@ -173,7 +172,7 @@ class BacktestEngine:
         config: Конфигурация бэктеста. По умолчанию — стандартные параметры.
     """
 
-    def __init__(self, config: Optional[BacktestConfig] = None):
+    def __init__(self, config: BacktestConfig | None = None):
         self.config = config or BacktestConfig()
 
     # ------------------------------------------------------------------
@@ -182,8 +181,8 @@ class BacktestEngine:
 
     def run(
         self,
-        signals: List[dict],
-        ohlcv: Dict[str, List[OHLCVCandle]],
+        signals: list[dict],
+        ohlcv: dict[str, list[OHLCVCandle]],
     ) -> BacktestResult:
         """
         Запускает бэктест.
@@ -224,9 +223,9 @@ class BacktestEngine:
     def _simulate_trade(
         self,
         signal: dict,
-        candles: List[OHLCVCandle],
+        candles: list[OHLCVCandle],
         balance: float,
-    ) -> Optional[BacktestTrade]:
+    ) -> BacktestTrade | None:
         """
         Симулирует одну сделку на заданных свечах.
 
@@ -299,9 +298,9 @@ class BacktestEngine:
 
     def _find_entry_candle(
         self,
-        candles: List[OHLCVCandle],
+        candles: list[OHLCVCandle],
         signal_ts: str,
-    ) -> Optional[OHLCVCandle]:
+    ) -> OHLCVCandle | None:
         """Первая свеча с timestamp >= signal_ts."""
         for candle in candles:
             if candle.timestamp >= signal_ts:
@@ -310,12 +309,12 @@ class BacktestEngine:
 
     def _find_exit_candle(
         self,
-        candles: List[OHLCVCandle],
+        candles: list[OHLCVCandle],
         entry_candle: OHLCVCandle,
         side: str,
         sl: float,
-        tp: Optional[float],
-    ) -> Tuple[OHLCVCandle, str]:
+        tp: float | None,
+    ) -> tuple[OHLCVCandle, str]:
         """
         Ищет свечу, на которой был задет SL или TP.
 
@@ -349,7 +348,7 @@ class BacktestEngine:
         candle: OHLCVCandle,
         side: str,
         sl: float,
-        tp: Optional[float],
+        tp: float | None,
         close_reason: str,
     ) -> float:
         """Определяет конкретную цену выхода на свече."""
@@ -379,7 +378,7 @@ class BacktestEngine:
         entry_price: float,
         sl: float,
         side: str,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """
         Рассчитывает размер позиции по риску на сделку.
 

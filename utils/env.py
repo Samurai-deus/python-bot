@@ -21,7 +21,6 @@ https://api.bybit.com. То есть реальный ордер на mainnet п
 следит гейт в CI (см. .github/workflows/ci.yml, шаг «единый парсер флагов»).
 """
 import os
-from typing import Optional
 
 # Истина и ложь перечислены явно и симметрично. Всё остальное — ошибка конфигурации,
 # а не «наверное, ложь»: молчаливое приведение мусора к False однажды уже означало бы
@@ -46,7 +45,7 @@ def env_flag(name: str, default: bool = False) -> bool:
     Не задан → default. Задан распознаваемым значением → соответствующий bool.
     Задан чем-то другим → ValueError с указанием имени и значения.
     """
-    raw: Optional[str] = os.environ.get(name)
+    raw: str | None = os.environ.get(name)
     if raw is None:
         return default
     value = raw.strip().lower()

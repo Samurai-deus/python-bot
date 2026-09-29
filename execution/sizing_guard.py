@@ -15,14 +15,13 @@
 каком режиме (см. market_data.instrument_limits).
 """
 import logging
-from typing import Optional, Tuple
 
 from market_data.instrument_limits import min_order_usd, min_order_violation, smallest_order_usd
 
 logger = logging.getLogger(__name__)
 
 
-def _positive_price(source, key) -> Optional[float]:
+def _positive_price(source, key) -> float | None:
     try:
         value = float(source.get(key) or 0)
     except (TypeError, ValueError, AttributeError):
@@ -30,7 +29,7 @@ def _positive_price(source, key) -> Optional[float]:
     return value if value > 0 else None
 
 
-def entry_price_from_signal(signal_data) -> Optional[float]:
+def entry_price_from_signal(signal_data) -> float | None:
     """
     Цена входа из сигнала. signal_generator кладёт её и на верхний уровень,
     и в signal_data["zone"]; Risk Core читает из zone, исполнитель — сверху.
@@ -41,13 +40,13 @@ def entry_price_from_signal(signal_data) -> Optional[float]:
     return _positive_price(signal_data, "entry") or _positive_price(signal_data.get("zone") or {}, "entry")
 
 
-def stop_price_from_signal(signal_data) -> Optional[float]:
+def stop_price_from_signal(signal_data) -> float | None:
     if not signal_data:
         return None
     return _positive_price(signal_data, "stop") or _positive_price(signal_data.get("zone") or {}, "stop")
 
 
-def stop_distance_from_signal(signal_data) -> Optional[float]:
+def stop_distance_from_signal(signal_data) -> float | None:
     """Расстояние от входа до стопа как доля цены входа, или None, если не посчитать."""
     entry = entry_price_from_signal(signal_data)
     stop = stop_price_from_signal(signal_data)
@@ -56,7 +55,7 @@ def stop_distance_from_signal(signal_data) -> Optional[float]:
     return abs(entry - stop) / entry
 
 
-def reduce_keeping_minimum(symbol: str, size_usd: float, factor: float, entry_price: Optional[float],
+def reduce_keeping_minimum(symbol: str, size_usd: float, factor: float, entry_price: float | None,
                            fetch=None) -> float:
     """
     Уменьшить размер в factor раз (ALLOW_LIMITED, PortfolioBrain), но не ниже
@@ -71,8 +70,8 @@ def reduce_keeping_minimum(symbol: str, size_usd: float, factor: float, entry_pr
     return reduced
 
 
-def finalize_position_size(symbol: str, sized_usd: Optional[float], approved_usd: Optional[float],
-                           entry_price: Optional[float], fetch=None) -> Tuple[Optional[float], Optional[str]]:
+def finalize_position_size(symbol: str, sized_usd: float | None, approved_usd: float | None,
+                           entry_price: float | None, fetch=None) -> tuple[float | None, str | None]:
     """
     Возвращает (итоговый размер, None) или (None, причина отказа).
 
@@ -107,8 +106,8 @@ def finalize_position_size(symbol: str, sized_usd: Optional[float], approved_usd
     return final, None
 
 
-def unaffordable_reason(symbol: str, price: Optional[float], position_cap_usd: float,
-                        fetch=None) -> Optional[str]:
+def unaffordable_reason(symbol: str, price: float | None, position_cap_usd: float,
+                        fetch=None) -> str | None:
     """
     Почему символ не кандидат для сделки — или None.
 

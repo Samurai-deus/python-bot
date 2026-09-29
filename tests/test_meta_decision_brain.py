@@ -1,7 +1,6 @@
 """
 Тесты для MetaDecisionBrain.
 """
-import pytest
 from brains.meta_decision_brain import (
     MetaDecisionBrain,
     MetaDecisionResult,

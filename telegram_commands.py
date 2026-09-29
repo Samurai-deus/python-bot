@@ -1,7 +1,6 @@
 """
 Модуль для обработки Telegram команд
 """
-import csv
 import logging
 import os
 import secrets
@@ -14,17 +13,13 @@ from telegram.ext import (
     ApplicationHandlerStop, CallbackQueryHandler, CommandHandler, ContextTypes,
     MessageHandler, TypeHandler, filters,
 )
-from telegram_bot import send_message
-from bot_statistics import get_trade_statistics, format_statistics_report, get_signals_statistics, get_full_statistics
+from bot_statistics import get_signals_statistics, get_full_statistics
 from trade_manager import get_open_trades
 from capital import get_current_balance
 from database import get_open_positions, get_closed_trades
 from capital import get_initial_balance
 from core.decision_core import get_decision_core
 from execution.gatekeeper import get_gatekeeper
-from brains.market_regime_brain import get_market_regime_brain
-from brains.risk_exposure_brain import get_risk_exposure_brain
-from brains.cognitive_filter import get_cognitive_filter
 
 # Кто владелец и кто допущен — решает utils.principals, единый источник для бота,
 # API и ассистента. Раньше здесь стоял int(os.environ.get("ADMIN_CHAT_ID", "0")):
@@ -488,7 +483,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if system_state is None:
             decision_emoji = "⚠️"
             status_text += f"{decision_emoji} **Decision Core:** Состояние недоступно\n"
-            status_text += f"⚠️ **Риск:** `UNKNOWN`\n\n"
+            status_text += "⚠️ **Риск:** `UNKNOWN`\n\n"
         else:
             decision = decision_core.should_i_trade(system_state=system_state)
             decision_emoji = "✅" if decision.can_trade else "❌"
@@ -512,7 +507,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Последний heartbeat
         if os.path.exists("last_heartbeat.txt"):
             try:
-                with open("last_heartbeat.txt", "r", encoding='utf-8') as f:
+                with open("last_heartbeat.txt", encoding='utf-8') as f:
                     last_heartbeat = float(f.read().strip())
                     time_since = (datetime.now(UTC).timestamp() - last_heartbeat) / 3600
                     if time_since < 1:
@@ -747,7 +742,7 @@ async def cmd_should_i_trade(update: Update, context: ContextTypes.DEFAULT_TYPE)
             msg += f"📈 **Макс. плечо:** `{decision.max_leverage:.1f}x`\n"
         
         if decision.recommendations:
-            msg += f"\n💡 **Рекомендации:**\n"
+            msg += "\n💡 **Рекомендации:**\n"
             for rec in decision.recommendations:
                 msg += f"• {rec}\n"
         
@@ -836,7 +831,7 @@ async def cmd_risk_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"• Суммарное плечо: `{status['total_leverage']:.2f}x`\n"
         
         if status['warnings']:
-            msg += f"\n⚠️ **Предупреждения:**\n"
+            msg += "\n⚠️ **Предупреждения:**\n"
             for warning in status['warnings']:
                 msg += f"• {warning}\n"
         
@@ -900,7 +895,7 @@ async def cmd_invest(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"⚠️ **Текущий риск портфеля:** `{risk_pct:.2f}%`\n"
         
         if decision.recommendations:
-            msg += f"\n💡 **Рекомендации:**\n"
+            msg += "\n💡 **Рекомендации:**\n"
             for rec in decision.recommendations:
                 msg += f"• {rec}\n"
         
@@ -924,7 +919,7 @@ async def cmd_market_regime(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_func = update.callback_query.message.reply_text
         
         from system_state import get_system_state
-        decision_core = get_decision_core()
+        get_decision_core()
         system_state = get_system_state()
         
         # Безопасная проверка на None
@@ -999,7 +994,7 @@ async def cmd_risk_exposure(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             reply_func = update.callback_query.message.reply_text
         
-        decision_core = get_decision_core()
+        get_decision_core()
         
         # Если риск не определен, загружаем данные и анализируем
         from system_state import get_system_state
@@ -1076,7 +1071,7 @@ async def cmd_cognitive(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_func = update.callback_query.message.reply_text
         
         from system_state import get_system_state
-        decision_core = get_decision_core()
+        get_decision_core()
         system_state = get_system_state()
         
         # Безопасная проверка на None
@@ -1123,7 +1118,7 @@ async def cmd_opportunities(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_func = update.callback_query.message.reply_text
         
         from system_state import get_system_state
-        decision_core = get_decision_core()
+        get_decision_core()
         system_state = get_system_state()
         
         # Безопасная проверка на None

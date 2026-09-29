@@ -15,7 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
 from enum import Enum
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Параметры (ADR-005)
@@ -68,7 +67,7 @@ class AdaptiveRiskDecision:
     def changed(self) -> bool:
         return abs(self.new_risk_pct - self.previous_risk_pct) > 0.001
 
-    def telegram_message(self) -> Optional[str]:
+    def telegram_message(self) -> str | None:
         """
         Возвращает текст для Telegram уведомления или None, если уведомление не нужно.
         """
@@ -119,7 +118,7 @@ class AdaptiveRiskManager:
             base_risk_pct: Базовый риск из config.py (%). Верхняя граница восстановления.
         """
         self.base_risk_pct = base_risk_pct
-        self._last_drift_time: Optional[datetime] = None
+        self._last_drift_time: datetime | None = None
 
     def evaluate(
         self,

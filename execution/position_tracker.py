@@ -14,7 +14,6 @@ Position Tracker — Phase 2.
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
-from typing import Dict, List, Optional
 
 from exchange.bybit_client import BybitClient, PositionInfo, get_bybit_client
 
@@ -30,8 +29,8 @@ class TrackedPosition:
     side: str              # "LONG" | "SHORT"
     entry_price: float
     qty: float
-    stop_loss: Optional[float]
-    take_profit: Optional[float]
+    stop_loss: float | None
+    take_profit: float | None
     order_id: str
     opened_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -39,15 +38,15 @@ class TrackedPosition:
     current_price: float = 0.0
     unrealised_pnl: float = 0.0
     is_closed: bool = False
-    closed_at: Optional[datetime] = None
+    closed_at: datetime | None = None
 
 
 @dataclass
 class PollResult:
     """Результат одного цикла опроса."""
-    active: List[TrackedPosition]        # Позиции всё ещё открыты
-    just_closed: List[TrackedPosition]   # Позиции, закрытые в этом цикле
-    errors: List[str]                    # Ошибки при опросе (не фатальные)
+    active: list[TrackedPosition]        # Позиции всё ещё открыты
+    just_closed: list[TrackedPosition]   # Позиции, закрытые в этом цикле
+    errors: list[str]                    # Ошибки при опросе (не фатальные)
 
 
 # ========== TRACKER ==========
@@ -64,9 +63,9 @@ class PositionTracker:
             handle_close(closed)
     """
 
-    def __init__(self, client: Optional[BybitClient] = None):
+    def __init__(self, client: BybitClient | None = None):
         self._client = client or get_bybit_client()
-        self._tracked: Dict[str, TrackedPosition] = {}  # symbol → position
+        self._tracked: dict[str, TrackedPosition] = {}  # symbol → position
         logger.info("PositionTracker initialized")
 
     # ------------------------------------------------------------------ #
@@ -95,9 +94,9 @@ class PositionTracker:
         if not self._tracked:
             return PollResult(active=[], just_closed=[], errors=[])
 
-        active: List[TrackedPosition] = []
-        just_closed: List[TrackedPosition] = []
-        errors: List[str] = []
+        active: list[TrackedPosition] = []
+        just_closed: list[TrackedPosition] = []
+        errors: list[str] = []
 
         # Получаем все позиции одним запросом
         try:
@@ -110,7 +109,7 @@ class PositionTracker:
             return PollResult(active=list(self._tracked.values()), just_closed=[], errors=errors)
 
         # Индекс по символу
-        exchange_by_symbol: Dict[str, PositionInfo] = {
+        exchange_by_symbol: dict[str, PositionInfo] = {
             p.symbol: p for p in exchange_positions if p.size > 0
         }
 
@@ -139,14 +138,14 @@ class PositionTracker:
         """Количество отслеживаемых позиций."""
         return len(self._tracked)
 
-    def get_all_active(self) -> List[TrackedPosition]:
+    def get_all_active(self) -> list[TrackedPosition]:
         """Список всех активных позиций."""
         return list(self._tracked.values())
 
 
 # ========== SINGLETON ==========
 
-_tracker: Optional[PositionTracker] = None
+_tracker: PositionTracker | None = None
 
 
 def get_position_tracker() -> PositionTracker:

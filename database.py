@@ -18,7 +18,6 @@ import sqlite3
 import threading
 import time as _time
 from datetime import datetime, UTC, timedelta
-from typing import List, Dict, Optional
 
 import logging
 
@@ -826,10 +825,10 @@ def add_trade(
     entry: float,
     stop: float,
     target: float,
-    position_size: Optional[float] = None,
-    leverage: Optional[float] = None,
-    strategy_name: Optional[str] = None,
-    exchange_order_id: Optional[str] = None,
+    position_size: float | None = None,
+    leverage: float | None = None,
+    strategy_name: str | None = None,
+    exchange_order_id: str | None = None,
 ) -> int:
     """Добавляет новую сделку в базу данных. Возвращает ID."""
     conn = get_db_connection()
@@ -853,7 +852,7 @@ def add_trade(
 
 
 @with_retry
-def get_open_trades() -> List[Dict]:
+def get_open_trades() -> list[dict]:
     """Получает список всех открытых сделок."""
     conn = get_db_connection()
     try:
@@ -925,7 +924,7 @@ def close_trade(trade_id: int, close_price: float, close_reason: str, pnl: float
         return False
 
 
-def get_estimated_closes(reasons, days: int = 7) -> List[Dict]:
+def get_estimated_closes(reasons, days: int = 7) -> list[dict]:
     """
     Закрытые сделки с причиной из reasons за days дней — с отметкой открытия
     следующей сделки по тому же символу (next_open): до неё ищется закрытие биржи.
@@ -1047,7 +1046,7 @@ def force_cancel_open_trades() -> int:
         conn.close()
 
 
-def get_trades_by_symbol(symbol: str, status: Optional[str] = None) -> List[Dict]:
+def get_trades_by_symbol(symbol: str, status: str | None = None) -> list[dict]:
     """Получает сделки по символу."""
     conn = get_db_connection()
     try:
@@ -1068,7 +1067,7 @@ def get_trades_by_symbol(symbol: str, status: Optional[str] = None) -> List[Dict
     return [dict(row) for row in rows]
 
 
-def get_trades_statistics(days: int = 1) -> Dict:
+def get_trades_statistics(days: int = 1) -> dict:
     """Получает статистику по сделкам за последние N дней."""
     conn = get_db_connection()
     try:
@@ -1237,7 +1236,7 @@ def _ensure_capital_baseline_table(cursor) -> None:
     )
 
 
-def get_capital_baseline(mode: str) -> Optional[Dict]:
+def get_capital_baseline(mode: str) -> dict | None:
     """{'initial', 'peak'} для режима — или None, если база ещё не записана."""
     conn = get_db_connection()
     try:
@@ -1287,7 +1286,7 @@ def _ensure_correlation_groups_table(cursor) -> None:
     )
 
 
-def get_correlation_groups() -> Optional[Dict]:
+def get_correlation_groups() -> dict | None:
     """{'groups': {имя: [символы]}, 'computed_at': ISO} — или None, если групп ещё нет."""
     import json
     conn = get_db_connection()
@@ -1304,7 +1303,7 @@ def get_correlation_groups() -> Optional[Dict]:
     return {"groups": json.loads(row["groups_json"]), "computed_at": row["computed_at"]}
 
 
-def save_correlation_groups(groups: Dict) -> None:
+def save_correlation_groups(groups: dict) -> None:
     """Записать текущие группы с меткой времени расчёта."""
     import json
     conn = get_db_connection()
@@ -1636,7 +1635,7 @@ def save_ai_opinion(signal_ts: str, symbol: str, side, stage, model, decision, s
         conn.close()
 
 
-def get_recent_ai_opinions(limit: int = 5) -> List[Dict]:
+def get_recent_ai_opinions(limit: int = 5) -> list[dict]:
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -1653,7 +1652,7 @@ def get_recent_ai_opinions(limit: int = 5) -> List[Dict]:
     return rows
 
 
-def get_ai_opinion_stats(days: int = 30) -> Dict:
+def get_ai_opinion_stats(days: int = 30) -> dict:
     """
     {решение: {'total': n, 'outcomes': {'WIN': n, ...}}} за days дней. Исход — из
     signal_outcomes по (signal_ts, symbol); у свежих сигналов его ещё нет.
@@ -1676,7 +1675,7 @@ def get_ai_opinion_stats(days: int = 30) -> Dict:
         conn.commit()
     finally:
         conn.close()
-    stats: Dict = {}
+    stats: dict = {}
     for row in rows:
         entry = stats.setdefault(row["decision"], {"total": 0, "outcomes": {}})
         entry["total"] += int(row["n"])
@@ -1685,7 +1684,7 @@ def get_ai_opinion_stats(days: int = 30) -> Dict:
     return stats
 
 
-def get_signal_outcome_counts(days: int = 30) -> Dict:
+def get_signal_outcome_counts(days: int = 30) -> dict:
     """Исходы сигналов системы за days дней: {'WIN': n, 'LOSS': n, 'NEUTRAL': n}."""
     from datetime import timedelta
     since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
@@ -1769,7 +1768,7 @@ _EXCHANGE_TRADE = ("(COALESCE(exchange_order_id, '') <> '' "
                    "OR COALESCE(mode, '') IN ('TESTNET', 'DEMO', 'LIVE'))")
 
 
-def get_closed_trades_since(since_iso: str, on_exchange: bool, version: Optional[str] = None) -> List[Dict]:
+def get_closed_trades_since(since_iso: str, on_exchange: bool, version: str | None = None) -> list[dict]:
     """Сделки режима (биржевые или бумажные), закрытые начиная с since_iso."""
     condition = _EXCHANGE_TRADE if on_exchange else f"NOT {_EXCHANGE_TRADE}"
     conn = get_db_connection()
@@ -1787,7 +1786,7 @@ def get_closed_trades_since(since_iso: str, on_exchange: bool, version: Optional
         conn.close()
 
 
-def get_ai_verdicts(since_iso: str, version: Optional[str] = None) -> List[Dict]:
+def get_ai_verdicts(since_iso: str, version: str | None = None) -> list[dict]:
     """Мнения ИИ по сигналам начиная с since_iso: решение, судьба сигнала, R:R и исход по свечам."""
     conn = get_db_connection()
     try:
@@ -1807,7 +1806,7 @@ def get_ai_verdicts(since_iso: str, version: Optional[str] = None) -> List[Dict]
     return rows
 
 
-def get_signal_fates(since_iso: str, version: Optional[str] = None) -> List[Dict]:
+def get_signal_fates(since_iso: str, version: str | None = None) -> list[dict]:
     """Сигналы журнала с судьбой начиная с since_iso и их исходы по свечам (None — ещё нет)."""
     conn = get_db_connection()
     try:
@@ -1824,7 +1823,7 @@ def get_signal_fates(since_iso: str, version: Optional[str] = None) -> List[Dict
         conn.close()
 
 
-def get_recent_closes(on_exchange: bool, limit: int = 20) -> List[Dict]:
+def get_recent_closes(on_exchange: bool, limit: int = 20) -> list[dict]:
     """Последние закрытые сделки режима — новые по времени закрытия первыми (pnl, updated_at)."""
     condition = _EXCHANGE_TRADE if on_exchange else f"NOT {_EXCHANGE_TRADE}"
     conn = get_db_connection()
@@ -1872,7 +1871,7 @@ def migrate_from_csv(csv_file: str = "demo_trades.csv"):
     try:
         cursor = conn.cursor()
 
-        with open(csv_file, "r", encoding="utf-8") as f:
+        with open(csv_file, encoding="utf-8") as f:
             reader = csv.reader(f)
             first_row = next(reader, None)
             if first_row and len(first_row) > 0:
@@ -1963,7 +1962,7 @@ def _snapshot_json_default(value):
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
-def save_system_state_snapshot(snapshot_data: Dict) -> int:
+def save_system_state_snapshot(snapshot_data: dict) -> int:
     """Сохраняет снимок SystemState в базу данных."""
     import json
 
@@ -1984,7 +1983,7 @@ def save_system_state_snapshot(snapshot_data: Dict) -> int:
     return snapshot_id
 
 
-def get_latest_system_state_snapshot() -> Optional[Dict]:
+def get_latest_system_state_snapshot() -> dict | None:
     """Получает последний снимок SystemState из базы данных."""
     import json
 
@@ -2052,10 +2051,10 @@ def save_order(
     qty: float,
     stop_loss: float,
     dry_run: bool,
-    entry_price: Optional[float] = None,
-    take_profit: Optional[float] = None,
+    entry_price: float | None = None,
+    take_profit: float | None = None,
     status: str = "CREATED",
-    error: Optional[str] = None,
+    error: str | None = None,
 ) -> int:
     """Сохранить ордер (реальный или DRY_RUN). Возвращает internal id."""
     conn = get_db_connection()
@@ -2079,7 +2078,7 @@ def save_order(
     return row_id
 
 
-def update_order_status(order_id: str, status: str, error: Optional[str] = None) -> None:
+def update_order_status(order_id: str, status: str, error: str | None = None) -> None:
     """Обновить статус ордера."""
     conn = get_db_connection()
     try:
@@ -2106,7 +2105,7 @@ def open_position(
     qty: float,
     entry_price: float,
     stop_loss: float,
-    take_profit: Optional[float] = None,
+    take_profit: float | None = None,
 ) -> int:
     """Записать открытие позиции. Возвращает internal id."""
     conn = get_db_connection()
@@ -2155,7 +2154,7 @@ def close_position_by_order_id(
     logger.info("Position closed: order_id=%s pnl=%.2f reason=%s", order_id, realised_pnl, close_reason)
 
 
-def get_open_positions() -> List[Dict]:
+def get_open_positions() -> list[dict]:
     """Список всех открытых позиций из таблицы trades."""
     conn = get_db_connection()
     try:
@@ -2221,7 +2220,7 @@ def upsert_daily_pnl(
         conn.close()
 
 
-def get_pnl_history(days: int = 30) -> List[Dict]:
+def get_pnl_history(days: int = 30) -> list[dict]:
     """Получить историю P&L за последние N дней."""
     conn = get_db_connection()
     try:
@@ -2250,12 +2249,12 @@ def insert_pnl_record(
     gross_pnl: float,
     net_pnl: float,
     commission: float = 0.0,
-    market_regime: Optional[str] = None,
-    hold_duration_seconds: Optional[int] = None,
-    signal_confidence: Optional[float] = None,
-    signal_entropy: Optional[float] = None,
-    balance_after: Optional[float] = None,
-) -> Optional[int]:
+    market_regime: str | None = None,
+    hold_duration_seconds: int | None = None,
+    signal_confidence: float | None = None,
+    signal_entropy: float | None = None,
+    balance_after: float | None = None,
+) -> int | None:
     """Записывает детальные данные по закрытой сделке в pnl_records."""
     try:
         conn = get_db_connection()
@@ -2286,7 +2285,7 @@ def insert_pnl_record(
         return None
 
 
-def get_closed_trades(days: int = 30) -> List[Dict]:
+def get_closed_trades(days: int = 30) -> list[dict]:
     """
     Возвращает закрытые сделки из таблицы trades за последние N дней.
     Поля нормализованы для совместимости с PerformanceTracker и API.
@@ -2335,7 +2334,7 @@ def get_closed_trades(days: int = 30) -> List[Dict]:
         return []
 
 
-def get_equity_curve_points(days: int = 30) -> List[Dict]:
+def get_equity_curve_points(days: int = 30) -> list[dict]:
     """Возвращает точки equity curve из таблицы trades за последние N дней.
     Баланс вычисляется нарастающим итогом от начального значения 10000 USDT."""
     try:
@@ -2375,7 +2374,7 @@ def get_equity_curve_points(days: int = 30) -> List[Dict]:
         return []
 
 
-def get_monthly_target_data(target_pct: float = 10.0) -> Dict:
+def get_monthly_target_data(target_pct: float = 10.0) -> dict:
     """Calculate monthly PnL target progress from trades table.
 
     Returns dict with month, target_pct, current_pnl, starting_balance,
@@ -2439,7 +2438,7 @@ def get_monthly_target_data(target_pct: float = 10.0) -> Dict:
 # ============================================================================
 
 
-def get_setting(key: str) -> Optional[str]:
+def get_setting(key: str) -> str | None:
     """Вернуть значение настройки или None."""
     conn = get_db_connection()
     try:
@@ -2475,7 +2474,7 @@ def set_setting(key: str, value: str, data_type: str) -> None:
         conn.close()
 
 
-def get_all_settings() -> Dict[str, Dict]:
+def get_all_settings() -> dict[str, dict]:
     """Вернуть все настройки как {key: {value, data_type, updated_at}}."""
     conn = get_db_connection()
     try:
@@ -2501,7 +2500,7 @@ def get_all_settings() -> Dict[str, Dict]:
 # ============================================================================
 
 
-def save_signal_outcome(data: dict) -> Optional[int]:
+def save_signal_outcome(data: dict) -> int | None:
     """
     Сохраняет исход сигнала. Возвращает id или None если дубликат.
     """
@@ -2534,7 +2533,7 @@ def save_signal_outcome(data: dict) -> Optional[int]:
         conn.close()
 
 
-def get_outcomes_for_analysis(days: int = 30) -> List[Dict]:
+def get_outcomes_for_analysis(days: int = 30) -> list[dict]:
     """Возвращает все исходы за последние N дней для анализа точности."""
     conn = get_db_connection()
     try:
@@ -2562,7 +2561,7 @@ _SIGNAL_JOURNAL_FIELDS = (
 )
 
 
-def log_signal_to_db(row: Dict) -> None:
+def log_signal_to_db(row: dict) -> None:
     """Записывает сигнал-кандидат в signal_journal; row — поля из journal.record_signal."""
     conn = get_db_connection()
     try:
@@ -2576,7 +2575,7 @@ def log_signal_to_db(row: Dict) -> None:
         conn.close()
 
 
-def get_signals_from_db(since_iso: str, limit: int = 200, statuses=None) -> List[Dict]:
+def get_signals_from_db(since_iso: str, limit: int = 200, statuses=None) -> list[dict]:
     """Сигналы из signal_journal начиная с since_iso, новые первыми; statuses — фильтр судьбы."""
     conn = get_db_connection()
     try:
@@ -2592,7 +2591,7 @@ def get_signals_from_db(since_iso: str, limit: int = 200, statuses=None) -> List
         conn.close()
 
 
-def get_signals_to_evaluate(since_iso: str, before_iso: str, limit: int = 300) -> List[Dict]:
+def get_signals_to_evaluate(since_iso: str, before_iso: str, limit: int = 300) -> list[dict]:
     """
     Сигналы с полной геометрией (направление, вход, цель, стоп) из окна
     [since_iso, before_iso) без записанного исхода — старые первыми.
@@ -2649,7 +2648,7 @@ def save_encrypted_api_key(key_name: str, encrypted_value: str) -> None:
     logger.info("Encrypted API key saved: %s", key_name)
 
 
-def get_encrypted_api_key(key_name: str) -> Optional[str]:
+def get_encrypted_api_key(key_name: str) -> str | None:
     """
     Возвращает зашифрованное значение ключа или None если не найдено.
     """
@@ -2666,7 +2665,7 @@ def get_encrypted_api_key(key_name: str) -> Optional[str]:
     return row["encrypted_value"] if row else None
 
 
-def list_encrypted_key_names() -> List[str]:
+def list_encrypted_key_names() -> list[str]:
     """Возвращает список имён сохранённых ключей (без значений)."""
     conn = get_db_connection()
     try:

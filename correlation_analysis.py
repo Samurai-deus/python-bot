@@ -2,10 +2,9 @@
 Модуль для анализа корреляций между торговыми парами
 """
 from itertools import combinations
-from typing import Dict, List, Tuple
 
 
-def calculate_correlation(candles1: List, candles2: List, period: int = 60) -> float:
+def calculate_correlation(candles1: list, candles2: list, period: int = 60) -> float:
     """
     Рассчитывает корреляцию Пирсона между двумя парами.
     
@@ -60,8 +59,8 @@ def calculate_correlation(candles1: List, candles2: List, period: int = 60) -> f
     return correlation
 
 
-def analyze_market_correlations(symbols: List[str], candles_map: Dict[str, Dict[str, List]], 
-                                 timeframe: str = "15m") -> Dict[str, Dict]:
+def analyze_market_correlations(symbols: list[str], candles_map: dict[str, dict[str, list]], 
+                                 timeframe: str = "15m") -> dict[str, dict]:
     """
     Анализирует корреляции между всеми парами.
     
@@ -140,7 +139,7 @@ def compute_pairwise_correlations(symbols_data: dict, period: int = 60) -> dict:
     Returns:
         {(sym1, sym2): correlation_float} for all pairs
     """
-    result: Dict[Tuple[str, str], float] = {}
+    result: dict[tuple[str, str], float] = {}
     syms = list(symbols_data.keys())
     for sym1, sym2 in combinations(syms, 2):
         candles1 = symbols_data[sym1]
@@ -152,7 +151,7 @@ def compute_pairwise_correlations(symbols_data: dict, period: int = 60) -> dict:
     return result
 
 
-def get_correlation_score(correlation_data: Dict, symbol: str) -> Tuple[int, List[str]]:
+def get_correlation_score(correlation_data: dict, symbol: str) -> tuple[int, list[str]]:
     """
     Возвращает score на основе корреляций (0-10 баллов).
     

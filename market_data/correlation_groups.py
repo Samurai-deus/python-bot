@@ -21,7 +21,7 @@ import math
 import threading
 import time
 from datetime import datetime, UTC
-from typing import Callable, Dict, List, Optional, Sequence
+from collections.abc import Callable, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def clear_cache() -> None:
         _cache.update(at=0.0, groups={})
 
 
-def _returns_by_time(candles) -> Dict[int, float]:
+def _returns_by_time(candles) -> dict[int, float]:
     """Логарифмическая доходность по метке времени закрытия свечи (свечи Bybit: [ts, o, h, l, c, v])."""
     closes = sorted((int(c[0]), float(c[4])) for c in candles if float(c[4]) > 0)
     return {t: math.log(price / prev) for (_, prev), (t, price) in zip(closes, closes[1:])}
@@ -58,7 +58,7 @@ def _pearson(a: Sequence[float], b: Sequence[float]) -> float:
     return cov / math.sqrt(va * vb)
 
 
-def correlation_matrix(candles_by_symbol) -> Dict[tuple, float]:
+def correlation_matrix(candles_by_symbol) -> dict[tuple, float]:
     """Корреляции пар {(a, b): r} по общим меткам времени; пары с малым пересечением — без значения."""
     rets = {s: _returns_by_time(c) for s, c in candles_by_symbol.items() if c}
     symbols = sorted(rets)
@@ -73,7 +73,7 @@ def correlation_matrix(candles_by_symbol) -> Dict[tuple, float]:
     return matrix
 
 
-def cluster(symbols, matrix, threshold: float = THRESHOLD) -> Dict[str, List[str]]:
+def cluster(symbols, matrix, threshold: float = THRESHOLD) -> dict[str, list[str]]:
     """Группы из двух и более символов: {'corr-1': [...], ...}, крупные первыми. Пара без значения — 0."""
     clusters = [[s] for s in sorted(symbols)]
 
@@ -97,7 +97,7 @@ def cluster(symbols, matrix, threshold: float = THRESHOLD) -> Dict[str, List[str
     return {f"corr-{k}": g for k, g in enumerate(groups, start=1)}
 
 
-def refresh(symbols=None, fetch: Optional[Callable] = None) -> Optional[Dict[str, List[str]]]:
+def refresh(symbols=None, fetch: Callable | None = None) -> dict[str, list[str]] | None:
     """Пересчитать группы и сохранить в базу. None — данных мало, прежние группы остаются."""
     if symbols is None:
         from config import SYMBOLS
@@ -127,7 +127,7 @@ def refresh(symbols=None, fetch: Optional[Callable] = None) -> Optional[Dict[str
     return groups
 
 
-def get_groups() -> Dict[str, List[str]]:
+def get_groups() -> dict[str, list[str]]:
     """Текущие группы из базы (кэш на 10 минут). Не прочитались — пусто: проверка групп в этом цикле не работает."""
     now = time.time()
     with _lock:
@@ -146,7 +146,7 @@ def get_groups() -> Dict[str, List[str]]:
     return groups
 
 
-def needs_refresh(now: Optional[datetime] = None) -> bool:
+def needs_refresh(now: datetime | None = None) -> bool:
     """Групп нет или они старше суток."""
     from database import get_correlation_groups
     stored = get_correlation_groups()

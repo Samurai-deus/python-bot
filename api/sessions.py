@@ -20,7 +20,7 @@ import logging
 import os
 import secrets
 import time
-from typing import Callable, Optional, Tuple
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def is_session_token(value: Optional[str]) -> bool:
+def is_session_token(value: str | None) -> bool:
     return bool(value) and value.startswith(TOKEN_PREFIX)
 
 
@@ -59,7 +59,7 @@ class SessionStore:
             raise SessionUnavailable(f"{type(exc).__name__}: {exc}") from exc
         return bool(claimed)
 
-    async def create(self, user_id: int, username: Optional[str]) -> Tuple[str, int]:
+    async def create(self, user_id: int, username: str | None) -> tuple[str, int]:
         token = TOKEN_PREFIX + secrets.token_urlsafe(32)
         record = json.dumps({"user_id": int(user_id), "username": username, "created": self._now()})
         try:
@@ -68,7 +68,7 @@ class SessionStore:
             raise SessionUnavailable(f"{type(exc).__name__}: {exc}") from exc
         return token, IDLE_SECONDS
 
-    async def resolve(self, token: str) -> Optional[dict]:
+    async def resolve(self, token: str) -> dict | None:
         """Запись сессии или None (нет, истекла, испорчена). Продлевает окно без активности."""
         if not is_session_token(token):
             return None
@@ -107,7 +107,7 @@ class SessionStore:
             raise SessionUnavailable(f"{type(exc).__name__}: {exc}") from exc
 
 
-_store: Optional[SessionStore] = None
+_store: SessionStore | None = None
 
 
 def get_store() -> SessionStore:
@@ -120,7 +120,7 @@ def get_store() -> SessionStore:
     return _store
 
 
-def set_store(store: Optional[SessionStore]) -> None:
+def set_store(store: SessionStore | None) -> None:
     """Подменить хранилище (тесты) или сбросить его."""
     global _store
     _store = store

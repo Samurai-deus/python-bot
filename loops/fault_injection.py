@@ -14,7 +14,8 @@ docs/DEFERRED_PLAN.md, шаг 4). Состояние процесса прихо
 import asyncio
 import logging
 from datetime import datetime, UTC
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from system_state_machine import SystemState as SystemStateEnum, get_state_machine
 

@@ -15,7 +15,7 @@ import os
 import signal
 import time
 from pathlib import Path
-from typing import Dict, List, Sequence
+from collections.abc import Sequence
 
 from recorder.book import GAP, OrderBook
 from recorder.storage import HourlyWriter, enforce_cap, log_event
@@ -30,24 +30,24 @@ CAP_CHECK_SEC = 600
 TOPICS_PER_REQUEST = 10
 
 
-def topics(symbols: Sequence[str]) -> List[str]:
+def topics(symbols: Sequence[str]) -> list[str]:
     return [t for s in symbols for t in (f"orderbook.{DEPTH}.{s}", f"publicTrade.{s}")]
 
 
-def chunks(items: Sequence[str], n: int = TOPICS_PER_REQUEST) -> List[List[str]]:
+def chunks(items: Sequence[str], n: int = TOPICS_PER_REQUEST) -> list[list[str]]:
     return [list(items[i:i + n]) for i in range(0, len(items), n)]
 
 
 class Recorder:
     def __init__(self, symbols: Sequence[str], writer: HourlyWriter, clock=time.time) -> None:
-        self.books: Dict[str, OrderBook] = {s: OrderBook() for s in symbols}
+        self.books: dict[str, OrderBook] = {s: OrderBook() for s in symbols}
         self.writer = writer
         self.clock = clock
         self.last_message = 0.0
         # Время биржи последнего применённого сообщения стакана (ts — системное, cts — движка сопоставления).
         # Снимок пишется по местным часам, сделки — по времени биржи (T): без этих полей склейка стакана со
         # сделками давала бы ложное опережение на задержку сети (аудит 29.09.2026).
-        self.book_ts: Dict[str, tuple] = {}
+        self.book_ts: dict[str, tuple] = {}
 
     def handle(self, msg: dict) -> bool:
         """Разбор сообщения биржи. False — разрыв последовательности стакана: нужно переподключение."""

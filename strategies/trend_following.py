@@ -11,9 +11,8 @@ Strategy 1: Trend Following — вход на пуллбэках в подтве
   - Target: 2.5R
 """
 import logging
-from typing import Optional, Dict
 
-from indicators import atr, rsi, adx, ema_crossover
+from indicators import atr
 from strategies.base_strategy import BaseStrategy, StrategySignal
 
 logger = logging.getLogger(__name__)
@@ -61,11 +60,11 @@ class TrendFollowingStrategy(BaseStrategy):
     def evaluate(
         self,
         symbol: str,
-        candles_map: Dict,
-        directions: Dict,
-        momentum_data: Dict,
-        states: Dict,
-    ) -> Optional[StrategySignal]:
+        candles_map: dict,
+        directions: dict,
+        momentum_data: dict,
+        states: dict,
+    ) -> StrategySignal | None:
 
         candles_15m = candles_map.get("15m", [])
         candles_5m = candles_map.get("5m", [])

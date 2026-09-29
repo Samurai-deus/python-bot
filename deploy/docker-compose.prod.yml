@@ -23,6 +23,9 @@ services:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
     container_name: market-bot
     restart: unless-stopped
+    # Аудит 29.09.2026: без повышения привилегий и без capabilities ядра — процессу Python они не нужны.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     command: ["python", "runner.py"]
     env_file:
       - /opt/market-bot/.env
@@ -56,6 +59,9 @@ services:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
     container_name: market-bot-api
     restart: unless-stopped
+    # Аудит 29.09.2026: без повышения привилегий и без capabilities ядра — процессу Python они не нужны.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     command: ["python", "run_api.py"]
     env_file:
       - /opt/market-bot/.env
@@ -126,6 +132,9 @@ services:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
     container_name: market-bot-portfolio
     restart: unless-stopped
+    # Аудит 29.09.2026: без повышения привилегий и без capabilities ядра — процессу Python они не нужны.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     command: ["python", "-m", "portfolio"]
     env_file:
       - /opt/market-bot/.env
@@ -162,6 +171,9 @@ services:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
     container_name: market-bot-btcalts
     restart: unless-stopped
+    # Аудит 29.09.2026: без повышения привилегий и без capabilities ядра — процессу Python они не нужны.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     command: ["python", "-m", "btcalts"]
     env_file:
       - /opt/market-bot/.env
@@ -196,6 +208,9 @@ services:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
     container_name: market-bot-carry
     restart: unless-stopped
+    # Аудит 29.09.2026: без повышения привилегий и без capabilities ядра — процессу Python они не нужны.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     command: ["python", "-m", "carry"]
     env_file:
       - /opt/market-bot/.env
@@ -228,6 +243,9 @@ services:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
     container_name: market-bot-news
     restart: unless-stopped
+    # Аудит 29.09.2026: без повышения привилегий и без capabilities ядра — процессу Python они не нужны.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     command: ["python", "-m", "news"]
     env_file:
       - /opt/market-bot/.env
@@ -260,6 +278,9 @@ services:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
     container_name: market-bot-recorder
     restart: unless-stopped
+    # Аудит 29.09.2026: без повышения привилегий и без capabilities ядра — процессу Python они не нужны.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     command: ["python", "-m", "recorder"]
     environment:
       RECORDER_DIR: /recorder

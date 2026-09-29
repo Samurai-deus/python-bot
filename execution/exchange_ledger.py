@@ -18,7 +18,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
-from typing import List, Optional, Tuple
 
 import database
 from execution.position_tracker import TrackedPosition
@@ -63,7 +62,7 @@ def _ms(when) -> int:
     return int(_parse_time(when).timestamp() * 1000)
 
 
-def closed_pnl_since(client, symbol: str, opened_at, until=None) -> Tuple[Optional[float], Optional[float]]:
+def closed_pnl_since(client, symbol: str, opened_at, until=None) -> tuple[float | None, float | None]:
     """
     (PnL, цена выхода) закрытий по символу после открытия сделки — или (None, None).
 
@@ -87,8 +86,8 @@ def closed_pnl_since(client, symbol: str, opened_at, until=None) -> Tuple[Option
     return pnl, (float(latest.get("avgExitPrice") or 0) or None)
 
 
-def record_open(symbol: str, side: str, entry: float, stop: Optional[float], target: Optional[float],
-                qty: float, leverage, order_id: str, strategy_name: Optional[str] = None) -> int:
+def record_open(symbol: str, side: str, entry: float, stop: float | None, target: float | None,
+                qty: float, leverage, order_id: str, strategy_name: str | None = None) -> int:
     """Строка журнала по исполненному ордеру. Номинал — количество × цена входа."""
     return database.add_trade(
         symbol, side, float(entry), float(stop or 0.0), float(target or 0.0),
@@ -97,7 +96,7 @@ def record_open(symbol: str, side: str, entry: float, stop: Optional[float], tar
     )
 
 
-def _open_trade_for(symbol: str) -> Optional[dict]:
+def _open_trade_for(symbol: str) -> dict | None:
     return next((t for t in database.get_open_trades() if t["symbol"] == symbol), None)
 
 
@@ -163,7 +162,7 @@ def correct_estimated_closes(client=None, days: int = 7) -> int:
     return fixed
 
 
-def open_position_reason(symbol: str, client, tracker) -> Optional[str]:
+def open_position_reason(symbol: str, client, tracker) -> str | None:
     """
     Почему по символу нельзя открывать позицию — или None. Проверка до ордера и
     с отказом при любой неясности: не удалось спросить биржу — не открываем.
@@ -183,10 +182,10 @@ def open_position_reason(symbol: str, client, tracker) -> Optional[str]:
 
 @dataclass
 class ReconcileReport:
-    tracked: List[str] = field(default_factory=list)
-    closed: List[str] = field(default_factory=list)
-    adopted: List[str] = field(default_factory=list)
-    messages: List[str] = field(default_factory=list)
+    tracked: list[str] = field(default_factory=list)
+    closed: list[str] = field(default_factory=list)
+    adopted: list[str] = field(default_factory=list)
+    messages: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
         return (f"в трекере {len(self.tracked)}, закрыто за время простоя {len(self.closed)}, "

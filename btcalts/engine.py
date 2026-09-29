@@ -4,7 +4,7 @@
 из них top30 по среднему дневному обороту за 30 дней среди старше 100 дней. Ордера, окно
 ребалансировки, стоп — из portfolio.engine.
 """
-from typing import Dict, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from portfolio import engine as pe
 
@@ -16,7 +16,7 @@ LEVERAGE = 5
 MAX_DRAWDOWN = 0.25                 # стоп по правилу — доля капитала; критерий проверки строже (15 %)
 
 
-def weights(data: Mapping[str, dict], candidates: Sequence[str]) -> Dict[str, float]:
+def weights(data: Mapping[str, dict], candidates: Sequence[str]) -> dict[str, float]:
     """{BTC: +0,5; каждый альт: −0,5/n}; меньше MIN_ALTS альтов или нет BTC — позиций нет."""
     alts = pe.continuation_universe(data, [s for s in candidates if s != BTC])[:ALTS]
     if len(alts) < MIN_ALTS or BTC not in data:

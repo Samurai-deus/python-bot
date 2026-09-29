@@ -10,7 +10,6 @@
 """
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
 
 from adaptive_rr import calculate_adaptive_rr, calculate_volatility_pct
 from candle_analysis import get_candle_analysis
@@ -42,17 +41,17 @@ class Setup:
     risk: str
     score: float
     mode: str
-    states: Dict
-    directions: Dict
-    reasons: List
-    score_details: Dict
-    volatility_metrics: Dict
-    correlation_data: Dict
-    momentum_data: Dict
+    states: dict
+    directions: dict
+    reasons: list
+    score_details: dict
+    volatility_metrics: dict
+    correlation_data: dict
+    momentum_data: dict
     atr_15m: float
     atr_5m: float
     volatility_pct: float
-    candle_analysis: Dict
+    candle_analysis: dict
 
 
 @dataclass
@@ -60,7 +59,7 @@ class Skip:
     """Сетапа нет. journal — поля для журнала сигналов, если этот отсев журналируется."""
     code: str
     reason: str
-    journal: Optional[Dict] = None
+    journal: dict | None = None
 
 
 def _default_manager():
@@ -71,8 +70,8 @@ def _default_manager():
     return _manager
 
 
-def evaluate_setup(symbol: str, candles_map: Dict, *, market_correlations: Dict, good_time: bool,
-                   market_regime=None, strategy_manager=None) -> Union[Setup, Skip]:
+def evaluate_setup(symbol: str, candles_map: dict, *, market_correlations: dict, good_time: bool,
+                   market_regime=None, strategy_manager=None) -> Setup | Skip:
     """
     Оценить символ по свечам {таймфрейм: [свечи Bybit от старых к новым]}.
 
@@ -84,7 +83,7 @@ def evaluate_setup(symbol: str, candles_map: Dict, *, market_correlations: Dict,
     directions = {}
 
     # Определяем состояния для каждого таймфрейма
-    for tf, interval in TIMEFRAMES.items():
+    for tf in TIMEFRAMES:
         candles = candles_map.get(tf, [])
         if not candles:
             logger.debug("No data for %s %s", symbol, tf)

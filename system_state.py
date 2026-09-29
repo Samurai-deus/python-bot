@@ -6,8 +6,8 @@
 """
 import threading
 from datetime import datetime, UTC
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field
+from typing import Optional, Any
+from dataclasses import dataclass
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class PerformanceMetrics:
     total_cycles: int = 0
     successful_cycles: int = 0
     errors: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
 
 
 @dataclass
@@ -39,7 +39,7 @@ class SystemHealth:
     is_running: bool = True
     safe_mode: bool = False  # Режим безопасности - блокирует торговлю
     trading_paused: bool = False  # Торговля приостановлена (CRITICAL alert)
-    last_heartbeat: Optional[datetime] = None
+    last_heartbeat: datetime | None = None
     consecutive_errors: int = 0
 
 
@@ -80,31 +80,31 @@ class SystemState:
         self._lock = threading.Lock()
 
         # Состояния от brain'ов (хранятся здесь, а не в brain'ах)
-        self.market_regime: Optional[MarketRegime] = None  # От MarketRegimeBrain
-        self.risk_state: Optional[RiskExposure] = None  # От RiskExposureBrain
-        self.cognitive_state: Optional[CognitiveState] = None  # От CognitiveFilter
-        self.opportunities: Dict[str, Opportunity] = {}  # От OpportunityAwareness (по символам)
+        self.market_regime: MarketRegime | None = None  # От MarketRegimeBrain
+        self.risk_state: RiskExposure | None = None  # От RiskExposureBrain
+        self.cognitive_state: CognitiveState | None = None  # От CognitiveFilter
+        self.opportunities: dict[str, Opportunity] = {}  # От OpportunityAwareness (по символам)
         
         # Корреляции рынка
-        self.market_correlations: Dict = {}
-        self.last_analysis_time: Optional[datetime] = None
+        self.market_correlations: dict = {}
+        self.last_analysis_time: datetime | None = None
         
         # Решение Decision Core
         self.can_trade: bool = False
-        self.last_decision_time: Optional[datetime] = None
+        self.last_decision_time: datetime | None = None
         
         # Открытые позиции (загружаются из БД при необходимости)
-        self.open_positions: List[Dict] = []
+        self.open_positions: list[dict] = []
         
         # Недавние сигналы (последние 50)
-        self.recent_signals: List[Dict] = []
+        self.recent_signals: list[dict] = []
         
         # Кэш сигналов (перенесён из state_cache.py)
         # Хранит последнее состояние 15m для каждого символа
-        self.signal_cache: Dict[str, str] = {}  # {symbol: last_state_15m}
+        self.signal_cache: dict[str, str] = {}  # {symbol: last_state_15m}
         # Временны́е метки последних TREND_CONTINUATION сигналов (state_15m=None)
         # Используются для cooldown: позволяем повторный сигнал через TREND_SIGNAL_COOLDOWN секунд
-        self._trend_signal_timestamps: Dict[str, float] = {}  # {symbol: unix_timestamp}
+        self._trend_signal_timestamps: dict[str, float] = {}  # {symbol: unix_timestamp}
         
         # Метрики производительности
         self.performance_metrics = PerformanceMetrics()
@@ -136,7 +136,7 @@ class SystemState:
             self.opportunities[symbol] = opportunity
             self.last_analysis_time = datetime.now(UTC)
 
-    def update_market_correlations(self, correlations: Dict):
+    def update_market_correlations(self, correlations: dict):
         """Обновляет корреляции рынка"""
         with self._lock:
             self.market_correlations = correlations
@@ -148,7 +148,7 @@ class SystemState:
             self.can_trade = can_trade
             self.last_decision_time = datetime.now(UTC)
 
-    def add_signal(self, signal: Dict):
+    def add_signal(self, signal: dict):
         """Добавляет новый сигнал"""
         with self._lock:
             self.recent_signals.append(signal)
@@ -168,7 +168,7 @@ class SystemState:
         with self._lock:
             self.signal_cache[symbol] = state_15m
     
-    def is_new_signal(self, symbol: str, state_15m: Optional[str]) -> bool:
+    def is_new_signal(self, symbol: str, state_15m: str | None) -> bool:
         """
         Проверяет, является ли сигнал новым (изменилось ли состояние).
 
@@ -200,7 +200,7 @@ class SystemState:
             self.signal_cache[symbol] = state_15m
             return True
     
-    def would_be_new_signal(self, symbol: str, state_15m: Optional[str]) -> bool:
+    def would_be_new_signal(self, symbol: str, state_15m: str | None) -> bool:
         """
         То же, что is_new_signal, но без отметки «отправлен». Нужна, чтобы отложить
         сигнал (предел новых позиций за оборот) и не потерять его: is_new_signal
@@ -212,7 +212,7 @@ class SystemState:
                 return time.time() - self._trend_signal_timestamps.get(symbol, 0.0) >= TREND_SIGNAL_COOLDOWN
             return self.signal_cache.get(symbol) != state_15m
 
-    def reset_signal_cache(self, symbol: Optional[str] = None):
+    def reset_signal_cache(self, symbol: str | None = None):
         """
         Сбрасывает кэш сигналов для указанного символа или для всех символов.
 
@@ -239,7 +239,7 @@ class SystemState:
             if symbol in self.signal_cache:
                 del self.signal_cache[symbol]
 
-    def update_open_positions(self, positions: List[Dict]):
+    def update_open_positions(self, positions: list[dict]):
         """Обновляет список открытых позиций"""
         with self._lock:
             self.open_positions = positions
@@ -281,7 +281,7 @@ class SystemState:
         """Сбрасывает состояние (для тестов)"""
         self.__init__()
     
-    def create_snapshot(self) -> Dict:
+    def create_snapshot(self) -> dict:
         """
         Создаёт снимок критичных данных для сохранения.
         
@@ -318,7 +318,7 @@ class SystemState:
             "signal_cache": self.signal_cache.copy()
         }
     
-    def restore_from_snapshot(self, snapshot: Dict):
+    def restore_from_snapshot(self, snapshot: dict):
         """
         Восстанавливает состояние из снимка.
         
@@ -363,12 +363,12 @@ class SystemState:
             import logging
             logging.getLogger(__name__).warning(f"Ошибка восстановления из snapshot: {e}")
     
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Возвращает состояние в виде словаря (для логирования)"""
         with self._lock:
             return self._to_dict_unlocked()
 
-    def _to_dict_unlocked(self) -> Dict:
+    def _to_dict_unlocked(self) -> dict:
         return {
             "market_regime": {
                 "has_regime": self.market_regime is not None,

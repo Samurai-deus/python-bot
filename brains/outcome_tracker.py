@@ -14,14 +14,13 @@ Outcome Tracker — маркирует прошлые сигналы резул�
 import logging
 import time
 from datetime import datetime, UTC, timedelta
-from typing import Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
 
 _BYBIT_KLINE_URL = "https://api.bybit.com/v5/market/kline"
-_session: Optional[requests.Session] = None
+_session: requests.Session | None = None
 
 MAX_CANDLES = 24       # Максимум свечей для проверки (24h при интервале 1h)
 MIN_AGE_HOURS = 4      # Сигнал должен быть хотя бы 4 часа назад

@@ -14,12 +14,11 @@
 import argparse
 import sqlite3
 import time
-from typing import Optional
 
 KIND = "adjust"
 
 
-def external_flow(conn: sqlite3.Connection, amount: float, reason: str, now_ms: int, at_ms: Optional[int] = None) -> dict:
+def external_flow(conn: sqlite3.Connection, amount: float, reason: str, now_ms: int, at_ms: int | None = None) -> dict:
     """Применить поправку на amount USDT. Возвращает {snapshots, start_equity, peak_equity, applied}."""
     if conn.execute("SELECT 1 FROM events WHERE kind = ? AND detail LIKE ?", (KIND, f"%[{reason}]%")).fetchone():
         return {"applied": False, "snapshots": 0, "start_equity": None, "peak_equity": None}

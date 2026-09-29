@@ -3,9 +3,7 @@ Replay Report - генерация отчётов по результатам re
 
 Агрегирует результаты replay и генерирует отчёты для анализа.
 """
-from typing import List, Dict
-from datetime import datetime
-from core.replay_models import ReplayResult, ReplayReport, DecisionType
+from core.replay_models import ReplayResult, ReplayReport
 
 
 class ReplayReporter:
@@ -19,7 +17,7 @@ class ReplayReporter:
         """Инициализация ReplayReporter"""
         pass
     
-    def generate_report(self, results: List[ReplayResult]) -> ReplayReport:
+    def generate_report(self, results: list[ReplayResult]) -> ReplayReport:
         """
         Генерирует агрегированный отчёт по результатам replay.
         
@@ -41,7 +39,7 @@ class ReplayReporter:
         size_changes = 0
         
         # Breakdown по типам решений
-        decision_type_changes: Dict[str, int] = {}
+        decision_type_changes: dict[str, int] = {}
         
         changed_results = []
         
@@ -136,7 +134,7 @@ class ReplayReporter:
         
         return "\n".join(lines)
     
-    def export_to_dict(self, report: ReplayReport) -> Dict:
+    def export_to_dict(self, report: ReplayReport) -> dict:
         """
         Экспортирует отчёт в словарь (для JSON/CSV).
         

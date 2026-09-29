@@ -93,7 +93,7 @@ async def _safe_run_sync(fn, default=None, timeout: float = 5.0):
         return await asyncio.wait_for(
             loop.run_in_executor(_ws_executor, fn), timeout=timeout
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("_safe_run_sync timeout for %s — returning default", fn.__name__)
         return default
     except Exception as exc:
@@ -168,7 +168,7 @@ async def websocket_endpoint(ws: WebSocket):
             token = str(msg.get("token", ""))
         else:
             logger.warning("WS: unexpected first message type '%s'", msg.get("type") if isinstance(msg, dict) else type(msg))
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("WS: auth timeout — closing connection")
         await ws.close(code=4001, reason="Auth timeout")
         return
@@ -194,7 +194,7 @@ async def websocket_endpoint(ws: WebSocket):
         while True:
             try:
                 await asyncio.wait_for(ws.receive_text(), timeout=_PING_INTERVAL)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 try:
                     await ws.send_json({"type": "ping"})
                 except Exception:

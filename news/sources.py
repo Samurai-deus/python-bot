@@ -9,7 +9,6 @@ import logging
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ def _clean(title: str) -> str:
     return " ".join(title.split())[:TITLE_MAX]
 
 
-def parse_time(value: str) -> Optional[int]:
+def parse_time(value: str) -> int | None:
     """RFC 822 (RSS pubDate) или ISO 8601 (Atom) → мс UTC; без пояса — UTC; не разобрать — None."""
     if not value:
         return None
@@ -62,7 +61,7 @@ def parse_time(value: str) -> Optional[int]:
     return None
 
 
-def parse_feed(source: str, content: bytes) -> List[dict]:
+def parse_feed(source: str, content: bytes) -> list[dict]:
     """Элементы RSS (item) и Atom (entry)."""
     out = []
     for el in ET.fromstring(content).iter():
@@ -78,7 +77,7 @@ def parse_feed(source: str, content: bytes) -> List[dict]:
     return out
 
 
-def parse_bybit(source: str, data: dict) -> List[dict]:
+def parse_bybit(source: str, data: dict) -> list[dict]:
     out = []
     for a in (data.get("result") or {}).get("list") or []:
         when = a.get("publishTime") or a.get("dateTimestamp")
@@ -87,7 +86,7 @@ def parse_bybit(source: str, data: dict) -> List[dict]:
     return out
 
 
-def parse_binance(source: str, data: dict) -> List[dict]:
+def parse_binance(source: str, data: dict) -> list[dict]:
     cats = (data.get("data") or {}).get("catalogs") or []
     out = []
     for a in (cats[0].get("articles") or []) if cats else []:
@@ -100,7 +99,7 @@ def parse_binance(source: str, data: dict) -> List[dict]:
 _PARSERS = {"rss": parse_feed, "bybit": parse_bybit, "binance": parse_binance}
 
 
-def fetch_all(http) -> Tuple[List[dict], int]:
+def fetch_all(http) -> tuple[list[dict], int]:
     """Заголовки всех источников и число ответивших. Сбой источника не мешает остальным."""
     items, ok = [], 0
     for name, kind, url in SOURCES:

@@ -14,7 +14,6 @@ import signal
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List
 
 from carry import engine
 from carry.client import CarryClient, keys_from_env
@@ -34,7 +33,7 @@ DEMO_APPLY_MAX = 100_000               # Bybit: не больше 100 000 USDT �
 logger = logging.getLogger("carry")
 
 
-def symbols() -> List[str]:
+def symbols() -> list[str]:
     return [s for s in os.environ.get("CARRY_SYMBOLS", "BTCUSDT,ETHUSDT").split(",") if s]
 
 
@@ -69,7 +68,7 @@ def weekly_summary_due(now: int, store: Store) -> bool:
     return 1 <= hour < 24 and store.get(f"weekly:{monday}") is None
 
 
-def send_weekly_summary(store: Store, equity: float, deviations: Dict[str, float], now: int) -> bool:
+def send_weekly_summary(store: Store, equity: float, deviations: dict[str, float], now: int) -> bool:
     """Сводка уходит — ставится отметка недели; не ушла — отметки нет, повтор следующим циклом."""
     if not weekly_summary_due(now, store):
         return False
@@ -79,7 +78,7 @@ def send_weekly_summary(store: Store, equity: float, deviations: Dict[str, float
     return False
 
 
-def weekly_summary(store: Store, equity: float, deviations: Dict[str, float], now: int) -> str:
+def weekly_summary(store: Store, equity: float, deviations: dict[str, float], now: int) -> str:
     from carry.report import summary        # внутри: report импортирует этот модуль
     start = store.get("start_equity")
     start_eq = float(start) if start else equity
@@ -89,7 +88,7 @@ def weekly_summary(store: Store, equity: float, deviations: Dict[str, float], no
     return (f"📊 И13 неделя: стоимость {equity:.2f} против старта {start_eq:.2f} "
             f"({equity - start_eq - opening:+.2f} USDT после всех издержек); "
             f"фандинг всего {float(funding):+.2f} USDT; отклонение хеджа: {dev}"
-            + ("; ОСТАНОВЛЕН: " + store.get("halted") if store.get("halted") else ""))
+            + (f"; ОСТАНОВЛЕН: {store.get('halted')}" if store.get("halted") else ""))
 
 
 def ensure_usdt(cli, store: Store, need: float, now: int) -> None:
@@ -101,7 +100,7 @@ def ensure_usdt(cli, store: Store, need: float, now: int) -> None:
         store.event(now, "demo_funds", f"доступно {avail:.0f} < {need:.0f}, запрошено {amount:.0f}")
 
 
-def clean_start(cli, store: Store, syms: List[str], now: int) -> None:
+def clean_start(cli, store: Store, syms: list[str], now: int) -> None:
     if store.get("cleaned_at"):
         return
     bal = cli.coin_balances()
@@ -115,7 +114,7 @@ def clean_start(cli, store: Store, syms: List[str], now: int) -> None:
     store.set("cleaned_at", now)
 
 
-def open_pairs(cli, store: Store, syms: List[str], now: int) -> None:
+def open_pairs(cli, store: Store, syms: list[str], now: int) -> None:
     """Открыть пары по монетам, у которых спот ещё не куплен (метка bought:<символ> — сразу после покупки)."""
     if store.get("opened_at"):
         return
@@ -142,7 +141,7 @@ def open_pairs(cli, store: Store, syms: List[str], now: int) -> None:
     store.set("opened_at", now)
 
 
-def rehedge(cli, store: Store, syms: List[str], now: int) -> Dict[str, float]:
+def rehedge(cli, store: Store, syms: list[str], now: int) -> dict[str, float]:
     """
     Подогнать шорт к споту; вернуть расхождения, НАЙДЕННЫЕ до подгонки, — их и меряет критерий «доля
     времени с хеджем вне ±5 %». До 29.09 возвращались расхождения после подгонки (≈0 по построению), и
@@ -176,7 +175,7 @@ def close_pair(cli, s: str) -> None:
         cli.spot_market(s, "Sell", qty)
 
 
-def emergency_close(cli, store: Store, syms: List[str], now: int, reason: str) -> None:
+def emergency_close(cli, store: Store, syms: list[str], now: int, reason: str) -> None:
     """
     Экстренное закрытие по правилу — отметка сразу, пары закрываются по одной (сбой одной не мешает
     другой), владельцу — сообщение: правило требует «в журнал и в Telegram», до 29.09 сообщения не было.
@@ -194,14 +193,14 @@ def emergency_close(cli, store: Store, syms: List[str], now: int, reason: str) -
     notify_halt(store, now, failed)
 
 
-def notify_halt(store: Store, now: int, failed: List[str]) -> None:
+def notify_halt(store: Store, now: int, failed: list[str]) -> None:
     text = (f"🛑 И13 экстренное закрытие по правилу: {store.get('halted')}. "
             + (f"НЕ ЗАКРЫТО: {'; '.join(failed)} — повтор каждый час." if failed else "Пары закрыты."))
     if notify(text):
         store.set("notice:halt", now)
 
 
-def after_halt(cli, store: Store, syms: List[str], now: int) -> None:
+def after_halt(cli, store: Store, syms: list[str], now: int) -> None:
     """После остановки: дозакрыть то, что осталось открытым, и доставить сообщение, если не ушло."""
     left = [s for s in syms if cli.short_qty(s) > 0
             or engine.floor_step(cli.coin_balances().get(base(s), 0.0), cli.spot_base_step(s)) * cli.spot_price(s) >= MIN_SPOT_USDT]
@@ -226,7 +225,7 @@ def sync(cli, store: Store, now: int) -> None:
 
 def cycle(cli, store: Store, now: int) -> None:
     syms = symbols()
-    deviations: Dict[str, float] = {}
+    deviations: dict[str, float] = {}
     if store.get("halted"):
         after_halt(cli, store, syms, now)
     else:

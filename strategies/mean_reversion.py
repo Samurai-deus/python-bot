@@ -9,10 +9,8 @@ Strategy 2: Mean Reversion — вход при отклонении от сре�
   - Target: 1.5R (реверсии короче трендов)
 """
 import logging
-from typing import Optional, Dict
 
-from indicators import atr, bollinger_bands
-from states import rejection
+from indicators import atr
 from strategies.base_strategy import BaseStrategy, StrategySignal
 
 logger = logging.getLogger(__name__)
@@ -34,11 +32,11 @@ class MeanReversionStrategy(BaseStrategy):
     def evaluate(
         self,
         symbol: str,
-        candles_map: Dict,
-        directions: Dict,
-        momentum_data: Dict,
-        states: Dict,
-    ) -> Optional[StrategySignal]:
+        candles_map: dict,
+        directions: dict,
+        momentum_data: dict,
+        states: dict,
+    ) -> StrategySignal | None:
 
         candles_15m = candles_map.get("15m", [])
         candles_5m = candles_map.get("5m", [])
@@ -65,7 +63,6 @@ class MeanReversionStrategy(BaseStrategy):
             return None
 
         dir_4h = directions.get("4h", "FLAT")
-        dir_1h = directions.get("1h", "FLAT")
 
         # H-4: RSI 35/65 instead of 30/70 for crypto
         if rsi_val < 35 and bb_position in ("BELOW_LOWER", "LOWER"):

@@ -5,7 +5,6 @@ SignalSnapshotStore - абстракция для persistence layer.
 с гарантией fault injection в самом начале.
 """
 import os
-from typing import Optional, Dict
 from core.signal_snapshot import SignalSnapshot
 
 # ========== FAULT INJECTION (для тестирования устойчивости) ==========
@@ -35,7 +34,7 @@ def _check_fault_injection(operation: str):
             f"This exception is expected when FAULT_INJECT_STORAGE_FAILURE=true. "
             f"No data mutation occurred."
         )
-        raise IOError(
+        raise OSError(
             "FAULT_INJECTION: storage_failure - "
             "Controlled storage failure for runtime resilience testing. "
             "This exception is expected when FAULT_INJECT_STORAGE_FAILURE=true. "
@@ -73,7 +72,7 @@ class SignalSnapshotStore:
         log_signal_snapshot(snapshot, **journal_fields)
     
     @staticmethod
-    def load_latest(symbol: Optional[str] = None) -> Optional[SignalSnapshot]:
+    def load_latest(symbol: str | None = None) -> SignalSnapshot | None:
         """
         Загружает последний SignalSnapshot.
         
@@ -106,7 +105,7 @@ class SystemStateSnapshotStore:
     """
     
     @staticmethod
-    def save(snapshot_data: Dict) -> int:
+    def save(snapshot_data: dict) -> int:
         """
         Сохраняет SystemState snapshot.
         
@@ -130,7 +129,7 @@ class SystemStateSnapshotStore:
         return save_system_state_snapshot(snapshot_data)
     
     @staticmethod
-    def load_latest() -> Optional[Dict]:
+    def load_latest() -> dict | None:
         """
         Загружает последний SystemState snapshot.
         

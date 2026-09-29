@@ -9,7 +9,6 @@
 import json
 import re
 import time
-from typing import Dict, List, Optional
 
 from news import scorer
 
@@ -72,11 +71,11 @@ def anonymize(title: str) -> str:
     return re.sub(r"\s{2,}", " ", out).strip()
 
 
-def render(batch: List[dict]) -> str:
+def render(batch: list[dict]) -> str:
     return "\n".join(f"{i}. [{it['source']}] {it['blind_title']}" for i, it in enumerate(batch, 1))
 
 
-def _label(obj) -> Optional[dict]:
+def _label(obj) -> dict | None:
     """Оценка одного заголовка; None — не по схеме. Схема та же, что у И10, без монет."""
     if not isinstance(obj, dict):
         return None
@@ -89,7 +88,7 @@ def _label(obj) -> Optional[dict]:
     return label
 
 
-def parse_labels(text: Optional[str], n: int) -> Dict[int, dict]:
+def parse_labels(text: str | None, n: int) -> dict[int, dict]:
     match = re.search(r"\{.*\}", text or "", re.S)
     if not match:
         return {}

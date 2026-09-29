@@ -3,28 +3,15 @@
 Используется в main.py и ecosystem_main.py для устранения дублирования кода
 """
 from config import SYMBOLS, TIMEFRAMES
-from indicators import (
-    atr, rsi, macd, momentum, trend_strength,
-    bollinger_bands, stochastic, adx, ema_crossover, volume_analysis
-)
-from context_engine import determine_state
-from states import market_direction, is_flat
-from risk import risk_level, enhanced_risk_level, calculate_stop_distance
 import journal
-from scoring import calculate_score, market_mode, get_entry_conditions
 from monitor_log import log_monitor
 from capital import position_size
 from leverage import calculate_leverage
-from candle_analysis import get_candle_analysis
-from adaptive_rr import calculate_adaptive_rr, calculate_volatility_pct
-from volatility_filter import calculate_volatility_metrics, get_volatility_score
-from correlation_analysis import get_correlation_score
 from execution.gatekeeper import get_gatekeeper
 from brains.opportunity_awareness import get_opportunity_awareness
 from core.decision_core import get_decision_core
 from core.signal_snapshot import (
-    SignalSnapshot, SignalDecision, RiskLevel, VolatilityLevel,
-    mode_to_decision, risk_string_to_enum, volatility_string_to_enum
+    SignalSnapshot, mode_to_decision, risk_string_to_enum, volatility_string_to_enum
 )
 from core.market_state import normalize_states_dict
 from core.cognitive_engine import calculate_confidence, calculate_entropy
@@ -248,7 +235,7 @@ def generate_signals_for_symbols(
             
             if is_new:
                 # Анализ возможностей (обновляет SystemState напрямую)
-                opportunity = opportunity_awareness.analyze(symbol, candles_map, system_state)
+                opportunity_awareness.analyze(symbol, candles_map, system_state)
                 
                 # Создаём SignalSnapshot - immutable доменный объект
                 # Нормализуем states перед созданием snapshot

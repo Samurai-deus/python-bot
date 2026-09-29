@@ -15,7 +15,6 @@ import asyncio
 import threading
 import time
 import logging
-from typing import Optional, Dict, Any
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -41,12 +40,12 @@ class ChaosEngine:
     """
     
     def __init__(self):
-        self._active_chaos: Optional[ChaosType] = None
-        self._chaos_task: Optional[asyncio.Task] = None
+        self._active_chaos: ChaosType | None = None
+        self._chaos_task: asyncio.Task | None = None
         # Lazy-init: asyncio.Lock must be created inside a running event loop.
         # Creating it at module import time (before any loop starts) binds it
         # to the wrong loop context on Python < 3.10.
-        self._chaos_lock: Optional[asyncio.Lock] = None
+        self._chaos_lock: asyncio.Lock | None = None
         self._thread_lock = threading.Lock()  # Для cross-lock deadlock
 
     @property
@@ -157,6 +156,10 @@ class ChaosEngine:
         # Захватываем async lock
         await async_lock.acquire()
         
+        # Цикл берётся здесь, в корутине: asyncio.get_event_loop() из чужого потока на 3.14 бросает
+        # RuntimeError вместо того, чтобы вернуть цикл (аудит 29.09.2026).
+        loop = asyncio.get_running_loop()
+
         def thread_worker():
             """Thread пытается захватить async lock -> deadlock"""
             # Захватываем thread lock
@@ -166,7 +169,6 @@ class ChaosEngine:
             # Пытаемся захватить async lock из thread -> DEADLOCK
             # Это невозможно, но мы пытаемся через run_coroutine_threadsafe
             try:
-                loop = asyncio.get_event_loop()
                 # Это вызовет deadlock, так как async_lock уже захвачен
                 future = asyncio.run_coroutine_threadsafe(async_lock.acquire(), loop)
                 future.result(timeout=0.1)  # Блокируем thread
@@ -234,7 +236,7 @@ class ChaosEngine:
                     f.write('x' * 1024 * 1024)  # 1MB
                 
                 # Читаем обратно (блокирует I/O)
-                with open(tmp_path, 'r') as f:
+                with open(tmp_path) as f:
                     _ = f.read()
                 
                 # Небольшая пауза, но через CPU-bound, не await

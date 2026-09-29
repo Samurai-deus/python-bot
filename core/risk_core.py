@@ -16,7 +16,6 @@ CORE PRINCIPLES (NON-NEGOTIABLE):
 If uncertain → DENY trading.
 """
 from enum import Enum
-from typing import Dict, Optional, List, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, UTC
 import logging
@@ -69,7 +68,7 @@ class TradingIntent:
     position_size_usd: float
     entry_price: float
     stop_price: float
-    leverage: Optional[float] = None
+    leverage: float | None = None
 
 
 # ========== CAPITAL & EXPOSURE SNAPSHOT (INPUT) ==========
@@ -93,16 +92,16 @@ class PositionSnapshot:
     position_size_usd: float
     entry_price: float
     stop_price: float
-    leverage: Optional[float] = None
+    leverage: float | None = None
 
 
 @dataclass
 class ExposureSnapshot:
     """Current exposure state - facts only."""
-    open_positions: List[PositionSnapshot]
+    open_positions: list[PositionSnapshot]
     total_exposure_usd: float
     max_single_position_usd: float
-    correlation_groups: Dict[str, List[str]]  # Strategy-blind correlation groups
+    correlation_groups: dict[str, list[str]]  # Strategy-blind correlation groups
 
 
 # ========== BEHAVIORAL COUNTERS (INPUT) ==========
@@ -114,8 +113,8 @@ class BehavioralCounters:
     actions_last_hour: int
     actions_last_24h: int
     consecutive_losses: int
-    last_loss_timestamp: Optional[datetime] = None
-    last_action_timestamp: Optional[datetime] = None
+    last_loss_timestamp: datetime | None = None
+    last_action_timestamp: datetime | None = None
 
 
 # ========== SYSTEM HEALTH FLAGS (INPUT) ==========
@@ -136,9 +135,9 @@ class SystemHealthFlags:
 @dataclass
 class ViolationReport:
     """Internal violation report."""
-    violations: List[str] = field(default_factory=list)
+    violations: list[str] = field(default_factory=list)
     highest_severity_state: RiskState = RiskState.SAFE
-    violated_invariants: List[str] = field(default_factory=list)
+    violated_invariants: list[str] = field(default_factory=list)
 
 
 # ========== RISK CORE CONFIGURATION ==========
@@ -194,7 +193,7 @@ class RiskCore:
     - Has veto power
     """
     
-    def __init__(self, config: Optional[RiskCoreConfig] = None):
+    def __init__(self, config: RiskCoreConfig | None = None):
         """
         Initialize Risk Core.
         
@@ -213,7 +212,7 @@ class RiskCore:
         # Теперь HALTED держится до явного reset_halt(), который вызывает
         # владелец командой /risk_reset с подтверждением кодом.
         self._halt_latched: bool = False
-        self._halt_reason: Optional[str] = None
+        self._halt_reason: str | None = None
         
         # Rolling counters (allowed state)
         self._behavioral_counters = BehavioralCounters(
@@ -223,8 +222,8 @@ class RiskCore:
         )
         
         # Cooldown timers (allowed state)
-        self._cooldown_until: Optional[datetime] = None
-        self._loss_cooldown_until: Optional[datetime] = None
+        self._cooldown_until: datetime | None = None
+        self._loss_cooldown_until: datetime | None = None
         
         # Last update timestamp for rolling windows
         self._last_hour_window_start: datetime = datetime.now(UTC)
@@ -242,7 +241,7 @@ class RiskCore:
         exposure: ExposureSnapshot,
         behavioral: BehavioralCounters,
         system_health: SystemHealthFlags
-    ) -> Tuple[TradingPermission, RiskState, Optional[ViolationReport]]:
+    ) -> tuple[TradingPermission, RiskState, ViolationReport | None]:
         """
         Evaluate trading intent against all invariants.
         
@@ -758,7 +757,7 @@ class RiskCore:
         return self._halt_latched
 
     @property
-    def halt_reason(self) -> Optional[str]:
+    def halt_reason(self) -> str | None:
         return self._halt_reason
 
     def reset_halt(self, by: str) -> bool:
@@ -818,10 +817,10 @@ def config_from_settings() -> RiskCoreConfig:
     )
 
 
-_risk_core: Optional[RiskCore] = None
+_risk_core: RiskCore | None = None
 
 
-def get_risk_core(config: Optional[RiskCoreConfig] = None) -> RiskCore:
+def get_risk_core(config: RiskCoreConfig | None = None) -> RiskCore:
     """Get global Risk Core instance."""
     global _risk_core
     if _risk_core is None:
@@ -829,7 +828,7 @@ def get_risk_core(config: Optional[RiskCoreConfig] = None) -> RiskCore:
     return _risk_core
 
 
-def loss_streak(closes, window_minutes: Optional[float] = None) -> Tuple[int, Optional[datetime]]:
+def loss_streak(closes, window_minutes: float | None = None) -> tuple[int, datetime | None]:
     """
     Серия убытков подряд в СОБЫТИЯХ по закрытым сделкам (новые по закрытию первыми,
     поля pnl и updated_at). Убыток, закрытый не дальше window_minutes от самого нового

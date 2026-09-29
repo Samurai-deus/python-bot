@@ -12,16 +12,14 @@ import pytest
 import os
 import sys
 import time
-import threading
 import asyncio
-from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, UTC, timedelta
 
 # Добавляем путь к корню проекта
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from system_state_machine import SystemStateMachine, SystemState
-from runner import FatalReaper, ThreadWatchdog, ThreadWatchdogState, FATAL_EXIT_CODE, SAFE_MODE_TTL
+from runner import FatalReaper, ThreadWatchdog, ThreadWatchdogState, FATAL_EXIT_CODE
 
 
 class TestFatalAlwaysExits:
@@ -174,7 +172,6 @@ class TestWatchdogTriggersWithoutAsyncio:
         # настоящий os._exit и уносил весь прогон.
         from runner import update_heartbeat_thread_safe
         old_dt = datetime.now(UTC) - timedelta(seconds=1.0)
-        old_time = old_dt.timestamp()
         update_heartbeat_thread_safe(old_dt)
 
         # Устанавливаем event loop

@@ -1,7 +1,6 @@
 """
 Генерация отчетов по закрытым сделкам
 """
-from datetime import datetime, UTC
 from telegram_bot import send_message
 from capital import get_current_balance
 

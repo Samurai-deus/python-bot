@@ -7,7 +7,6 @@ import asyncio
 import pathlib
 from types import SimpleNamespace
 
-import pytest
 
 from loops import fault_injection
 

@@ -1,8 +1,6 @@
 """
 Тесты для DecisionCore.
 """
-import os
-import pytest
 from core.decision_core import (
     DecisionCore,
     TradingDecision,
@@ -11,7 +9,6 @@ from core.decision_core import (
     MarketRegime,
     Opportunity,
 )
-from tests.conftest import MockSystemState
 
 
 class TestDecisionCoreDefaults:

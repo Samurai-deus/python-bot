@@ -9,18 +9,17 @@
 выход с кодом 2 и сообщением: мутант, применённый не туда, тихо ломает соседний код.
 """
 import argparse
-import io
 import sys
 
 
 def apply(path: str, old: str, new: str, check_only: bool = False) -> int:
-    text = io.open(path, encoding="utf-8").read()
+    text = open(path, encoding="utf-8").read()
     found = text.count(old)
     if found != 1:
         print(f"мутант: {old!r} найден {found} раз в {path}", file=sys.stderr)
         return 2
     if not check_only:
-        io.open(path, "w", encoding="utf-8", newline="").write(text.replace(old, new))
+        open(path, "w", encoding="utf-8", newline="").write(text.replace(old, new))
     return 0
 
 

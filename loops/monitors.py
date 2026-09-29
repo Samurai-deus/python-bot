@@ -11,7 +11,8 @@ docs/DEFERRED_PLAN.md, шаг 2). Состояние процесса прихо
 import asyncio
 import logging
 import time
-from typing import Any, Awaitable, Callable
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 from health_monitor import HEARTBEAT_INTERVAL, send_heartbeat_async
 from system_state_machine import SystemState as SystemStateEnum, get_state_machine
@@ -183,7 +184,7 @@ async def heartbeat_loop(get_state: StateGetter, shutdown_evt: asyncio.Event, on
                 get_state().update_heartbeat()
                 on_heartbeat()  # Обновляем для ThreadWatchdog
                 logger.debug("Telegram heartbeat sent")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Timeout при network blackhole - не критично, просто пропускаем heartbeat
                 logger.debug("Telegram heartbeat timeout (non-critical) - network may be unreachable")
             except Exception as e:

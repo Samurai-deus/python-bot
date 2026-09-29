@@ -4,7 +4,6 @@
 живого бота, издержки учтены, интервал ожидания — бутстрепом по дням.
 """
 from dataclasses import dataclass
-from typing import Optional
 
 import pytest
 
@@ -25,7 +24,7 @@ class S:
     stop: float = 98.0
     target: float = 104.0
     strategy: str = "trend_following"
-    state_15m: Optional[str] = "A"
+    state_15m: str | None = "A"
     block_long: bool = False
     block_short: bool = False
 

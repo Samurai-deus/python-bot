@@ -10,12 +10,12 @@ import sqlite3
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 DAY_MS = 86_400_000
 WEEK_MS = 7 * DAY_MS
 
-PROGRAM: Dict[str, Any] = {
+PROGRAM: dict[str, Any] = {
     "portfolio": {
         "title": "И14 — рисковый портфель: тренд И4 + моментум И3 + продолжение И17а (с 21.09)",
         "risk": "40 % годовых (И4 ×1,61, И3 ×0,78, И17а ×0,48 с 21.09); на увиденной истории ≈ +28 %/год, просадка 30 %",
@@ -65,7 +65,7 @@ PROGRAM: Dict[str, Any] = {
 }
 
 
-def calendar_items(now_ms: int) -> List[Dict[str, Any]]:
+def calendar_items(now_ms: int) -> list[dict[str, Any]]:
     """Контрольные даты плана (portfolio/calendar.py) с числом дней до события (отрицательное — прошло)."""
     from portfolio.calendar import CHECKPOINTS
     today = datetime.fromtimestamp(now_ms / 1000, UTC).date()
@@ -76,17 +76,17 @@ def calendar_items(now_ms: int) -> List[Dict[str, Any]]:
     return out
 
 
-def _ro(path: str) -> Optional[sqlite3.Connection]:
+def _ro(path: str) -> sqlite3.Connection | None:
     if not path or not Path(path).is_file():
         return None
     return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
 
 
-def _iso(ms) -> Optional[str]:
+def _iso(ms) -> str | None:
     return None if not ms else datetime.fromtimestamp(int(ms) / 1000, UTC).isoformat()
 
 
-def read_portfolio(path: str, capital: float, now_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def read_portfolio(path: str, capital: float, now_ms: int | None = None) -> dict[str, Any] | None:
     conn = _ro(path)
     if conn is None:
         return None
@@ -131,7 +131,7 @@ def read_portfolio(path: str, capital: float, now_ms: Optional[int] = None) -> O
     }
 
 
-def read_carry(path: str, now_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def read_carry(path: str, now_ms: int | None = None) -> dict[str, Any] | None:
     conn = _ro(path)
     if conn is None:
         return None
@@ -167,16 +167,16 @@ def read_carry(path: str, now_ms: Optional[int] = None) -> Optional[Dict[str, An
     }
 
 
-def read_recorder(root: str, now_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def read_recorder(root: str, now_ms: int | None = None) -> dict[str, Any] | None:
     base = Path(root) if root else None
     if base is None or not base.is_dir():
         return None
     now_ms = now_ms or int(time.time() * 1000)
-    events: List[dict] = []
+    events: list[dict] = []
     ev = base / "events.jsonl"
     if ev.is_file():
         events = [json.loads(x) for x in ev.read_text(encoding="utf-8").splitlines() if x.strip()]
-    kinds: Dict[str, int] = {}
+    kinds: dict[str, int] = {}
     for e in events:
         kinds[e.get("event", "?")] = kinds.get(e.get("event", "?"), 0) + 1
     size = sum(p.stat().st_size for p in base.rglob("*.jsonl.gz"))
@@ -194,7 +194,7 @@ def read_recorder(root: str, now_ms: Optional[int] = None) -> Optional[Dict[str,
     }
 
 
-def read_news(day: str) -> Dict[str, Any]:
+def read_news(day: str) -> dict[str, Any]:
     """Сборщик новостей — из базы бота (news_items/news_scores, расход в ai_usage)."""
     import database
     conn = database.get_db_connection()
@@ -226,7 +226,7 @@ def read_news(day: str) -> Dict[str, Any]:
     return {"items": total, "fresh": fresh, "signals": signals, "score_rows": rows, "blind": blind, "spend_today": spend}
 
 
-def overview(now: Optional[float] = None) -> Dict[str, Any]:
+def overview(now: float | None = None) -> dict[str, Any]:
     now = now or time.time()
     now_ms = int(now * 1000)
     capital = float(os.environ.get("PORTFOLIO_CAPITAL_USDT", "1000"))

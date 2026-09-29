@@ -11,7 +11,6 @@ import logging
 import os
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +20,14 @@ SCHEMA = ("CREATE TABLE IF NOT EXISTS snap (hour_ms INTEGER, ex TEXT, key TEXT, 
 BYBIT = "https://api.bybit.com/v5/market"
 BITGET = "https://api.bitget.com/api/v2/mix/market"
 OKX = "https://www.okx.com/api/v5"
-Row = Tuple[str, float, Optional[int], Optional[float], float, float, float]   # key, rate, next_ms, interval_h, bid, ask, turnover
+Row = tuple[str, float, int | None, float | None, float, float, float]   # key, rate, next_ms, interval_h, bid, ask, turnover
 
 
 def db_path() -> Path:
     return Path(os.environ.get("XFUNDING_LIVE_DB", "/data/db/xfunding_live.db"))
 
 
-def connect(path: Optional[Path] = None) -> sqlite3.Connection:
+def connect(path: Path | None = None) -> sqlite3.Connection:
     p = path or db_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(p))
@@ -43,7 +42,7 @@ def _f(x) -> float:
         return 0.0
 
 
-def bybit(http) -> List[Row]:
+def bybit(http) -> list[Row]:
     inst, cursor = {}, ""
     for _ in range(10):
         params = {"category": "linear", "limit": 1000}
@@ -65,7 +64,7 @@ def bybit(http) -> List[Row]:
             for t in r.json()["result"]["list"] if t["symbol"] in inst]
 
 
-def bitget(http) -> List[Row]:
+def bitget(http) -> list[Row]:
     r = http.get(f"{BITGET}/current-fund-rate", params={"productType": "usdt-futures"})
     r.raise_for_status()
     fund = {x["symbol"]: x for x in r.json()["data"]}
@@ -82,7 +81,7 @@ def bitget(http) -> List[Row]:
     return out
 
 
-def okx(http) -> List[Row]:
+def okx(http) -> list[Row]:
     r = http.get(f"{OKX}/public/funding-rate", params={"instId": "ANY"})
     r.raise_for_status()
     fund = {x["instId"]: x for x in r.json()["data"]}
@@ -105,7 +104,7 @@ def okx(http) -> List[Row]:
 SOURCES = (("bybit", bybit), ("bitget", bitget), ("okx", okx))
 
 
-def snapshot(http) -> Dict[str, List[Row]]:
+def snapshot(http) -> dict[str, list[Row]]:
     """{биржа: строки}; биржа со сбоем — пустой список (в журнал), остальные идут."""
     out = {}
     for name, fetch in SOURCES:
@@ -119,7 +118,7 @@ def snapshot(http) -> Dict[str, List[Row]]:
 
 def record(conn: sqlite3.Connection, http, now_ms: int) -> dict:
     snap = snapshot(http)
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for rows in snap.values():
         for r in rows:
             counts[r[0]] = counts.get(r[0], 0) + 1
@@ -131,7 +130,7 @@ def record(conn: sqlite3.Connection, http, now_ms: int) -> dict:
             "exchanges": sum(1 for rs in snap.values() if rs)}
 
 
-def maybe_record(conn: sqlite3.Connection, http, now_ms: int) -> Optional[dict]:
+def maybe_record(conn: sqlite3.Connection, http, now_ms: int) -> dict | None:
     """Раз в час: если за текущий час снимка ещё нет. None — ничего не делалось."""
     hour = now_ms // HOUR_MS * HOUR_MS
     if conn.execute("SELECT 1 FROM snap WHERE hour_ms = ? LIMIT 1", (hour,)).fetchone():

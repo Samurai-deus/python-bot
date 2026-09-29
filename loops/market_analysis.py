@@ -119,7 +119,7 @@ async def check_spikes(symbols, raw_candles) -> None:
     logger.info("🔍 Проверка резких движений...")
     try:
         await asyncio.wait_for(asyncio.to_thread(check_all_symbols_for_spikes, symbols, raw_candles), timeout=30.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("⏱ Таймаут проверки резких движений")
     except Exception as e:
         logger.warning("⚠️ Ошибка при проверке резких движений: %s", e)
@@ -255,7 +255,6 @@ async def run_market_analysis():
     budget_tracker.start()
     
     # Record iteration start time (as required)
-    iteration_start = time.monotonic()
     
     start_time = time.time()
     symbols = get_active_symbols() or SYMBOLS
@@ -294,7 +293,7 @@ async def run_market_analysis():
                 asyncio.to_thread(get_candles_parallel, symbols, TIMEFRAMES, DECISION_BARS + 1, 20),
                 timeout=60.0
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # TimeoutError при загрузке данных - мягкое предупреждение, не авария
             load_duration = time.time() - load_start
             logger.warning(
@@ -349,7 +348,7 @@ async def run_market_analysis():
             # Обновляем состояние волатильности для адаптивной системы
             if market_regime and hasattr(market_regime, 'volatility_level'):
                 update_volatility_state(market_regime.volatility_level)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("⏱ Таймаут анализа Market Regime Brain (30 сек)")
             market_regime = None
         except Exception as e:
@@ -363,7 +362,7 @@ async def run_market_analysis():
                 timeout=30.0
             )
             logger.info("   Риск: %.2f%%, Позиций: %s, Перегрузка: %s", risk_exposure.total_risk_pct, risk_exposure.active_positions, risk_exposure.is_overloaded)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("⏱ Таймаут анализа Risk & Exposure Brain (30 сек)")
             risk_exposure = None
         except Exception as e:
@@ -377,7 +376,7 @@ async def run_market_analysis():
                 timeout=30.0
             )
             logger.debug("   Пере-торговля: %.2f, Пауза: %s", cognitive_state.overtrading_score, cognitive_state.should_pause)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("⏱ Таймаут анализа Cognitive Filter (30 сек)")
             cognitive_state = None
         except Exception as e:
@@ -414,7 +413,7 @@ async def run_market_analysis():
                     if not state_machine.is_safe_mode:
                         await state_machine.transition_to(
                             SystemStateEnum.SAFE_MODE,
-                            reason=f"Fault injection: consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
+                            reason="Fault injection: consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
                             owner="error_alert",
                             metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                         )
@@ -470,7 +469,7 @@ async def run_market_analysis():
             )
             # Обновляем SystemState с корреляциями
             system_state.update_market_correlations(market_correlations)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("⏱ Таймаут анализа корреляций")
             market_correlations = {}
         except Exception as e:
@@ -506,7 +505,7 @@ async def run_market_analysis():
                 "📊 Статистика сигналов: обработано %s, отправлено %s, заблокировано %s, ошибок %s",
                 signal_stats['processed'], signal_stats['signals_sent'], signal_stats['signals_blocked'], signal_stats['errors']
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # TimeoutError при генерации сигналов - мягкое предупреждение, не авария
             logger.warning(
                 "⏱ Signal generation slow: exceeded timeout=120s. Continuing with degraded mode."
@@ -565,7 +564,7 @@ async def run_market_analysis():
                     await asyncio.to_thread(prune_decision_trace, 90)
                 except Exception as prune_err:
                     logger.warning("Очистка трасс решений не удалась: %s", prune_err)
-            except IOError as e:
+            except OSError as e:
                 # Обработка fault injection из storage layer
                 if "FAULT_INJECTION: storage_failure" in str(e):
                     logger.error(
@@ -581,7 +580,7 @@ async def run_market_analysis():
                         if not state_machine.is_safe_mode:
                             await state_machine.transition_to(
                                 SystemStateEnum.SAFE_MODE,
-                                reason=f"Storage fault injection: consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
+                                reason="Storage fault injection: consecutive_errors >= MAX_CONSECUTIVE_ERRORS",
                                 owner="main_startup",
                                 metadata={"consecutive_errors": system_state.system_health.consecutive_errors}
                             )
@@ -597,7 +596,7 @@ async def run_market_analysis():
         
         return True
         
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # TimeoutError из любых операций в run_market_analysis()
         # Мягкое предупреждение, не авария
         logger.warning(
@@ -944,7 +943,7 @@ async def market_analysis_loop():
             # Оцениваем и отправляем алерты асинхронно, не блокируя analysis loop
             # Создаём задачу для алертов (не ждём её завершения)
             # CRITICAL: Wrap in exception handler to prevent silent failures
-            async def _safe_evaluate_alerts():
+            async def _safe_evaluate_alerts(duration=duration):     # длительность ЭТОГО оборота, а не следующего
                 """Wrapper to ensure alert evaluation errors are logged"""
                 try:
                     await evaluate_and_send_alerts(duration)
