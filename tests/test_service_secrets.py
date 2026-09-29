@@ -53,6 +53,19 @@ def test_every_service_with_an_env_file_is_in_the_map():
     assert set(secret_map()) == compose_services_with_env_file()
 
 
+def test_each_service_reads_only_its_own_env_file():
+    """Пакет 8б: общий .env не читает ни один контейнер — только свой файл из split-env.sh."""
+    compose = yaml.safe_load((ROOT / "deploy" / "docker-compose.prod.yml").read_text(encoding="utf-8"))
+    for name in secret_map():
+        assert compose["services"][name]["env_file"] == [f"/opt/market-bot/env/{name}.env"], name
+
+
+def test_smoke_checks_the_api_container_itself():
+    text = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
+    smoke = re.search(r"^step_smoke\(\) \{\n(.*?)^\}", text, re.M | re.S).group(1)
+    assert "docker exec market-bot-api sh -c 'test -z \"${BYBIT_API_KEY:-}${BYBIT_API_SECRET:-}${ENCRYPTION_KEY:-}\"'" in smoke
+
+
 def test_deploy_recreates_exactly_the_mapped_services():
     text = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
     services = re.search(r'^ENV_SERVICES="([^"]+)"', text, re.M).group(1).split()

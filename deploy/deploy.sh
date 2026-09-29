@@ -544,6 +544,12 @@ step_smoke() {
   elif [ -f "$APP/env/api.env" ]; then
     echo "  ok  env/api.env без ключей биржи"
   fi
+  # И в самом контейнере API (compose читает env/api.env с пакета 8б): только есть/нет, без значений.
+  if docker exec market-bot-api sh -c 'test -z "${BYBIT_API_KEY:-}${BYBIT_API_SECRET:-}${ENCRYPTION_KEY:-}"'; then
+    echo "  ok  в контейнере API нет ключей биржи"
+  else
+    echo "  ОШИБКА в контейнере API есть ключи биржи"; fail=1
+  fi
 
   if [ "$fail" = 0 ]; then echo "  SMOKE OK"; else echo "  SMOKE FAIL"; exit 1; fi
 }

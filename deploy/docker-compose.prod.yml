@@ -27,8 +27,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     command: ["python", "runner.py"]
+    # Только свои секреты (аудит 29.09.2026, пакет 8): файл собирает deploy.sh из общего .env
+    # по deploy/service-secrets.conf перед каждым up.
     env_file:
-      - /opt/market-bot/.env
+      - /opt/market-bot/env/bot.env
     environment:
       DB_PATH: /data/db/market_bot.db
       LOG_TO_FILE: "false"
@@ -63,8 +65,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     command: ["python", "run_api.py"]
+    # Только свои секреты (аудит 29.09.2026, пакет 8): файл собирает deploy.sh из общего .env
+    # по deploy/service-secrets.conf перед каждым up.
     env_file:
-      - /opt/market-bot/.env
+      - /opt/market-bot/env/api.env
     environment:
       DB_PATH: /data/db/market_bot.db
       API_HOST: 0.0.0.0
@@ -136,8 +140,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     command: ["python", "-m", "portfolio"]
+    # Только свои секреты (аудит 29.09.2026, пакет 8): файл собирает deploy.sh из общего .env
+    # по deploy/service-secrets.conf перед каждым up.
     env_file:
-      - /opt/market-bot/.env
+      - /opt/market-bot/env/portfolio.env
     environment:
       DB_PATH: /data/db/market_bot.db
       PORTFOLIO_DIR: /portfolio
@@ -175,8 +181,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     command: ["python", "-m", "btcalts"]
+    # Только свои секреты (аудит 29.09.2026, пакет 8): файл собирает deploy.sh из общего .env
+    # по deploy/service-secrets.conf перед каждым up.
     env_file:
-      - /opt/market-bot/.env
+      - /opt/market-bot/env/btcalts.env
     environment:
       BTCALTS_DIR: /btcalts
       BTCALTS_CAPITAL_USDT: "5000"
@@ -212,8 +220,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     command: ["python", "-m", "carry"]
+    # Только свои секреты (аудит 29.09.2026, пакет 8): файл собирает deploy.sh из общего .env
+    # по deploy/service-secrets.conf перед каждым up.
     env_file:
-      - /opt/market-bot/.env
+      - /opt/market-bot/env/carry.env
     environment:
       CARRY_DIR: /carry
     extra_hosts:
@@ -247,8 +257,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     command: ["python", "-m", "news"]
+    # Только свои секреты (аудит 29.09.2026, пакет 8): файл собирает deploy.sh из общего .env
+    # по deploy/service-secrets.conf перед каждым up.
     env_file:
-      - /opt/market-bot/.env
+      - /opt/market-bot/env/news.env
     environment:
       DB_PATH: /data/db/market_bot.db
     extra_hosts:
