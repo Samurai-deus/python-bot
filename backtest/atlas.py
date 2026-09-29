@@ -558,14 +558,10 @@ def section_candidates(atlas: Atlas, weeks: Sequence[int]) -> Tuple[str, Dict]:
     def tradable(t, t_next, syms):
         return [s for s in syms if atlas.data[s].open.get(t) and atlas.data[s].open.get(t_next)]
 
-    # 8а. Лонг BTC / шорт равновзвешенных альтов top30 (без BTC), по 0,5
-    def btc_vs_alts(t, t_next):
-        d = t // DAY_MS
-        alts = tradable(t, t_next, [s for s in atlas.top(d, 31) if s != "BTCUSDT"])[:30]
-        if len(alts) < 10 or not atlas.data.get("BTCUSDT", ws.Series()).open.get(t_next):
-            return {}
-        return {"BTCUSDT": 0.5, **{s: -0.5 / len(alts) for s in alts}}
-    w1 = simulate_weights(atlas, btc_vs_alts, weeks)
+    # 8а. Лонг BTC / шорт равновзвешенных альтов top30 (без BTC), по 0,5 — правило И18, один источник
+    # с наблюдением вперёд (backtest.h18, заморожено 29.09.2026)
+    from backtest import h18
+    w1 = simulate_weights(atlas, h18.btc_vs_alts(atlas), weeks)
     res["btc_vs_alts"] = week_stats(w1)
     lines.append("**8а. «Альты истекают к BTC»: лонг BTC 50 % / шорт равновзвешенных 30 самых ликвидных альтов 50 %, неделя.** " + week_stats(w1))
     lines.append("")

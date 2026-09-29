@@ -54,6 +54,31 @@ def expectancy_ci(trades: Sequence, bootstrap: int = 2000, seed: int = 7, alpha:
     return means[int(alpha / 2 * bootstrap)], means[int((1 - alpha / 2) * bootstrap) - 1]
 
 
+def weekly_block_ci(returns: Sequence[float], block: int = 4, bootstrap: int = 2000, seed: int = 7,
+                    alpha: float = 0.05) -> Tuple[float, float]:
+    """
+    Интервал средней недели с учётом автокорреляции: бутстреп подряд идущих блоков по `block` недель
+    (круговой). expectancy_ci блокирует по дню закрытия — для недельного ряда это одна неделя на блок, то
+    есть независимая выборка, и у трендовых рядов интервал выходит уже настоящего (аудит 29.09.2026).
+    """
+    n = len(returns)
+    if n < 2:
+        m = sum(returns) / n if n else 0.0
+        return m, m
+    rng = random.Random(seed)
+    k = max(1, -(-n // block))
+    means = []
+    for _ in range(bootstrap):
+        sample = []
+        for _ in range(k):
+            start = rng.randrange(n)
+            sample.extend(returns[(start + j) % n] for j in range(block))
+        sample = sample[:n]
+        means.append(sum(sample) / n)
+    means.sort()
+    return means[int(alpha / 2 * bootstrap)], means[int((1 - alpha / 2) * bootstrap) - 1]
+
+
 def max_drawdown(rs: Iterable[float]) -> float:
     peak = equity = drawdown = 0.0
     for r in rs:

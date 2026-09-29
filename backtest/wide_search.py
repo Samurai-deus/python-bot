@@ -166,9 +166,24 @@ def mean_turnover(s: Series, d: int, window_d: int = TURNOVER_D) -> Optional[flo
     return sum(vals) / len(vals) if len(vals) * 3 >= window_d * 2 else None
 
 
+FUNDING_BASE_MS = 8 * 3_600_000
+
+
 def funding_mean(s: Series, t: int, window_d: int) -> Optional[float]:
+    """
+    Средняя ставка за окно, приведённая к 8-часовой выплате. Интервал выплат у контракта бывает 8, 4 и 1 ч
+    (Bybit переводит на 1 ч при крайнем фандинге); до 29.09.2026 ставки разных интервалов усреднялись как
+    есть, и часовой контракт выглядел в ≈8 раз «легче» (аудит; И1 это уже учитывал, урок не был перенесён).
+    Интервал выплаты — расстояние до предыдущей (у первой в истории — до следующей).
+    """
     lo, hi = bisect.bisect_left(s.fund_ts, t - window_d * DAY_MS), bisect.bisect_left(s.fund_ts, t)
-    return sum(s.fund_rate[lo:hi]) / (hi - lo) if hi > lo else None
+    if hi <= lo:
+        return None
+    vals = []
+    for i in range(lo, hi):
+        gap = s.fund_ts[i] - s.fund_ts[i - 1] if i > 0 else (s.fund_ts[i + 1] - s.fund_ts[i] if i + 1 < len(s.fund_ts) else FUNDING_BASE_MS)
+        vals.append(s.fund_rate[i] * FUNDING_BASE_MS / gap if gap > 0 else s.fund_rate[i])
+    return sum(vals) / len(vals)
 
 
 def at_extreme(s: Series, d: int, n_d: int) -> Optional[int]:
