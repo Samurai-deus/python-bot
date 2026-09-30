@@ -18,7 +18,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://api.bybit.com"
+from exchange.bybit_client import MAINNET_REST as BASE_URL, TRANSIENT_RET_CODES  # noqa: E402
+
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "history.db"
 # Таймфрейм бота → интервал Bybit и длина свечи в мс
 INTERVALS: Dict[str, Tuple[str, int]] = {
@@ -34,7 +35,7 @@ FUNDING_LIMIT = 200
 OI_LIMIT = 200
 MIN_REQUEST_GAP = 0.12                  # ≈ 8 запросов в секунду — с запасом до лимита Bybit
 RETRIES = 5
-RATE_LIMIT_CODES = {10006, 10018}
+RATE_LIMIT_CODES = TRANSIENT_RET_CODES      # лимит и внутренняя ошибка биржи — пауза и повтор
 
 
 class BybitHistory:

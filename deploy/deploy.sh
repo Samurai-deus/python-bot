@@ -55,6 +55,18 @@ split_env() {
   fi
 }
 
+# Сервисы, которым карта выдаёт переменную NAME: после её замены в .env пересоздаются ровно они. Список не
+# хранится в шагах: 30.09.2026 шаг token пересоздавал только bot и api, bybit-key — никого (портфель И14 остался бы
+# со старым ключом). Карты ещё нет (сервер до пакета 8а) — все сервисы с файлом окружения.
+services_with() {
+  if [ -f "$APP/service-secrets.conf" ]; then
+    awk -F: -v name="$1" '/^[a-z][a-z0-9_-]*:/ { n = split($2, a, " "); for (i = 1; i <= n; i++) if (a[i] == name) { print $1; break } }' \
+      "$APP/service-secrets.conf" | tr '\n' ' '
+  else
+    echo "$ENV_SERVICES"
+  fi
+}
+
 compose() {
   tag="$1"; shift
   [ "${1:-}" = up ] && split_env
@@ -596,9 +608,10 @@ step_token() {
   old_code=$(tg_curl "$old" getMe -o /dev/null -w '%{http_code}')
   echo "  прежний токен: getMe HTTP $old_code (401 — отозван)"
 
-  echo "  пересоздаю все сервисы с файлом окружения: $ENV_SERVICES"
+  svc=$(services_with TELEGRAM_BOT_TOKEN)
+  echo "  пересоздаю сервисы с токеном бота: $svc"
   # shellcheck disable=SC2086
-  compose "$(current_tag)" up -d --force-recreate $ENV_SERVICES
+  compose "$(current_tag)" up -d --force-recreate $svc
   if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
 }
 
@@ -684,9 +697,10 @@ step_ai_key() {
   # shellcheck disable=SC2012
   ls -1t "$APP"/.env.bak-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do rm -f "$f"; done
 
-  # Ключ OpenRouter читают бот (ИИ-трейдер) и сборщик новостей (разметка).
-  echo "  пересоздаю бот, API и сборщик новостей с ключом OpenRouter"
-  compose "$(current_tag)" up -d --force-recreate bot api news
+  svc=$(services_with OPENROUTER_API_KEY)
+  echo "  пересоздаю сервисы с ключом OpenRouter: $svc"
+  # shellcheck disable=SC2086
+  compose "$(current_tag)" up -d --force-recreate $svc
   if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
 }
 
@@ -733,7 +747,11 @@ print("OK equity=%.2f available=%.2f" % (float(wallet.total_equity), float(walle
   mv -f "$APP/.env.new" "$APP/.env"
   # shellcheck disable=SC2012
   ls -1t "$APP"/.env.bak-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do rm -f "$f"; done
-  echo "  ключи записаны в .env; режим торговли не менялся — переключение: deploy.sh mode demo"
+  svc=$(services_with BYBIT_API_KEY)
+  echo "  ключи записаны в .env; пересоздаю сервисы с ключом демо-счёта: $svc (режим торговли не менялся — deploy.sh mode)"
+  # shellcheck disable=SC2086
+  compose "$(current_tag)" up -d --force-recreate $svc
+  if wait_healthy 120; then echo "  контейнеры здоровы"; else echo "  ОШИБКА: контейнеры не стали здоровыми"; exit 1; fi
 }
 
 step_mode() {

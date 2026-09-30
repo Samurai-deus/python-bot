@@ -142,7 +142,11 @@ def _same(a, b):
     return a == b
 
 
+@pytest.mark.timeout(300)
 def test_the_generator_decides_as_in_the_golden_file(monkeypatch):
+    # Свой бюджет: сверка со всем эталоном (все сценарии × 27 символов) идёт ≈ 70 с при общем таймауте CI 120 с.
+    # Урезать нельзя — эталон и есть весь набор; остальные тесты генератора берут подмножество (30.09.2026:
+    # тест с тремя полными прогонами упал в CI по таймауту).
     events = run_scenarios(monkeypatch)
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert len(events) == len(golden), f"событий {len(events)}, в эталоне {len(golden)}"

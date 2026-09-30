@@ -4,7 +4,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from exchange.bybit_client import MAINNET_REST  # noqa: E402
+from exchange.bybit_client import MAINNET_REST, TRANSIENT_RET_CODES  # noqa: E402
 
 BASE_URL = MAINNET_REST + "/v5/market/kline"
 from exchange.bybit_client import instruments_url      # один источник адреса (23.09.2026)
@@ -52,8 +52,8 @@ def get_candles(symbol, interval, limit=120):
             if "retCode" in data and data["retCode"] != 0:
                 ret_code = data["retCode"]
                 error_msg = data.get("retMsg", "Неизвестная ошибка API")
-                # 10006 = rate limit — имеет смысл повторить
-                if ret_code == 10006 and delay is not None:
+                # лимит запросов или внутренняя ошибка биржи — имеет смысл повторить
+                if ret_code in TRANSIENT_RET_CODES and delay is not None:
                     logging.warning("Rate limit для %s (%s), повтор через %ds...", symbol, interval, delay)
                     time.sleep(delay)
                     continue

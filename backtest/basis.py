@@ -21,11 +21,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from exchange.bybit_client import MAINNET_REST  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 DAY_MS = 86_400_000
 BASES = ("BTC", "ETH")
-BYBIT = "https://api.bybit.com/v5"
+BYBIT = MAINNET_REST + "/v5"
 
 # --- правило (заморожено 21.09.2026, docs/TRADER_PLAN.md, И20) ---------------------------------------
 MIN_DAYS, MAX_DAYS = 14, 200

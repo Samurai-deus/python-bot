@@ -218,7 +218,11 @@ def test_bybit_key_step_checks_the_demo_exchange_before_editing_env_and_hides_th
     assert step.index("demo=True") < step.index('cp -p "$APP/.env"') < step.index('mv -f "$APP/.env.new" "$APP/.env"')
     assert "docker exec -i market-bot python" in step and "sys.stdin.read()" in step, "ключ — через stdin"
     assert 'ENVIRON["BYBIT_KEY"]' in step and 'ENVIRON["BYBIT_SECRET"]' in step and "-v " not in step
-    assert "--force-recreate" not in step, "ключи не меняют режим — перезапуск делает шаг mode"
+    # Ключи не меняют режим (его флаги пишет только шаг mode), но ими торгует и портфель И14 (с 14.09), которому режим
+    # бота не важен: без пересоздания он остался бы со старым ключом (30.09.2026). Пересоздаются ровно сервисы с ключом.
+    assert "PAPER_TRADING" not in step and "trading_mode.expected" not in step, "режим — только шаг mode"
+    assert "svc=$(services_with BYBIT_API_KEY)" in step and step.index('mv -f "$APP/.env.new" "$APP/.env"') < step.index(
+        "--force-recreate $svc"), "пересоздание — после записи ключей и только держателей ключа"
     secret_var = re.compile(r"\$\{?(key|secret)(?![A-Za-z0-9_])")
     for line in step.splitlines():
         if line.strip().startswith("echo"):
