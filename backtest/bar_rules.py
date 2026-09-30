@@ -234,6 +234,13 @@ def signal(rule: str, b: Bars, ind: Indicators, i: int) -> int:
         if r0 is None or r1 is None:
             return 0
         return 1 if r0 >= 30 > r1 else -1 if r0 <= 70 < r1 else 0
+    if rule == "rsi_30_70_exit":
+        # Записанный в плане вариант И16 («RSI пересекает 30 снизу → лонг, 70 сверху → шорт») — вход при ВЫХОДЕ
+        # из зоны; rsi_30_70 входит при заходе в неё (так прогнан итог 14.09). Аудит 29.09: вариант не проверялся.
+        r0, r1 = (ind.rsi[i - 1], ind.rsi[i]) if i >= 1 else (None, None)
+        if r0 is None or r1 is None:
+            return 0
+        return 1 if r0 < 30 <= r1 else -1 if r0 > 70 >= r1 else 0
     if rule == "bollinger_20_2":
         up, low = ind.bb_up[i], ind.bb_low[i]
         if up is None:
@@ -493,14 +500,15 @@ def cfg_name(tf: str, rule: str, g: Tuple[int, int, int]) -> str:
 
 
 def run_timeframe(tf: str, data: Dict[str, Bars], allowed: Dict[str, List[int]], holdout_start: int,
-                  show_holdout: bool, log=None, max_open: Optional[int] = None) -> Dict:
+                  show_holdout: bool, log=None, max_open: Optional[int] = None, rules: Optional[Dict] = None) -> Dict:
     """Все правила таймфрейма: годовая статистика по вариантам, проверка вперёд по семействам."""
-    families = {fam: {} for fam in FAMILIES}
+    rules = rules or RULES
+    families = {fam: {} for fam in rules}
     table = {}
     keep: Dict[str, List[Trade]] = {}      # сделки хранятся только для вариантов, которые понадобятся
     all_stats: Dict[str, Dict[int, List[float]]] = {}
-    for fam, rules in RULES.items():
-        for rule in rules:
+    for fam, fam_rules in rules.items():
+        for rule in fam_rules:
             per_cfg: Dict[str, List[Trade]] = {}
             for sym, b in data.items():
                 ind = Indicators(b)
@@ -519,7 +527,7 @@ def run_timeframe(tf: str, data: Dict[str, Bars], allowed: Dict[str, List[int]],
                 log(f"  {tf} {rule}: {sum(len(v) for v in per_cfg.values())} сделок по 27 вариантам")
     out = {"table": table, "series": {}}
     last_year = year_of(holdout_start)
-    for fam in FAMILIES:
+    for fam in rules:
         chosen = walk_forward(families[fam], last_year)
         series: List[Trade] = []
         for year, name in chosen.items():
@@ -577,22 +585,41 @@ def main(argv=None) -> int:
     parser.add_argument("--holdout", action="store_true")
     parser.add_argument("--out")
     parser.add_argument("--max-open", type=int, default=None, help="не больше N одновременных позиций (просадка на капитал)")
+    parser.add_argument("--families", default=",".join(FAMILIES), help="семейства через запятую (candle, trend, revert)")
+    parser.add_argument("--rsi-variant", choices=("entry", "exit"), default="entry",
+                        help="entry — вход при заходе RSI в зону (итог 14.09); exit — записанный в плане выход из зоны")
+    parser.add_argument("--end", help="ГГГГ-ММ-ДД: конец окна (понедельник) вместо последней свечи кэша")
+    parser.add_argument("--launched-before", help="ГГГГ-ММ-ДД: только контракты, запущенные до даты")
     args = parser.parse_args(argv)
     conn = history.connect(args.db)
     start_ms = mx.day_ms(START)
-    last = conn.execute("SELECT MAX(ts) FROM candles WHERE interval = '4h' AND symbol = 'BTCUSDT'").fetchone()[0]
-    end_ms = int(last) + H4_MS
+    if args.end:
+        end_ms = mx.day_ms(args.end) + H4_MS
+    else:
+        last = conn.execute("SELECT MAX(ts) FROM candles WHERE interval = '4h' AND symbol = 'BTCUSDT'").fetchone()[0]
+        end_ms = int(last) + H4_MS
+    rules = {f: RULES[f] for f in args.families.split(",")}
+    if args.rsi_variant == "exit" and "revert" in rules:
+        rules["revert"] = tuple("rsi_30_70_exit" if r == "rsi_30_70" else r for r in rules["revert"])
+    keep = None
+    if args.launched_before:
+        from backtest.history_wide import launched_before
+        keep = launched_before(conn, mx.day_ms(args.launched_before))
     weeks_all = mx.mondays(start_ms, end_ms)
     holdout_start = weeks_all[-1] - HOLDOUT_WEEKS * WEEK_MS
     daily = ws.load(conn, start_ms, end_ms)
+    if keep is not None:
+        daily = {k: v for k, v in daily.items() if k in keep}
     universe = weekly_universe(daily, weeks_all)
     log = lambda s: print(s, file=sys.stderr, flush=True)  # noqa: E731
     out = {"holdout_opened": args.holdout, "holdout_start": holdout_start, "timeframes": {}}
     for tf in args.tf.split(","):
         data = load_bars(conn, tf)
+        if keep is not None:
+            data = {k: v for k, v in data.items() if k in keep}
         allowed = {sym: allowed_bars(b, None if tf == "1h" else universe, sym, weeks_all) for sym, b in data.items()}
         log(f"{tf}: контрактов {len(data)}")
-        out["timeframes"][tf] = run_timeframe(tf, data, allowed, holdout_start, args.holdout, log, args.max_open)
+        out["timeframes"][tf] = run_timeframe(tf, data, allowed, holdout_start, args.holdout, log, args.max_open, rules)
     conn.close()
     print(f"И16: недели {datetime.fromtimestamp(weeks_all[0] / 1000, UTC):%d.%m.%Y}–{datetime.fromtimestamp(weeks_all[-1] / 1000, UTC):%d.%m.%Y}, "
           f"отложенный конец с {datetime.fromtimestamp(holdout_start / 1000, UTC):%d.%m.%Y} ({'открыт' if args.holdout else 'закрыт'})")
