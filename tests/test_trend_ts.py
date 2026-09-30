@@ -107,3 +107,16 @@ def test_load_reads_4h_closes_and_opens_and_funding(tmp_path):
     data = tt.load(conn, ["X"], MON, MON + DAY)
     conn.close()
     assert data["X"]["c4"][MON] == 2.0 and data["X"]["o4"][MON] == 1.0 and data["X"]["fund"]["ts"] == [MON + 3_600_000]
+
+
+def test_block_weeks_prints_the_autocorrelation_aware_interval(tmp_path, monkeypatch, capsys):
+    """Аудит 29.09.2026: интервал И4 блоками по 4 недели — рядом с исходным, тем же прогоном."""
+    history.connect(tmp_path / "history.db").close()
+    data = {s: coin(0.004 if i % 2 else -0.004, 0.01, weeks=12) for i, s in enumerate(tt.SYMBOLS)}
+    monkeypatch.setattr(tt, "load", lambda conn, symbols, start, end: data)
+    tt.main(["--db", str(tmp_path / "history.db"), "--start", "2021-01-04", "--end", "2021-03-15",
+             "--lookback", "30", "--block-weeks", "4"])
+    out = capsys.readouterr().out
+    assert "блоками по 4 нед.:" in out
+    tt.main(["--db", str(tmp_path / "history.db"), "--start", "2021-01-04", "--end", "2021-03-15", "--lookback", "30"])
+    assert "блоками" not in capsys.readouterr().out

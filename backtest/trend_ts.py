@@ -159,6 +159,8 @@ def main(argv=None) -> int:
     parser.add_argument("--start", help="первая ребалансировка ГГГГ-ММ-ДД: явный период (наблюдение вперёд)")
     parser.add_argument("--end", help="последний выход ГГГГ-ММ-ДД")
     parser.add_argument("--lookback", type=int, help="один вариант N (дней)")
+    parser.add_argument("--block-weeks", type=int,
+                        help="интервал ещё и бутстрепом блоками по N недель (report.weekly_block_ci; аудит 29.09.2026)")
     args = parser.parse_args(argv)
 
     conn = history.connect(args.db)
@@ -182,6 +184,9 @@ def main(argv=None) -> int:
         weeks = simulate(data, symbols, weeks_t, lookback)
         stats = evaluate(weeks)
         print(render(lookback, stats, weeks))
+        if args.block_weeks:
+            low, high = report.weekly_block_ci([w.r for w in weeks], block=args.block_weeks, bootstrap=4000, alpha=ALPHA)
+            print(f"  блоками по {args.block_weeks} нед.: [{100 * low:+.3f}; {100 * high:+.3f}]")
         passed = passed or stats["passed"]
     print("Вердикт И4:", "принимается" if passed else "не принимается")
     return 0

@@ -5,6 +5,10 @@
 по итогу записаны в плане ДО вскрытия отложенного конца — здесь только исполнение.
 
     py -m backtest.h17 --db data/history_wide.db [--holdout] [--out report.json]
+    py -m backtest.h17 --db data/history_wide.db --holdout --end 2026-09-14 [--launched-before 2025-09-14]
+
+--end и --launched-before — пересчёт на расширенном кэше (аудит 29.09.2026): окно тех же недель, что в итоге 14.09,
+и вселенная «как тогда» (контракты, запущенные до даты) против живой (все старше 100 дней на неделю — правило И15).
 
 Без --holdout печатается только видимый период (проверка кода: И17а обязана дать ≈ +0,55 % в
 неделю — зеркало И15). С --holdout отложенный конец 16.03–14.09.2026 открывается один раз.
@@ -80,12 +84,22 @@ def correlation(a: Sequence[float], b: Sequence[float]) -> float:
     return cov / (sd(a) * sd(b)) if sd(a) and sd(b) else 0.0
 
 
-def legs_series(conn, weeks_all: Sequence[int], start_ms: int, end_ms: int) -> Dict[str, Dict[int, float]]:
+def launched_before(conn, date_ms: int) -> set:
+    """Контракты кэша, запущенные раньше даты (таблица instruments широкого кэша)."""
+    return {s for s, in conn.execute("SELECT symbol FROM instruments WHERE launch_ms < ?", (date_ms,))}
+
+
+def legs_series(conn, weeks_all: Sequence[int], start_ms: int, end_ms: int,
+                symbols: set | None = None) -> Dict[str, Dict[int, float]]:
     daily = ws.load(conn, start_ms, end_ms)
+    if symbols is not None:
+        daily = {k: v for k, v in daily.items() if k in symbols}
     legs = {"cont1d": weekly_from_weeks(ws.simulate(daily, CONT, weeks_all)),
             "trend30w": weekly_from_weeks(ws.simulate(daily, TREND, weeks_all))}
     universe = br.weekly_universe(daily, weeks_all)
     bars = br.load_bars(conn, "1d")
+    if symbols is not None:
+        bars = {k: v for k, v in bars.items() if k in symbols}
     trades: List[br.Trade] = []
     for sym, b in bars.items():
         allowed = br.allowed_bars(b, universe, sym, weeks_all)
@@ -136,6 +150,9 @@ def render(out: Dict) -> str:
     lines = ["И17 — видимый период (проверка кода и опорные цифры):"]
     for k, e in out["legs"].items():
         lines.append(f"  {k}: {fmt(e['visible'])}")
+    lines.append(f"  с {COMBO_FROM} до отложенного конца (разброс — основа множителей И14):")
+    for k, e in out["legs"].items():
+        lines.append(f"    {k}: {fmt(e['combo_window'])}")
     c = out["combination"]
     lines.append(f"  И17б веса (по разбросу с {COMBO_FROM}): " + ", ".join(f"{k}: {100 * v:.0f} %" for k, v in c["weights"].items()))
     lines.append(f"  И17б видимый (с {COMBO_FROM}): {fmt(c['visible'])}")
@@ -159,14 +176,20 @@ def main(argv=None) -> int:
     parser.add_argument("--db", default=str(history.DEFAULT_DB.with_name("history_wide.db")))
     parser.add_argument("--holdout", action="store_true")
     parser.add_argument("--out")
+    parser.add_argument("--end", help="ГГГГ-ММ-ДД: конец окна (понедельник) вместо последней свечи кэша")
+    parser.add_argument("--launched-before", help="ГГГГ-ММ-ДД: только контракты, запущенные до даты")
     args = parser.parse_args(argv)
     conn = history.connect(args.db)
     start_ms = mx.day_ms(ws.START)
-    last = conn.execute("SELECT MAX(ts) FROM candles WHERE interval = '4h' AND symbol = 'BTCUSDT'").fetchone()[0]
-    end_ms = int(last) + ws.mx.H4_MS
+    if args.end:
+        end_ms = mx.day_ms(args.end) + ws.mx.H4_MS
+    else:
+        last = conn.execute("SELECT MAX(ts) FROM candles WHERE interval = '4h' AND symbol = 'BTCUSDT'").fetchone()[0]
+        end_ms = int(last) + ws.mx.H4_MS
+    symbols = launched_before(conn, mx.day_ms(args.launched_before)) if args.launched_before else None
     weeks_all = mx.mondays(start_ms, end_ms)
     holdout_start = weeks_all[-1] - ws.HOLDOUT_WEEKS * WEEK_MS
-    legs = legs_series(conn, weeks_all, start_ms, end_ms)
+    legs = legs_series(conn, weeks_all, start_ms, end_ms, symbols)
     conn.close()
     out = run(legs, weeks_all, holdout_start, args.holdout)
     print(f"И17: недели {datetime.fromtimestamp(weeks_all[0] / 1000, UTC):%d.%m.%Y}–{datetime.fromtimestamp(weeks_all[-1] / 1000, UTC):%d.%m.%Y}, "
