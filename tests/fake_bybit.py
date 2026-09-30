@@ -128,6 +128,8 @@ class FakeBybit:
             return FakeResponse(500, text="bad gateway")
         if kind == "ratelimit":
             return self._envelope(10006, "Too many visits", {})
+        if kind == "svc_error":
+            return self._envelope(10016, "svc error: Get kline failed", {})
         response = self._route(method, path, params, body)
         if kind == "timeout_after":
             raise requests.Timeout("fake timeout after processing")

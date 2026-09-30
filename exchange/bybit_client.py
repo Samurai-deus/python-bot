@@ -42,6 +42,12 @@ logger = logging.getLogger(__name__)
 # ========== ENDPOINTS ==========
 
 MAINNET_REST = "https://api.bybit.com"          # единственный источник адреса основной биржи
+# Коды ответа Bybit, при которых запрос не исполнен и повтор безопасен (один источник для всех клиентов):
+# лимит запросов — отклонено до исполнения; внутренняя ошибка биржи — как HTTP 5xx (30.09.2026 загрузка истории
+# упала на 10016 «svc error» посреди прогона: повторялись только 10006/10018).
+RATE_LIMIT_RET_CODES = frozenset({10006, 10018})
+SERVER_ERROR_RET_CODES = frozenset({10016})
+TRANSIENT_RET_CODES = RATE_LIMIT_RET_CODES | SERVER_ERROR_RET_CODES
 _MAINNET_BASE = MAINNET_REST
 _TESTNET_BASE = "https://api-testnet.bybit.com"
 _DEMO_BASE = "https://api-demo.bybit.com"  # демо-счёт основного аккаунта (BYBIT_DEMO)
@@ -641,8 +647,11 @@ class BybitClient:
         ret_code = data.get("retCode", -1)
         ret_msg = data.get("retMsg", "")
         if ret_code != 0:
-            if ret_code == 10006:
-                raise _RateLimited(f"Rate limit (10006) on {path}: {ret_msg}")
+            if ret_code in RATE_LIMIT_RET_CODES:
+                raise _RateLimited(f"Rate limit ({ret_code}) on {path}: {ret_msg}")
+            if ret_code in SERVER_ERROR_RET_CODES:
+                # Как HTTP 5xx: чтение повторяется, создание ордера уходит в сверку (OrderStateUnknown).
+                raise _ServerError(f"Bybit server error ({ret_code}) on {path}: {ret_msg}")
             raise BybitAPIError(ret_code, ret_msg, path)
         return data.get("result", {})
 

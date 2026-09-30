@@ -24,9 +24,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from exchange.bybit_client import MAINNET_REST, TRANSIENT_RET_CODES
+
 logger = logging.getLogger(__name__)
 
 HOUR_MS = 3_600_000
+BYBIT = MAINNET_REST + "/v5/market"
 DAY_MS = 24 * HOUR_MS
 EXCHANGES = ("bybit", "bitget", "okx")
 TAKER_FEE = {"bybit": 0.00055, "bitget": 0.0006, "okx": 0.0005}
@@ -67,8 +70,12 @@ def http_get(url: str, params: dict, retries: int = 4) -> dict:
         try:
             req = urllib.request.Request(q, headers={"User-Agent": "market-bot-research"})
             with urllib.request.urlopen(req, timeout=30) as r:
-                return json.loads(r.read())
-        except Exception as exc:  # сеть, 429 — пауза и повтор
+                data = json.loads(r.read())
+            # Bybit отвечает 200 с retCode: лимит и внутренняя ошибка — повторяемы, как сеть (30.09.2026).
+            if isinstance(data, dict) and data.get("retCode") in TRANSIENT_RET_CODES:
+                raise RuntimeError(f"Bybit retCode {data['retCode']}: {data.get('retMsg')}")
+            return data
+        except Exception as exc:  # сеть, 429, временный retCode — пауза и повтор
             if attempt == retries - 1:
                 raise
             logger.warning("xfunding: %s — повтор (%s)", q[:90], type(exc).__name__)
@@ -89,7 +96,7 @@ class Bybit:
             p = {"category": "linear", "limit": 1000}
             if cursor:
                 p["cursor"] = cursor
-            r = self.get("https://api.bybit.com/v5/market/instruments-info", p)["result"]
+            r = self.get(f"{BYBIT}/instruments-info", p)["result"]
             for i in r["list"]:
                 if i.get("quoteCoin") == "USDT" and i.get("contractType") == "LinearPerpetual" and i.get("status") == "Trading":
                     out[i["symbol"][:-4]] = i["symbol"]
@@ -101,7 +108,7 @@ class Bybit:
     def funding(self, symbol: str, start: int, end: int) -> List[Tuple[int, float]]:
         out, cur_end = [], end
         for _ in range(50):
-            r = self.get("https://api.bybit.com/v5/market/funding/history",
+            r = self.get(f"{BYBIT}/funding/history",
                          {"category": "linear", "symbol": symbol, "startTime": start, "endTime": cur_end, "limit": 200})["result"]["list"]
             rows = [(int(x["fundingRateTimestamp"]), float(x["fundingRate"])) for x in r]
             out += rows
@@ -115,7 +122,7 @@ class Bybit:
         """Bybit отдаёт последние limit свечей диапазона (новые первыми) — листаем назад по самой старой."""
         out, cur_end = [], end
         for _ in range(100):
-            r = self.get("https://api.bybit.com/v5/market/kline",
+            r = self.get(f"{BYBIT}/kline",
                          {"category": "linear", "symbol": symbol, "interval": "60", "start": start, "end": cur_end, "limit": 1000})["result"]["list"]
             rows = [(int(x[0]), float(x[4]), float(x[6])) for x in r]
             out += rows

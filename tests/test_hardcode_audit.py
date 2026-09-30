@@ -27,8 +27,18 @@ def test_boolean_env_flags_go_through_env_flag():
 
 
 def test_bybit_mainnet_url_has_one_source():
-    """Адрес основной биржи был в 10 местах (замороженный backtest/ — вне правила)."""
-    hits = [rel for rel, text in code_files() if '"https://api.bybit.com' in text]
+    """Адрес основной биржи был в 10 местах; 30.09.2026 — ещё в трёх модулях backtest/ (правило их не видело)."""
+    hits = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*.py")
+            if not p.relative_to(ROOT).as_posix().startswith(("venv/", "archive/", "tests/"))
+            and '"https://api.bybit.com' in p.read_text(encoding="utf-8", errors="ignore")]
+    assert hits == ["exchange/bybit_client.py"], hits
+
+
+def test_transient_bybit_codes_have_one_source():
+    """Коды временных ошибок Bybit (лимит, внутренняя ошибка) — в exchange.bybit_client, не копиями по клиентам."""
+    hits = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*.py")
+            if not p.relative_to(ROOT).as_posix().startswith(("venv/", "archive/", "tests/"))
+            and (re.search(r"\{\s*10006\s*,", t := p.read_text(encoding="utf-8", errors="ignore")) or "== 10006" in t)]
     assert hits == ["exchange/bybit_client.py"], hits
 
 

@@ -216,10 +216,36 @@ def test_deploy_rebuilds_the_files_before_every_up():
     assert support.rstrip().endswith("split_env") or "\n  split_env\n" in support
 
 
-def test_a_new_token_reaches_every_service():
-    """До 29.09 шаг token пересоздавал bot и api — исполнители и новости остались бы с отозванным токеном."""
+@pytest.mark.parametrize("step,name", [("step_token", "TELEGRAM_BOT_TOKEN"), ("step_ai_key", "OPENROUTER_API_KEY"),
+                                       ("step_bybit_key", "BYBIT_API_KEY")])
+def test_replacing_a_secret_recreates_exactly_the_services_that_hold_it(step, name):
+    """До 30.09 списки были в шагах: token пересоздавал bot и api, bybit-key — никого (И14 со старым ключом)."""
     text = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
-    step = re.search(r"^step_token\(\) \{\n(.*?)^\}", text, re.M | re.S).group(1)
-    assert "--force-recreate $ENV_SERVICES" in step
-    ai = re.search(r"^step_ai_key\(\) \{\n(.*?)^\}", text, re.M | re.S).group(1)
-    assert re.search(r"--force-recreate bot api news\b", ai)
+    body = re.search(rf"^{step}\(\) \{{\n(.*?)^\}}", text, re.M | re.S).group(1)
+    assert f"svc=$(services_with {name})" in body and "--force-recreate $svc" in body
+
+
+@pytest.fixture
+def services_with(tmp_path):
+    sh = shutil.which("sh")
+    if not sh:
+        pytest.skip("нет sh")
+    text = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
+    fn = re.search(r"^services_with\(\) \{\n.*?^\}\n", text, re.M | re.S).group(0)
+
+    def run(name, with_map=True):
+        app = tmp_path / ("app" if with_map else "empty")
+        app.mkdir(exist_ok=True)
+        if with_map:
+            (app / "service-secrets.conf").write_bytes(MAP.read_bytes())
+        script = f'APP="{app.as_posix()}"\nENV_SERVICES="bot api portfolio btcalts carry news"\n{fn}services_with {name}\n'
+        out = subprocess.run([sh, "-c", script], capture_output=True, timeout=30)
+        return out.stdout.decode().split()
+    return run
+
+
+def test_services_with_reads_the_map(services_with):
+    for name in ("TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY", "BYBIT_API_KEY", "CARRY_BYBIT_API_KEY"):
+        assert set(services_with(name)) == {s for s, names in secret_map().items() if name in names}, name
+    assert set(services_with("BYBIT_API_KEY")) == {"bot", "portfolio"}
+    assert services_with("TELEGRAM_BOT_TOKEN", with_map=False) == ["bot", "api", "portfolio", "btcalts", "carry", "news"]
