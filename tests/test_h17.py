@@ -55,3 +55,41 @@ def test_holdout_thresholds_follow_the_plan():
     h = h17.run(legs, weeks, holdout_start, show_holdout=True)["legs"]["cont1d"]["holdout"]
     assert 0 < h["mean"] < h17.DEMO_MIN_MEAN and h["threshold"] < 0
     assert h["not_contradicted"] and not h["demo"], "около +0,2 % не противоречит (порог < 0), но ниже порога демо +0,30 %"
+
+
+# ---------------------------------------------------------------------------
+# Пересчёт на расширенном кэше (аудит 29.09.2026): окно тех же недель и вселенная «как тогда»
+# ---------------------------------------------------------------------------
+
+def _wide_db(tmp_path):
+    from backtest import history_wide
+    conn = history_wide.connect(tmp_path / "wide.db")
+    conn.executemany("INSERT INTO instruments VALUES (?, ?, 0, 0, 0, 0)",
+                     [("OLDUSDT", ws.mx.day_ms("2021-01-04")), ("NEWUSDT", ws.mx.day_ms("2026-01-05"))])
+    conn.execute("INSERT INTO candles (symbol, interval, ts, open, high, low, close, volume, turnover) "
+                 "VALUES ('BTCUSDT', '4h', ?, 1, 1, 1, 1, 1, 1)", (ws.mx.day_ms("2026-09-28"),))
+    conn.commit()
+    return conn
+
+
+def test_launched_before_keeps_only_contracts_listed_earlier(tmp_path):
+    conn = _wide_db(tmp_path)
+    assert h17.launched_before(conn, ws.mx.day_ms("2025-09-14")) == {"OLDUSDT"}
+    assert h17.launched_before(conn, ws.mx.day_ms("2026-09-14")) == {"OLDUSDT", "NEWUSDT"}
+
+
+def test_end_and_universe_options_fix_the_window_and_the_contracts(tmp_path, monkeypatch, capsys):
+    _wide_db(tmp_path).close()
+    seen = {}
+
+    def fake_legs(conn, weeks_all, start_ms, end_ms, symbols=None):
+        seen.update(weeks=weeks_all, symbols=symbols)
+        return {k: {t: 0.001 * (-1) ** i for i, t in enumerate(weeks_all[:-1])} for k in ("cont1d", "trend30w", "ma_daily")}
+
+    monkeypatch.setattr(h17, "legs_series", fake_legs)
+    h17.main(["--db", str(tmp_path / "wide.db"), "--end", "2026-09-14", "--launched-before", "2025-09-14"])
+    assert seen["weeks"][-1] == ws.mx.day_ms("2026-09-14"), "окно — недели итога 14.09, а не последняя свеча кэша"
+    assert seen["symbols"] == {"OLDUSDT"}
+    assert "основа множителей И14" in capsys.readouterr().out
+    h17.main(["--db", str(tmp_path / "wide.db")])
+    assert seen["weeks"][-1] == ws.mx.day_ms("2026-09-28") and seen["symbols"] is None
