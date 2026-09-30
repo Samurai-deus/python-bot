@@ -627,3 +627,16 @@ def test_python_services_run_without_privilege_escalation_or_capabilities():
     for name, svc in ours.items():
         assert svc.get("cap_drop") == ["ALL"] and not svc.get("cap_add"), name
         assert "no-new-privileges:true" in (svc.get("security_opt") or []), name
+
+
+def test_pr_chain_helpers_do_not_clobber_the_callers_variables():
+    """sh без local: 30.09.2026 retry затёр n вызывающего скрипта, и gh pr merge ушёл с номером 0."""
+    import shutil
+    import subprocess
+    sh = shutil.which("sh")
+    if not sh:
+        pytest.skip("нет sh")
+    chain = (DEPLOY / "pr_chain.sh").as_posix()
+    script = f'. "{chain}"\nn=218; id=x; c=y\nretry true\necho "$n $id $c"\n'
+    out = subprocess.run([sh, "-c", script], capture_output=True, timeout=30).stdout.decode().strip()
+    assert out == "218 x y", out
