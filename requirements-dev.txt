@@ -7,7 +7,7 @@
 
 ruff>=0.16.9
 mypy>=2.3.1
-pip-audit>=2.10
+pip-audit>=2.10.1
 pre-commit>=4.6.2
 
 # Testing
