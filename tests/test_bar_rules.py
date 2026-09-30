@@ -148,3 +148,48 @@ def test_concurrency_cap_skips_trades_when_the_book_is_full():
     full = br.evaluate(trades * 100, alpha=0.05)
     capped = br.evaluate(trades * 100, alpha=0.05, max_open=2)
     assert capped["trades"] < full["trades"] and capped["drawdown"] <= full["drawdown"]
+
+
+def test_the_written_rsi_variant_enters_when_rsi_leaves_the_zone():
+    """Аудит 29.09: записано «RSI пересекает 30 снизу → лонг», а rsi_30_70 входит при заходе в зону (сверху вниз)."""
+    ohlc = (flat(30) + [(100 - k, 101 - k, 99 - k, 100 - k) for k in range(1, 20)]
+            + [(80 + 2 * k, 81 + 2 * k, 79 + 2 * k, 80 + 2 * k) for k in range(1, 15)])
+    b = bars(ohlc)
+    ind = br.Indicators(b)
+    into = [i for i in range(len(ohlc)) if br.signal("rsi_30_70", b, ind, i) == 1]
+    out = [i for i in range(len(ohlc)) if br.signal("rsi_30_70_exit", b, ind, i) == 1]
+    assert len(into) == 1 and len(out) == 1 and out[0] > into[0]
+    assert ind.rsi[out[0] - 1] < 30 <= ind.rsi[out[0]] and ind.rsi[into[0] - 1] >= 30 > ind.rsi[into[0]]
+    mirror = bars([(200 - o, 200 - lo, 200 - h, 200 - c) for o, h, lo, c in ohlc])
+    mi = br.Indicators(mirror)
+    assert [i for i in range(len(ohlc)) if br.signal("rsi_30_70_exit", mirror, mi, i) == -1] == out
+
+
+def test_the_rsi_variant_and_families_are_chosen_on_the_command_line(tmp_path, monkeypatch):
+    from backtest import history_wide
+    conn = history_wide.connect(tmp_path / "wide.db")
+    conn.executemany("INSERT INTO instruments VALUES (?, ?, 0, 0, 0, 0)",
+                     [("OLDUSDT", mx.day_ms("2021-01-04")), ("NEWUSDT", mx.day_ms("2026-01-05"))])
+    conn.commit()
+    conn.close()
+    seen = {}
+    monkeypatch.setattr(br.ws, "load", lambda conn, a, b: {"OLDUSDT": object(), "NEWUSDT": object()})
+    monkeypatch.setattr(br, "weekly_universe", lambda daily, weeks: seen.setdefault("daily", set(daily)))
+    monkeypatch.setattr(br, "load_bars", lambda conn, tf: {"OLDUSDT": None, "NEWUSDT": None})
+    monkeypatch.setattr(br, "allowed_bars", lambda b, universe, sym, weeks: [])
+    monkeypatch.setattr(br, "render", lambda out: "")
+
+    def fake_run(tf, data, allowed, holdout_start, show, log, max_open, rules):
+        seen.update(rules=rules, data=set(data), weeks_end=holdout_start + br.HOLDOUT_WEEKS * br.WEEK_MS)
+        return {"table": {}, "series": {}}
+
+    monkeypatch.setattr(br, "run_timeframe", fake_run)
+    br.main(["--db", str(tmp_path / "wide.db"), "--tf", "4h", "--families", "revert", "--rsi-variant", "exit",
+             "--end", "2026-09-14", "--launched-before", "2025-09-14"])
+    assert seen["rules"] == {"revert": ("rsi_30_70_exit", "bollinger_20_2")}
+    assert seen["data"] == seen["daily"] == {"OLDUSDT"}
+    assert seen["weeks_end"] == mx.day_ms("2026-09-14")
+    seen.pop("daily")
+    br.main(["--db", str(tmp_path / "wide.db"), "--tf", "4h", "--end", "2026-09-14"])
+    assert seen["rules"] == br.RULES, "по умолчанию — сетка итога 14.09 без изменений"
+    assert seen["data"] == {"OLDUSDT", "NEWUSDT"}

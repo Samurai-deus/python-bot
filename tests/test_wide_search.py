@@ -144,3 +144,21 @@ def test_daily_rows_are_built_from_4h_bars(tmp_path):
     assert s.first_day == D0 and s.close[D0] == 100.5 + 5 and s.close[D0 + 1] == 100.5 + 11
     assert s.turnover[D0] == pytest.approx(6e6) and s.open[MON] == 100.0 and s.open[MON + ws.DAY_MS] == 106.0
     assert s.fund_ts == [MON + 8 * mx.HOUR_MS]
+
+
+def test_launched_before_restricts_the_rerun_to_the_old_universe(tmp_path, monkeypatch):
+    """Пересчёт И15 на расширенном кэше (аудит 29.09): вселенная прежнего кэша — контракты, запущенные до даты."""
+    from backtest import history_wide
+    conn = history_wide.connect(tmp_path / "wide.db")
+    conn.executemany("INSERT INTO instruments VALUES (?, ?, 0, 0, 0, 0)",
+                     [("OLDUSDT", mx.day_ms("2021-01-04")), ("NEWUSDT", mx.day_ms("2026-01-05"))])
+    conn.commit()
+    conn.close()
+    seen = {}
+    monkeypatch.setattr(ws, "load", lambda conn, a, b: {"OLDUSDT": 1, "NEWUSDT": 2})
+    monkeypatch.setattr(ws, "run", lambda data, weeks, hold, show: seen.update(data=set(data)) or {})
+    monkeypatch.setattr(ws, "render", lambda out: "")
+    ws.main(["--db", str(tmp_path / "wide.db"), "--end", "2026-09-14", "--launched-before", "2025-09-14"])
+    assert seen["data"] == {"OLDUSDT"}
+    ws.main(["--db", str(tmp_path / "wide.db"), "--end", "2026-09-14"])
+    assert seen["data"] == {"OLDUSDT", "NEWUSDT"}

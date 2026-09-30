@@ -85,8 +85,8 @@ def correlation(a: Sequence[float], b: Sequence[float]) -> float:
 
 
 def launched_before(conn, date_ms: int) -> set:
-    """Контракты кэша, запущенные раньше даты (таблица instruments широкого кэша)."""
-    return {s for s, in conn.execute("SELECT symbol FROM instruments WHERE launch_ms < ?", (date_ms,))}
+    from backtest.history_wide import launched_before as lb
+    return lb(conn, date_ms)
 
 
 def legs_series(conn, weeks_all: Sequence[int], start_ms: int, end_ms: int,

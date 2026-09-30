@@ -513,6 +513,7 @@ def main(argv=None) -> int:
     parser.add_argument("--holdout", action="store_true", help="открыть отложенный конец (один раз, только для прошедших)")
     parser.add_argument("--out", help="куда записать JSON отчёта")
     parser.add_argument("--end", help="последний выход ГГГГ-ММ-ДД (по умолчанию — последний понедельник в кэше)")
+    parser.add_argument("--launched-before", help="ГГГГ-ММ-ДД: только контракты, запущенные до даты (пересчёт на расширенном кэше)")
     args = parser.parse_args(argv)
     conn = history.connect(args.db)
     start_ms = mx.day_ms(START)
@@ -524,6 +525,10 @@ def main(argv=None) -> int:
     weeks_all = mx.mondays(start_ms, end_ms)
     holdout_start = weeks_all[-1] - HOLDOUT_WEEKS * WEEK_MS
     data = load(conn, start_ms, end_ms)
+    if args.launched_before:
+        from backtest.history_wide import launched_before
+        keep = launched_before(conn, mx.day_ms(args.launched_before))
+        data = {k: v for k, v in data.items() if k in keep}
     conn.close()
     print(f"И15: контрактов {len(data)}, недели {datetime.fromtimestamp(weeks_all[0] / 1000, UTC):%d.%m.%Y}–"
           f"{datetime.fromtimestamp(weeks_all[-1] / 1000, UTC):%d.%m.%Y}, отложенный конец с "

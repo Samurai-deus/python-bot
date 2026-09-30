@@ -27,6 +27,11 @@ SCHEMA = ("CREATE TABLE IF NOT EXISTS instruments (symbol TEXT PRIMARY KEY, laun
           " turnover24h REAL, fetched_ms INTEGER)",)
 
 
+def launched_before(conn, date_ms: int) -> set:
+    """Контракты кэша, запущенные раньше даты: вселенная прежнего кэша при пересчёте на расширенном (аудит 29.09)."""
+    return {s for s, in conn.execute("SELECT symbol FROM instruments WHERE launch_ms < ?", (date_ms,))}
+
+
 def connect(path):
     conn = history.connect(path)
     for sql in SCHEMA:
