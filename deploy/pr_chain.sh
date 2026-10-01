@@ -71,7 +71,8 @@ finish_branch() {
   state=$(gh pr view "$1" --json state --jq .state 2>/dev/null || echo NONE)
   [ "$state" = "OPEN" ] || retry gh pr create --base main --head "$1" --title "$2" --body-file "$3"
   wait_ci "$1" "$(git rev-parse HEAD)" || return 1
-  retry gh pr merge "$1" --rebase
+  # --delete-branch: без него ветка оставалась на GitHub после каждого слияния — к 30.09.2026 их накопилось 175.
+  retry gh pr merge "$1" --rebase --delete-branch
   git checkout -q main
   retry git pull -q --ff-only
   git branch -D "$1"

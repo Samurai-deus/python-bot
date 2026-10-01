@@ -640,3 +640,10 @@ def test_pr_chain_helpers_do_not_clobber_the_callers_variables():
     script = f'. "{chain}"\nn=218; id=x; c=y\nretry true\necho "$n $id $c"\n'
     out = subprocess.run([sh, "-c", script], capture_output=True, timeout=30).stdout.decode().strip()
     assert out == "218 x y", out
+
+
+def test_pr_chain_deletes_the_branch_it_merged():
+    """Без --delete-branch ветка оставалась на GitHub после каждого слияния: к 30.09.2026 — 175 веток."""
+    chain = (DEPLOY / "pr_chain.sh").read_text(encoding="utf-8")
+    merges = [line for line in chain.splitlines() if "gh pr merge" in line and not line.lstrip().startswith("#")]
+    assert merges and all("--delete-branch" in line for line in merges), merges
