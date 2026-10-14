@@ -7,13 +7,15 @@
 from datetime import UTC, datetime, timedelta
 from collections.abc import Callable
 
+from utils.env import env_int
+
 CHECKPOINTS: list[tuple[str, str]] = [
     ("2026-09-21", "И14: первая штатная ребалансировка тремя ногами (00:02 UTC); И18: старт — бумага и демо-субсчёт"),
     ("2026-10-11", "Запись стакана: 4 недели данных — можно записывать первую гипотезу на стакане (до этого — нельзя)"),
     ("2026-10-12", "И14: 4 ребалансировки — решение о часе исполнения по замеру проскальзывания"),
     ("2026-10-19", "И19: 4 недели записи межбиржевого фандинга — время жизни расхождений против истории"),
     ("2026-11-16", "И19б: 8 недель записи — вердикт по расчётной ставке (И19 по выплаченной на истории не прошёл 21.09)"),
-    ("2026-12-06", "И10/И10б: первая проверка новостей с оценкой ИИ (12 недель); ключ И13 истекает ~13.12 — перевыпустить"),
+    ("2026-12-06", "И10/И10б: первая проверка новостей с оценкой ИИ (12 недель)"),
     ("2026-12-07", "И13: конец 12 недель сбора фандинга на демо-субсчёте — итог"),
     ("2026-12-14", "И14: итог 12 недель (критерий честности исполнения); наблюдение И4/И3/И17а: первая проверка (13 недель)"),
     ("2027-01-03", "И10: вторая проверка (каждые 4 недели, пока сигналов < 100)"),
@@ -26,13 +28,27 @@ CHECKPOINTS: list[tuple[str, str]] = [
 ]
 REMIND_DAYS = 3
 NOTIFY_HOUR_UTC = 8
+# Срок ключей биржи календарь больше не ведёт (была дата «~13.12» на глаз): исполнители спрашивают биржу сами —
+# portfolio.executor.key_expiry_notice.
+HOSTING_TEXT = ("Оплата хостинга сервера бота — без неё сервер приостанавливается (13.10.2026: простой 34 ч, "
+                "пропуски в записи И13/И19б и новостей)")
+
+
+def monthly(now: datetime) -> list[tuple[str, str]]:
+    """Ежемесячные события: оплата хостинга в день HOSTING_RENEWAL_DAY (1–28; 0 — выключено) этого и следующего месяца."""
+    day = env_int("HOSTING_RENEWAL_DAY", 0)
+    if not 1 <= day <= 28:
+        return []
+    this = now.replace(day=day, hour=0, minute=0, second=0, microsecond=0)
+    nxt = (this.replace(day=1) + timedelta(days=32)).replace(day=day)
+    return [(d.strftime("%Y-%m-%d"), HOSTING_TEXT) for d in (this, nxt)]
 
 
 def due(now_ms: int, is_sent: Callable[[str], bool]) -> list[tuple[str, str]]:
     """[(id, текст)] сообщений, которые пора отправить: день события (с 08:00 UTC) и за 3 дня (с 08:00 UTC)."""
     now = datetime.fromtimestamp(now_ms / 1000, UTC)
     out = []
-    for day, text in CHECKPOINTS:
+    for day, text in CHECKPOINTS + monthly(now):
         d = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=UTC)
         for kind, when in (("remind", d - timedelta(days=REMIND_DAYS)), ("today", d)):
             start = when.replace(hour=NOTIFY_HOUR_UTC)

@@ -120,6 +120,7 @@ def cycle(cli, store: Store, now: int) -> None:
     for key, text in calendar.due(now, lambda k: store.get(f"notice:{k}") is not None):  # контрольные даты программы
         if notify(text):                 # не ушло — отметки нет, повтор следующим часом (окно — сутки)
             store.set(f"notice:{key}", now)
+    executor.key_expiry_notice(cli, store, now, notify, "И14")    # срок ключа биржи — раз в сутки
     (root_dir() / "heartbeat").write_text(f"{now / 1000:.0f}\n", encoding="utf-8")
 
 

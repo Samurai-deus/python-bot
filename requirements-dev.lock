@@ -1,8 +1,7 @@
 # Замок зависимостей с хэшами (аудит 29.09.2026: транзитивные версии не фиксировались, образ собирался
-# с тем, что окажется последним в день сборки). Не править руками — пересобрать:
-#   py -m uv pip compile requirements.txt requirements-dev.txt --python-version 3.14 --python-platform x86_64-manylinux_2_28 \
-#       --generate-hashes --no-header -o requirements-dev.lock
-# и приклеить эту шапку обратно. tests/test_lock.py сверяет версии верхнего уровня с requirements.txt.
+# с тем, что окажется последним в день сборки). Не править руками — пересобрать: sh deploy/relock.sh
+# (оба замка, прежние версии — предпочтение, эта шапка сохраняется). PR Dependabot — sh deploy/dependabot.sh <номер>.
+# tests/test_lock.py сверяет версии верхнего уровня с requirements.txt.
 aiohappyeyeballs==2.7.1 \
     --hash=sha256:065665c041c42a5938ed220bdcd7230f22527fbec085e1853d2402c8a3615d9d \
     --hash=sha256:9243213661e29250eb41368e5daa826fc017156c3b8a11440826b2e3ed376472

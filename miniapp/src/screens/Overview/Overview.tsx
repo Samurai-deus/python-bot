@@ -42,7 +42,7 @@ function ExecutorTile({ title, p }: { title: string; p: ResearchPortfolio | null
         status={p.status}
         rows={[
           { label: 'Результат', value: `${signed(p.change)}${pctOf(p.change, p.capital)}`, accent: change >= 0 ? 'var(--green)' : 'var(--red)' },
-          { label: 'Просадка от пика', value: `${(p.drawdown / p.capital * 100).toFixed(1)} % · стоп при ${pctLabel(p.stop_fraction)}`, accent: p.drawdown > p.capital * p.stop_fraction * WARN_SHARE ? 'var(--amber)' : undefined },
+          { label: 'Просадка сейчас', value: `${(p.drawdown_now / p.capital * 100).toFixed(1)} % · стоп при ${pctLabel(p.stop_fraction)}`, accent: p.drawdown_now > p.capital * p.stop_fraction * WARN_SHARE ? 'var(--amber)' : undefined },
           { label: 'Позиции · валовая', value: `${p.positions.length} · ${(p.gross / p.capital).toFixed(2)}× капитала ${usd(p.capital, 0)}` },
           { label: 'Следующая ребалансировка', value: day(p.next_rebalance) },
         ]}

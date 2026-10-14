@@ -52,7 +52,8 @@ function PortfolioCard({ p, meta }: { p: ResearchPortfolio | null; meta: Researc
             <Row label="Капитал" value={usd(p.capital, 0)} />
             <Row label="Стоимость / старт" value={`${usd(p.equity)} / ${usd(p.start_equity)}`} />
             <Row label="Результат" value={`${signed(p.change)}${pctOf(p.change, p.capital)}`} accent={(p.change ?? 0) >= 0 ? 'var(--green)' : 'var(--red)'} />
-            <Row label="Просадка от пика" value={`${usd(p.drawdown)}${pctOf(-p.drawdown, p.capital)} · стоп при ${pctLabel(p.stop_fraction)}`} accent={p.drawdown > p.capital * p.stop_fraction * WARN_SHARE ? 'var(--amber)' : undefined} />
+            <Row label="Просадка сейчас" value={`${usd(p.drawdown_now)}${pctOf(-p.drawdown_now, p.capital)} · стоп при ${pctLabel(p.stop_fraction)}`} accent={p.drawdown_now > p.capital * p.stop_fraction * WARN_SHARE ? 'var(--amber)' : undefined} />
+            <Row label="Наибольшая просадка" value={`${usd(p.drawdown)}${pctOf(-p.drawdown, p.capital)}`} />
             <Row label="Валовая экспозиция" value={`${usd(p.gross, 0)} (${(p.gross / p.capital).toFixed(2)}× капитала)`} />
             <Row label="Ребалансировка" value={`${meta.rebalance}; следующая ${day(p.next_rebalance)}`} />
             <Row label="Срок" value={`${ruDate(meta.start)} → ${ruDate(meta.end)}, итог ${ruDate(meta.verdict)}`} />
@@ -89,7 +90,7 @@ function CarryCard({ c, meta }: { c: ResearchCarry | null; meta: ResearchOvervie
             <Row label="Результат" value={signed(c.change)} accent={(c.change ?? 0) >= 0 ? 'var(--green)' : 'var(--red)'} />
             <Row label="Фандинг получен" value={signed(c.funding)} accent="var(--green)" />
             <Row label="Комиссии" value={usd(c.fees)} />
-            <Row label="Просадка от пика" value={usd(c.drawdown)} />
+            <Row label="Наибольшая просадка" value={usd(c.drawdown)} />
             <Row label="Маржа (mm rate)" value={c.mm_rate === null ? '—' : `${(c.mm_rate * 100).toFixed(2)} % · стоп при ${pctLabel(c.mm_stop)}`} />
             <Row label="Хедж вне ±5 %" value={`${(c.outside_share * 100).toFixed(2)} % времени`} />
             <Row label="Срок" value={`${ruDate(meta.start)} → ${ruDate(meta.end)}, итог ${ruDate(meta.verdict)}`} />

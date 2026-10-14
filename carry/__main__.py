@@ -247,6 +247,7 @@ def cycle(cli, store: Store, now: int) -> None:
     positions = {s: {"spot": bal.get(base(s), 0.0), "short": cli.short_qty(s), "price": cli.spot_price(s)} for s in syms}
     store.snapshot(now, equity, cli.account_mm_rate(), deviations, positions)
     send_weekly_summary(store, equity, deviations, now)
+    executor.key_expiry_notice(cli, store, now, notify, "И13")    # срок ключа биржи — раз в сутки
     (carry_dir() / "heartbeat").write_text(f"{now / 1000:.0f}\n", encoding="utf-8")
 
 
