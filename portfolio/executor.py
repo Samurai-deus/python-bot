@@ -7,9 +7,14 @@
 делалась дважды.
 """
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
+import logging
 
 from portfolio import engine
 from portfolio.store import Store
+from utils.env import env_int
+
+logger = logging.getLogger(__name__)
 
 BLOCKED_CODE = "110126"      # Bybit: контракт требует подписи соглашения (токенизированные акции) — в корзину не ставим
 HOUR_MS = 3_600_000
@@ -173,3 +178,29 @@ def cycle_outcome(store, now: int, error: str | None, notify: Callable[[str], bo
     if store.get("fail_alerted"):
         if notify(f"✅ {name}: цикл снова проходит (перед этим сбоев подряд: {streak})"):
             store.set("fail_alerted", "")
+
+
+def key_expiry_notice(cli, store, now: int, notify: Callable[[str], bool], name: str) -> int | None:
+    """
+    Раз в сутки — срок ключа биржи этого исполнителя (/v5/user/query-api, поле deadlineDay); осталось не больше
+    BYBIT_EXPIRY_WARN_DAYS дней — сообщение владельцу (раз в сутки, пока ключ не заменят). Ключ с привязкой к IP
+    бессрочный (deadlineDay < 0) — молчим. Сбой запроса — в журнал, цикл не ломает. Возвращает остаток дней или None.
+    14.10.2026 сроки ключей бота/И14 (12.12) и И13 (15.12) нашлись только ручной проверкой, а в календаре стояла
+    дата «~13.12» на глаз: истёкший ключ тихо останавливает исполнителя.
+    """
+    day = datetime.fromtimestamp(now / 1000, UTC).strftime("%Y-%m-%d")
+    if store.get("key_checked_day") == day:
+        return None
+    try:
+        info = cli._get("/v5/user/query-api", params={}, signed=True)
+        days = int(info.get("deadlineDay"))
+    except Exception as exc:                 # сеть, формат — проверим в следующем цикле
+        logger.warning("%s: срок ключа биржи не получен: %s", name, type(exc).__name__)
+        return None
+    store.set("key_checked_day", day)
+    store.set("key_deadline_days", days)
+    if 0 <= days <= env_int("BYBIT_EXPIRY_WARN_DAYS", 21):
+        expires = str(info.get("expiredAt") or "")[:10]
+        notify(f"🔑 {name}: ключ биржи истекает через {days} дн. ({expires}) — перевыпустить на Bybit и заменить "
+               f"шагом deploy.sh, иначе исполнитель остановится")
+    return days

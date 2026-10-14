@@ -126,6 +126,11 @@ def read_portfolio(path: str, capital: float, now_ms: int | None = None,
         peak = max(peak, eq)
         dd = max(dd, peak - eq)
     last_ts, last_eq, last_pos = snaps[-1] if snaps else (None, None, "{}")
+    # Текущая просадка — от пика, который ведёт сам исполнитель для стопа (state peak_equity); «drawdown» —
+    # наибольшая за всё время. 14.10.2026 мини-апп подписывал наибольшую «просадкой от пика» и подсвечивал её у стопа:
+    # после 20.09 (23,8 %) подсветка не гасла бы, хотя текущая была 5 %.
+    peak_now = max(float(state.get("peak_equity") or 0), peak)
+    dd_now = max(peak_now - last_eq, 0.0) if last_eq is not None else 0.0
     positions = json.loads(last_pos or "{}")
     last_reb = int(state["last_rebalance_t"]) if state.get("last_rebalance_t") else None
     return {
@@ -135,7 +140,7 @@ def read_portfolio(path: str, capital: float, now_ms: int | None = None,
         "capital": capital, "stop_fraction": stop_fraction,
         "start_equity": start_eq, "equity": last_eq,
         "change": (last_eq - start_eq) if (last_eq is not None and start_eq is not None) else None,
-        "drawdown": dd,
+        "drawdown": dd, "drawdown_now": dd_now,
         "gross": sum(abs(v) for v in positions.values()),
         "positions": [{"symbol": s, "side": "LONG" if v > 0 else "SHORT", "notional": abs(v), "weight": abs(v) / capital}
                       for s, v in sorted(positions.items(), key=lambda kv: -abs(kv[1]))],

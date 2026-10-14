@@ -45,7 +45,8 @@ export interface ResearchPortfolio {
   start_equity: number | null
   equity: number | null
   change: number | null
-  drawdown: number
+  drawdown: number               // наибольшая просадка за всё время, USDT
+  drawdown_now: number           // текущая просадка от пика исполнителя (её и проверяет стоп), USDT
   gross: number
   positions: { symbol: string; side: 'LONG' | 'SHORT'; notional: number; weight: number }[]
   next_rebalance: string | null

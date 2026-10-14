@@ -37,7 +37,10 @@ Python **3.14**, SQLite, FastAPI + Telegram Mini App (React + TypeScript), Docke
 `deploy/split-env.sh` собирает `/opt/market-bot/env/<сервис>.env` из общего `.env` перед каждым `compose up`.
 Новый секрет в коде — строка в карте (`tests/test_service_secrets.py` ловит пропуск). Замена секрета — шаги
 `deploy.sh token | ai-key | bybit-key`: правят общий `.env` и пересоздают ровно те сервисы, которым карта выдаёт
-этот секрет (`services_with`). У API ключей биржи нет.
+этот секрет (`services_with`). У API ключей биржи нет. Имя НЕсекретной настройки — без KEY / SECRET / TOKEN /
+PASSWORD / PASSPHRASE / DSN: по этим словам `split-env.sh` распознаёт секрет и вычеркнет настройку у всех, кому её
+нет в карте (14.10.2026 `KEY_EXPIRY_WARN_DAYS` так не доехала бы до исполнителей — переименована в
+`BYBIT_EXPIRY_WARN_DAYS`; ловит `tests/test_service_secrets.py`).
 
 ## Как работать
 
@@ -52,8 +55,14 @@ Python **3.14**, SQLite, FastAPI + Telegram Mini App (React + TypeScript), Docke
 - **Линт и типы:** `py -m ruff check .` и `py -m mypy` (настройки — `pyproject.toml`; mypy — исполнители).
 - **Мутационная проба:** `py -m tools.mutate <файл> <старое> <новое>` (ровно одно вхождение) — мутант ставить в
   саму ветку поведения; оригинал возвращать из памяти процесса, не из копии в temp.
-- **Зависимости:** `requirements.txt` + замок с хэшами `requirements.lock` / `requirements-dev.lock` (команда
-  пересборки — в шапке замка); `tests/test_lock.py` сверяет их.
+- **Зависимости:** `requirements.txt` + замок с хэшами `requirements.lock` / `requirements-dev.lock`; пересборка —
+  `sh deploy/relock.sh` (шапку сохраняет); `tests/test_lock.py` сверяет их. PR Dependabot — `sh deploy/dependabot.sh
+  <номер>…`: правка поверх свежего main, замки, CI, слияние с удалением ветки (pip-PR Dependabot сам замок не
+  пересобирает и всегда красный).
+- **Напоминания владельцу:** срок ключей биржи — исполнители раз в сутки спрашивают биржу и пишут за
+  `BYBIT_EXPIRY_WARN_DAYS` дней (`portfolio.executor.key_expiry_notice`); оплата хостинга — ежемесячное событие
+  календаря И14 (`HOSTING_RENEWAL_DAY` в compose). Сервер, остановленный хостингом, сам предупредить не может
+  (внешний мониторинг — `docs/TECH_DEBT.md`).
 - **Окружение:** каждая переменная, которую читает код, описана в `.env.example` (`tests/test_env_example.py`).
 - **Изменения:** ветка → PR → зелёный CI → слияние (`deploy/pr_chain.sh`: `ship_branch`, `finish_branch`).
   Выкладка — `DEPLOY_HOST=root@<хост> sh deploy/ship.sh release smoke`, **только по слову владельца**.

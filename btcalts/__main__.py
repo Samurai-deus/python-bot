@@ -120,6 +120,7 @@ def cycle(cli, store: Store, now: int) -> None:
             close_leftovers(cli, store, now, notify, "И18")
     store.add_funding(cli.settlements(now - SYNC_BACK_MS))
     store.snapshot(now, cli.usdt_equity(), cli.positions_usdt())
+    executor.key_expiry_notice(cli, store, now, notify, "И18")    # срок ключа биржи — раз в сутки
     (root_dir() / "heartbeat").write_text(f"{now / 1000:.0f}\n", encoding="utf-8")
 
 
