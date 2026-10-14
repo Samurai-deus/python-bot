@@ -44,11 +44,16 @@ def monthly(now: datetime) -> list[tuple[str, str]]:
     return [(d.strftime("%Y-%m-%d"), HOSTING_TEXT) for d in (this, nxt)]
 
 
+def events(now: datetime) -> list[tuple[str, str]]:
+    """Все события календаря: даты плана и ежемесячные (оплата хостинга) — один список для уведомлений и мини-аппа."""
+    return sorted(CHECKPOINTS + monthly(now))
+
+
 def due(now_ms: int, is_sent: Callable[[str], bool]) -> list[tuple[str, str]]:
     """[(id, текст)] сообщений, которые пора отправить: день события (с 08:00 UTC) и за 3 дня (с 08:00 UTC)."""
     now = datetime.fromtimestamp(now_ms / 1000, UTC)
     out = []
-    for day, text in CHECKPOINTS + monthly(now):
+    for day, text in events(now):
         d = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=UTC)
         for kind, when in (("remind", d - timedelta(days=REMIND_DAYS)), ("today", d)):
             start = when.replace(hour=NOTIFY_HOUR_UTC)
