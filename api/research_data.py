@@ -78,11 +78,15 @@ def program() -> dict[str, Any]:
     return out
 
 def calendar_items(now_ms: int) -> list[dict[str, Any]]:
-    """Контрольные даты плана (portfolio/calendar.py) с числом дней до события (отрицательное — прошло)."""
-    from portfolio.calendar import CHECKPOINTS
-    today = datetime.fromtimestamp(now_ms / 1000, UTC).date()
+    """
+    События календаря (portfolio.calendar.events — тот же список, что у уведомлений, вместе с ежемесячной оплатой
+    хостинга) с числом дней до события (отрицательное — прошло).
+    """
+    from portfolio.calendar import events
+    now = datetime.fromtimestamp(now_ms / 1000, UTC)
+    today = now.date()
     out = []
-    for day, text in CHECKPOINTS:
+    for day, text in events(now):
         d = datetime.strptime(day, "%Y-%m-%d").date()
         out.append({"date": day, "text": text, "days_left": (d - today).days})
     return out

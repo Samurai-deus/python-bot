@@ -107,11 +107,20 @@ def test_the_reminder_three_days_ahead_crosses_the_month_and_the_year(monkeypatc
     assert "02.01.2027" in _due("2026-12-30 09:00", 2, monkeypatch)[0], "напоминание в декабре о 2 января"
 
 
-def test_prod_compose_sets_the_hosting_day_for_the_calendar_service():
+def test_prod_compose_gives_the_same_hosting_day_to_notifications_and_the_mini_app():
     import yaml
     compose = yaml.safe_load((ROOT / "deploy" / "docker-compose.prod.yml").read_text(encoding="utf-8"))
-    day = int(compose["services"]["portfolio"]["environment"]["HOSTING_RENEWAL_DAY"])
-    assert 1 <= day <= 28
+    days = {svc: compose["services"][svc]["environment"].get("HOSTING_RENEWAL_DAY") for svc in ("portfolio", "api")}
+    assert days["portfolio"] == days["api"] and 1 <= int(days["api"]) <= 28, days
+
+
+def test_mini_app_calendar_shows_the_hosting_payment(monkeypatch):
+    from api import research_data as rd
+    monkeypatch.setenv("HOSTING_RENEWAL_DAY", "13")
+    items = rd.calendar_items(ms("2026-11-01 09:00"))
+    hosting = [i for i in items if "хостинга" in i["text"]]
+    assert [i["date"] for i in hosting] == ["2026-11-13", "2026-12-13"] and hosting[0]["days_left"] == 12
+    assert [i["date"] for i in items] == sorted(i["date"] for i in items)
 
 
 def test_current_drawdown_is_from_the_executor_peak_and_the_largest_is_kept(tmp_path):

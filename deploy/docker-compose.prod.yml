@@ -18,6 +18,11 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
+# Напоминания владельцу — одно место для календаря И14 (уведомления) и API (календарь мини-аппа): число месяца —
+# срок оплаты хостинга; 13.10.2026 сервер простоял 34 ч из-за неоплаты.
+x-owner-reminders: &owner-reminders
+  HOSTING_RENEWAL_DAY: "13"
+
 services:
   bot:
     image: market-bot:${RELEASE_TAG:?RELEASE_TAG задаёт deploy.sh}
@@ -79,6 +84,7 @@ services:
       RESEARCH_BTCALTS_DB: /btcalts/btcalts.db
       PORTFOLIO_CAPITAL_USDT: "1000"
       BTCALTS_CAPITAL_USDT: "5000"
+      <<: *owner-reminders
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -148,9 +154,7 @@ services:
       DB_PATH: /data/db/market_bot.db
       PORTFOLIO_DIR: /portfolio
       PORTFOLIO_CAPITAL_USDT: "1000"
-      # Календарь И14 напоминает об оплате хостинга за 3 дня и в сам день (13.10.2026 сервер простоял 34 ч
-      # из-за неоплаты): число месяца — срок оплаты у хостинга.
-      HOSTING_RENEWAL_DAY: "13"
+      <<: *owner-reminders
       # PORTFOLIO_START_THIS_WEEK (поправка 14.09, догоняющая ребалансировка недели запуска) снят 29.09:
       # разовый флаг оставался включённым, и пропущенный понедельник догонялся бы по устаревшим сигналам.
     extra_hosts:
