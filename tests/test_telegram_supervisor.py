@@ -143,6 +143,7 @@ def test_polling_starts_through_the_proxy_and_stops_cleanly(ptb):
     assert send.closed and updates.closed, "HTTP-клиенты закрываются при остановке"
 
 
+@pytest.mark.timeout(15)  # исправный проходит за доли секунды; сломанный перезапуск зависает — пусть падает
 def test_silent_polling_is_rebuilt_with_fresh_clients(ptb, monkeypatch):
     """
     PTB повторяет TimedOut опроса бесконечно и молча: забитый мёртвыми туннелями пул getUpdates супервизор видит
