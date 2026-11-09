@@ -220,8 +220,23 @@ def after_halt(cli, store: Store, syms: list[str], now: int) -> None:
 def sync(cli, store: Store, now: int) -> None:
     since = now - SYNC_BACK_MS
     for category in ("linear", "spot"):
-        store.add_fills(category, cli.executions(category, since))
-    store.add_funding(cli.settlements(since))
+        store.add_fills(category, cli.executions(category, since, now))
+    store.add_funding(cli.settlements(since, now))
+    backfill_settlements(cli, store, now)
+
+
+def backfill_settlements(cli, store: Store, now: int) -> None:
+    """
+    Один раз: начисления фандинга с открытия пар. До 09.11.2026 запрос журнала шёл без endTime, биржа отдавала окно
+    в 24 ч, и выплата 12.10 00:00 в учёт не попала. Дубли отсекает ключ записи; отметка — только после успеха.
+    """
+    opened = store.get("opened_at")
+    if not opened or store.get("settlements_backfilled"):
+        return
+    added = store.add_funding(cli.settlements(int(opened), now))
+    store.set("settlements_backfilled", now)
+    if added:
+        store.event(now, "funding_backfill", f"дозагружено начислений: {added}")
 
 
 def cycle(cli, store: Store, now: int) -> None:

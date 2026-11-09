@@ -18,6 +18,17 @@ FUNDING_PAGE = 200
 OPENING_WINDOW_MS = 15 * 60_000
 
 
+def _trades_only(conn: sqlite3.Connection) -> str:
+    """
+    Условие «сделка, а не начисление фандинга» для таблицы fills. Список исполнений Bybit отдаёт и фандинг
+    (execType «Funding»); до 09.11.2026 отчёт складывал его в комиссии. База без столбца exec_type (её ещё не открыл
+    исполнитель) — тот же признак, что у разметки в carry.store: фандинг начисляется ровно в начале часа.
+    """
+    if "exec_type" in {r[1] for r in conn.execute("PRAGMA table_info(fills)")}:
+        return "COALESCE(exec_type, 'Trade') != 'Funding'"
+    return "NOT (category = 'linear' AND ts % 3600000 = 0)"
+
+
 def summary(conn: sqlite3.Connection) -> dict:
     state = dict(conn.execute("SELECT key, value FROM state").fetchall())
     snaps = conn.execute("SELECT ts, equity, deviations FROM snapshots ORDER BY ts").fetchall()
@@ -35,13 +46,15 @@ def summary(conn: sqlite3.Connection) -> dict:
             outside += v > engine.NEAR_HEDGE
     funding = conn.execute("SELECT COALESCE(SUM(change), 0) FROM funding WHERE ts >= ?", (opened or 0,)).fetchone()[0]
     fee_usdt = "fee * CASE WHEN fee_coin IN ('USDT', '') THEN 1 ELSE price END"
-    fees_usdt = conn.execute(f"SELECT COALESCE(SUM({fee_usdt}), 0) FROM fills WHERE ts >= ?", (opened or 0,)).fetchone()[0]
+    trades = _trades_only(conn)
+    fees_usdt = conn.execute(f"SELECT COALESCE(SUM({fee_usdt}), 0) FROM fills WHERE ts >= ? AND {trades}",
+                             (opened or 0,)).fetchone()[0]
     # До 29.09 старт писался в конце цикла открытия, уже после покупок (запуск 14.09): комиссии открытия в
     # итог не попадали, а правило считает «итог после всех издержек» — вычитаются явно (исполнения цикла
     # открытия: до opened_at + 15 мин). С 29.09 старт пишется до покупок (start_before_open) — вычитать нечего.
     opening_fees = 0.0
     if opened and not state.get("start_before_open"):
-        opening_fees = conn.execute(f"SELECT COALESCE(SUM({fee_usdt}), 0) FROM fills WHERE ts <= ?",
+        opening_fees = conn.execute(f"SELECT COALESCE(SUM({fee_usdt}), 0) FROM fills WHERE ts <= ? AND {trades}",
                                     (opened + OPENING_WINDOW_MS,)).fetchone()[0]
     events = conn.execute("SELECT kind, COUNT(*) FROM events GROUP BY kind").fetchall()
     last_eq = snaps[-1][1] if snaps else None
