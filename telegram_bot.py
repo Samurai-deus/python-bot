@@ -148,6 +148,37 @@ def get_bot() -> Bot:
         return _bot
 
 
+async def _drop_loop_bot() -> None:
+    """
+    Закрывает HTTP-клиент Bot текущего цикла и забывает его: следующий get_bot() создаст новый.
+
+    09.11.2026: httpcore 1.0.9 (последняя версия) при таймауте TLS внутри туннеля через HTTP-прокси навсегда
+    оставляет соединение в пуле «ACTIVE, Request Count: 1». 19.10 прокси отвечал на CONNECT, но не мог
+    достучаться до Telegram, — каждая неудачная отправка съедала место, и с 20:43 пул Bot главного цикла (живёт
+    весь срок процесса) был занят мёртвыми туннелями: три недели «Pool timeout», хотя прокси давно ожил.
+    Закрытие клиента закрывает и такие соединения. Bot.shutdown() не годится: у Bot без initialize() он
+    ничего не закрывает. Параллельная отправка на том же клиенте получит ошибку и повторит на новом.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    with _bot_lock:
+        bot = _loop_bots.pop(loop, None)
+    if bot is None:
+        return
+    try:
+        await bot.request.shutdown()
+    except Exception:
+        logger.debug("telegram_bot: закрыть HTTP-клиент Bot не удалось", exc_info=True)
+
+
+def _is_transport_error(e: Exception) -> bool:
+    """Сбой соединения (таймаут, прокси, сеть), а не отказ Telegram по содержанию запроса."""
+    from telegram.error import BadRequest, NetworkError
+    return isinstance(e, NetworkError) and not isinstance(e, BadRequest)
+
+
 def __getattr__(name: str):
     # PEP 562: срабатывает только когда атрибута нет в модуле, то есть для
     # старых обращений `telegram_bot.bot` / `TOKEN` / `CHAT_ID`. Новый код
@@ -195,6 +226,8 @@ async def _send(text, parse_mode=None, retry_count=2):
                 logger.debug("Сообщение отправлено в Telegram (message_id: %d)", result.message_id)
                 return result
         except (TimedOut, NetworkError) as e:
+            if _is_transport_error(e):
+                await _drop_loop_bot()  # повтор и следующие отправки — на новом клиенте, не на забитом пуле
             if attempt < retry_count:
                 wait_time = (attempt + 1) * 2  # Увеличиваем задержку с каждой попыткой
                 logger.warning(
@@ -230,6 +263,8 @@ async def _send_chart(symbol):
         return result
     except Exception as e:
         logger.error("Ошибка при отправке графика для %s: %s: %s", symbol, type(e).__name__, e)
+        if _is_transport_error(e):
+            await _drop_loop_bot()
         raise
 
 
@@ -304,7 +339,13 @@ def send_owner_blocking(text: str, attempts: int = 3) -> bool:
 
 
 def _cleanup_loop(loop: asyncio.AbstractEventLoop) -> None:
-    """Отменяет незавершённые задачи и закрывает event loop."""
+    """Закрывает Bot этого цикла, отменяет незавершённые задачи и закрывает event loop."""
+    # Отправка из потока создаёт Bot в своём цикле; без закрытия его клиент с соединениями оставался висеть
+    # после каждого вызова (09.11.2026: 82 сокета CLOSE-WAIT к прокси у бота с пулом на 20).
+    try:
+        loop.run_until_complete(_drop_loop_bot())
+    except Exception:
+        logger.debug("telegram_bot: закрыть Bot цикла не удалось", exc_info=True)
     try:
         pending = asyncio.all_tasks(loop)
         for task in pending:
