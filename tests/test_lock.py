@@ -42,6 +42,11 @@ def test_every_locked_package_has_a_hash():
 def test_image_and_ci_install_from_the_lock_with_hashes():
     docker = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "--require-hashes -r requirements.lock" in docker
+    # pip базового образа вшивает свой certifi — 09.11.2026 он нёс скомпрометированные корни (Trivy, CRITICAL)
+    assert "--require-hashes -r requirements-pip.lock" in docker
+    assert docker.index("-r requirements-pip.lock") < docker.index("-r requirements.lock"), "pip обновляется до пакетов"
+    pip_lock = (ROOT / "requirements-pip.lock").read_text(encoding="utf-8")
+    assert re.search(r"^pip==[\d.]+ \\\n\s+--hash=sha256:[0-9a-f]{64}", pip_lock, re.M), "pip закреплён с хэшем"
     assert re.search(r"^FROM python:[\d.]+-slim@sha256:[0-9a-f]{64}", docker, re.M), "базовый образ закреплён по хэшу"
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "--require-hashes -r requirements-dev.lock" in ci
