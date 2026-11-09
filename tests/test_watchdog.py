@@ -26,6 +26,8 @@ STUBS = {
 [ "$1" = inspect ] || exit 1
 fmt="$3"; name="$4"
 case "$fmt" in
+  *Mounts*) echo "$STUB_DIR/data" ;;
+  *StartedAt*) cat "$STUB_DIR/started_$name" 2>/dev/null ;;
   *RestartCount*) cat "$STUB_DIR/restarts_$name" 2>/dev/null || echo 0 ;;
   *Health.Log*) cat "$STUB_DIR/reason_$name" 2>/dev/null ;;
   *State.Status*) if [ -f "$STUB_DIR/status_$name" ]; then cat "$STUB_DIR/status_$name"; else echo running/healthy; fi ;;
@@ -77,6 +79,18 @@ class Host:
         self.backup.write_bytes(b"gz")
         (self.app / "backups" / ".offsite_ok").write_text(str(self.now), encoding="ascii")
         self.cert_expires_in(days=60)
+        # Бот доставляет heartbeat: метка в томе /data обновляется к каждому запуску сторожа (deliver=True).
+        self.mark = self.stub / "data" / "db" / "telegram_delivered"
+        self.mark.parent.mkdir(parents=True)
+        self.deliver = True
+        self.started(self.now - 2 * 86400)
+
+    def started(self, ts):
+        """Время запуска контейнера бота — в формате docker (наносекунды, Z)."""
+        self.put("started_market-bot", datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%dT%H:%M:%S.123456789Z"))
+
+    def delivered(self, ts):
+        self.mark.write_text(str(ts), encoding="ascii")
 
     def put(self, name, value):
         (self.stub / name).write_text(value, encoding="utf-8")
@@ -88,6 +102,8 @@ class Host:
         self.put("cert_end", cert_date(datetime.now(UTC) + timedelta(days=days)))
 
     def run(self, at=0):
+        if self.deliver:
+            self.delivered(self.now + at - 600)
         env = dict(
             os.environ,
             PATH=f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}",
@@ -189,3 +205,76 @@ def test_token_never_goes_to_the_command_line(host):
     config = (host.stub / "curl_config").read_text(encoding="utf-8")
     assert TOKEN not in argv, "аргументы процесса видны в ps — токен только через stdin"
     assert TOKEN in config
+
+
+H = 3600
+
+
+def test_silent_bot_alerts_once_and_reports_recovery(host):
+    """
+    19.10–09.11.2026: бот был healthy, но три недели не доставил ни одного сообщения. Сторож пишет сам — одно
+    сообщение на эпизод (текст без «сколько часов», иначе новое каждый час) и отдельную строку о восстановлении.
+    """
+    host.deliver = False
+    host.delivered(host.now - H)
+    host.run()
+    host.run(at=int(1.5 * H))                   # 2,5 ч молчания — ещё не тревога
+    assert len(host.messages()) == 1, host.messages()
+
+    host.run(at=int(2.5 * H))                   # 3,5 ч
+    host.run(at=3 * H)
+    host.run(at=4 * H)
+    msgs = host.messages()
+    assert len(msgs) == 2, "о молчании — одно сообщение на эпизод"
+    assert "не доставляет в Telegram" in msgs[1] and "последний heartbeat" in msgs[1]
+
+    host.deliver = True
+    host.run(at=4 * H + 300)
+    msgs = host.messages()
+    assert len(msgs) == 3
+    assert "снова в порядке" in msgs[2] and "снова доставляет в Telegram" in msgs[2]
+    host.run(at=4 * H + 600)
+    assert len(host.messages()) == 3, "о восстановлении — один раз"
+
+
+def test_recovery_is_reported_even_while_other_problems_hold(host):
+    host.deliver = False
+    host.delivered(host.now - 4 * H)
+    host.put("disk", "95")
+    host.run()
+    assert "не доставляет в Telegram" in host.messages()[-1]
+
+    host.deliver = True
+    host.run(at=300)
+    last = host.messages()[-1]
+    assert "диск заполнен" in last and "не доставляет" not in last
+    assert "снова доставляет в Telegram" in last, "«всё в порядке» не придёт — восстановление отдельной строкой"
+
+
+def test_silence_is_counted_from_container_start(host):
+    """После простоя бот час ждёт первого heartbeat: старая метка — не тревога, пока с запуска не прошло 3 ч."""
+    host.deliver = False
+    host.delivered(host.now - 2 * 86400)
+    host.started(host.now - H)
+    host.run()
+    assert len(host.messages()) == 1 and "сторож включён" in host.messages()[0]
+
+    host.run(at=int(2.5 * H))
+    assert "ни одного heartbeat с запуска" in host.messages()[-1]
+
+
+def test_no_mark_yet_is_silence_after_three_hours_of_uptime(host):
+    host.deliver = False
+    host.started(host.now - 4 * H)
+    host.run()
+    assert "ни одного heartbeat с запуска" in host.messages()[-1]
+
+
+def test_stopped_bot_is_a_container_problem_not_silence(host):
+    host.deliver = False
+    host.delivered(host.now - 10 * H)
+    host.put("status_market-bot", "exited/none")
+    host.run()
+    text = host.messages()[-1]
+    assert "контейнер market-bot: exited" in text
+    assert "Telegram" not in text, "остановленный бот молчит по другой причине — о ней уже сказано"

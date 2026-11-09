@@ -2,10 +2,12 @@
 Модуль для мониторинга работоспособности бота и отправки heartbeat сообщений.
 """
 import logging
+import pathlib
 import time
 import os
 from datetime import datetime, UTC
 from telegram_bot import send_message
+from utils.liveness import _replace as replace_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,26 @@ except ImportError:
 
 HEARTBEAT_INTERVAL = 3600  # Отправка heartbeat каждые 60 минут (1 час)
 LAST_HEARTBEAT_FILE = "last_heartbeat.txt"
+# Метка последнего ДОСТАВЛЕННОГО heartbeat — рядом с базой, в томе /data: её читает сторож хоста
+# (deploy/watchdog.sh) и пишет владельцу сам, мимо HTTP-клиента бота, если доставок нет дольше 3 ч.
+DELIVERY_MARK_NAME = "telegram_delivered"
+
+
+def delivery_mark_path() -> pathlib.Path:
+    """Каталог базы (на проде /data/db) — том, который сторож хоста находит через docker inspect."""
+    return pathlib.Path(os.environ.get("DB_PATH") or "market_bot.db").parent / DELIVERY_MARK_NAME
+
+
+def record_delivery(now: float | None = None) -> None:
+    """Пишет unix-время доставки атомарно (tmp + replace). Сбой записи не роняет бот — его заметит сторож."""
+    path = delivery_mark_path()
+    tmp = path.with_name(f".{DELIVERY_MARK_NAME}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(f"{time.time() if now is None else now:.0f}", encoding="ascii")
+        replace_with_retry(tmp, path)  # повтор замены — от антивируса Windows, как у меток liveness
+    except OSError as exc:
+        logger.warning("Telegram: не удалось записать метку доставки %s: %s", path, exc)
 
 
 def send_heartbeat():
@@ -145,7 +167,14 @@ async def send_heartbeat_async():
             + '\n\n⏰ ' + timestamp
         )
 
-        await send_message_async(message)
+        # send_message_async не бросает: неудачу он логирует и возвращает None. Прежде метка heartbeat ставилась
+        # и тогда — 19.10–09.11.2026 бот «отправлял» heartbeat каждый час, не доставив ни одного.
+        sent = await send_message_async(message)
+        if sent is None:
+            logger.warning("Telegram: heartbeat не доставлен — метку доставки не обновляю")
+            return
+        logger.info("Telegram: heartbeat доставлен (message_id=%s)", getattr(sent, "message_id", "?"))
+        record_delivery()
 
         try:
             with open(LAST_HEARTBEAT_FILE, 'w', encoding='utf-8') as fh:

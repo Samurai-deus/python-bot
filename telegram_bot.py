@@ -5,6 +5,8 @@ import warnings
 import asyncio
 import threading
 import weakref
+from collections.abc import Callable
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -99,7 +101,7 @@ _bot_lock = threading.Lock()
 _loop_bots: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
 
 
-def build_request(connection_pool_size: int = 10) -> HTTPXRequest:
+def build_request(connection_pool_size: int = 10, on_response: Callable[[], None] | None = None) -> HTTPXRequest:
     """
     Единственное место, где создаётся HTTP-клиент для Telegram.
 
@@ -108,8 +110,11 @@ def build_request(connection_pool_size: int = 10) -> HTTPXRequest:
     отправку — и на прод-хосте бот писал бы владельцу, но не увидел бы ни одной
     команды: getUpdates шёл бы напрямую и отваливался по таймауту. Поэтому никто,
     кроме этого модуля, HTTPXRequest не создаёт; за этим следит тест.
+
+    on_response — вызывается на каждый HTTP-ответ (любой статус: транспорт до Telegram жив). Им супервизор
+    приёма команд замечает, что getUpdates давно не получал ответа (loops/telegram_supervisor.py).
     """
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         connection_pool_size=connection_pool_size,
         pool_timeout=30.0,
         read_timeout=30.0,
@@ -120,6 +125,11 @@ def build_request(connection_pool_size: int = 10) -> HTTPXRequest:
     if proxy:
         kwargs["proxy"] = proxy
         logger.info("Telegram: HTTP-клиент через прокси %s", proxy)
+    if on_response is not None:
+        async def _seen(_response) -> None:
+            on_response()
+        # Хуки входят в настройки клиента: HTTPXRequest.initialize() после shutdown() собирает клиент с ними же.
+        kwargs["httpx_kwargs"] = {"event_hooks": {"response": [_seen]}}
     return HTTPXRequest(**kwargs)
 
 

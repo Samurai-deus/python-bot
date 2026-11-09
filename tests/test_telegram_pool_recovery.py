@@ -88,6 +88,37 @@ def test_send_recovers_after_tunnel_timeouts(monkeypatch, telegram_env):
     assert "502" in str(err)
 
 
+def test_response_hook_fires_on_every_answer_and_survives_client_rebuild(telegram_env):
+    """
+    Супервизор приёма команд узнаёт о живом опросе только через on_response (PTB глотает TimedOut опроса). Хук —
+    в настройках httpx-клиента: после shutdown() + initialize() новый клиент обязан звать его так же.
+    """
+    async def scenario() -> list:
+        async def answer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(answer, "127.0.0.1", 0)
+        url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        seen: list = []
+        request = telegram_bot.build_request(on_response=lambda: seen.append(len(seen)))
+        try:
+            await request.initialize()
+            await request.do_request(url, "GET")
+            await request.shutdown()
+            await request.initialize()             # так PTB поднимает приложение заново
+            await request.do_request(url, "GET")
+            await request.shutdown()
+        finally:
+            server.close()
+            await server.wait_closed()
+        return seen
+
+    assert asyncio.run(scenario()) == [0, 1]
+
+
 def test_sync_send_closes_its_loop_client(telegram_env):
     """Отправка из потока (spike_alert, error_alert…) создаёт Bot в своём цикле — закрывается вместе с циклом."""
     loop = asyncio.new_event_loop()

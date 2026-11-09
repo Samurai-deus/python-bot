@@ -7,6 +7,9 @@
 #   • контейнеры бота, API, Redis, записи стакана и сборщика новостей запущены и healthy — healthcheck бота видит
 #     зависший цикл событий и остановившийся цикл анализа (utils/liveness.py);
 #   • бот не перезапускался с прошлой проверки;
+#   • бот, пока жив, доставляет в Telegram: heartbeat доходил не дальше 3 ч назад (метка
+#     /data/db/telegram_delivered, health_monitor.record_delivery). Сторож пишет об этом сам, через
+#     notify.sh — мимо HTTP-клиента бота, который и мог сломаться;
 #   • последний бэкап моложе 26 ч, копия вне сервера отправлялась за 26 ч,
 #     юнит бэкапа не в состоянии failed;
 #   • диск заполнен меньше чем на 90 %;
@@ -27,6 +30,7 @@ STATE="${WATCHDOG_STATE:-/var/lib/market-bot-watchdog}"
 NOW="${WATCHDOG_NOW:-$(date +%s)}"
 REMIND_SEC=21600
 STALE_SEC=93600
+SILENT_SEC=10800
 CONTAINERS="market-bot market-bot-api market-bot-redis market-bot-recorder market-bot-news market-bot-carry market-bot-portfolio market-bot-btcalts"
 
 DOMAIN=""
@@ -51,8 +55,10 @@ problem() {
 }
 
 # --- контейнеры ---
+bot_status=""
 for c in $CONTAINERS; do
   st=$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c" 2>/dev/null) || st=""
+  [ "$c" = market-bot ] && bot_status="$st"
   case "$st" in
     running/healthy|running/starting) ;;
     *)
@@ -69,6 +75,49 @@ prev_restarts=$(cat "$STATE/restarts" 2>/dev/null || true)
 event=""
 if is_num "$restarts" && is_num "$prev_restarts" && [ "$restarts" -gt "$prev_restarts" ]; then
   event="бот перезапускался: $((restarts - prev_restarts)) раз(а) с прошлой проверки (docker logs market-bot)"
+fi
+
+# --- доставка в Telegram: бот жив, но молчит ---
+# 19.10–09.11.2026 бот три недели не доставил ни одного сообщения (пул HTTP-клиента забит мёртвыми туннелями после
+# сбоя прокси), а контейнер был healthy. После каждого доставленного heartbeat (раз в час) бот пишет unix-время в
+# /data/db/telegram_delivered. Отсчёт молчания — от последней доставки или от запуска контейнера, что позже:
+# после простоя бот час ждёт первого heartbeat, и старая метка тревогой не считается. Текст проблемы — без
+# «сколько часов»: он входит в ключ, и меняющееся число слало бы новое сообщение каждый час.
+# silent: 1 — молчит, 0 — доставляет, пусто — не проверялось (бот не запущен).
+silent=""
+fmt_utc() { date -u -d "@$1" '+%d.%m %H:%M UTC' 2>/dev/null || echo "$1"; }
+case "$bot_status" in
+  running/*)
+    data=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' market-bot 2>/dev/null) || data=""
+    delivered=""
+    [ -n "$data" ] && delivered=$(cat "$data/db/telegram_delivered" 2>/dev/null || true)
+    delivered=${delivered%%.*}
+    is_num "$delivered" || delivered=0
+    started_at=$(docker inspect -f '{{.State.StartedAt}}' market-bot 2>/dev/null) || started_at=""
+    started=0
+    # date -d "" — это полночь сегодня, а не ошибка: пустую строку не передавать.
+    [ -n "$started_at" ] && started=$(date -d "$started_at" +%s 2>/dev/null || echo 0)
+    is_num "$started" || started=0
+    since=$delivered
+    [ "$started" -gt "$since" ] && since=$started
+    if [ "$since" -gt 0 ]; then
+      if [ $((NOW - since)) -gt "$SILENT_SEC" ]; then
+        silent=1
+        if [ "$delivered" -ge "$started" ]; then
+          problem "бот жив, но не доставляет в Telegram: последний heartbeat дошёл $(fmt_utc "$delivered") (docker logs market-bot | grep Telegram)"
+        else
+          problem "бот жив, но не доставил в Telegram ни одного heartbeat с запуска $(fmt_utc "$started") (docker logs market-bot | grep Telegram)"
+        fi
+      else
+        silent=0
+      fi
+    fi
+    ;;
+esac
+prev_silent=$(cat "$STATE/silent" 2>/dev/null || true)
+recovered=""
+if [ "$prev_silent" = 1 ] && [ "$silent" = 0 ]; then
+  recovered="бот снова доставляет в Telegram: heartbeat дошёл $(fmt_utc "$delivered")"
 fi
 
 # --- бэкап и его копия вне сервера ---
@@ -142,6 +191,11 @@ if [ -n "$event" ]; then
   msg="${msg}${msg:+
 }⚠️ $event"
 fi
+# Восстановление доставки — отдельной строкой: если держатся другие проблемы, «всё снова в порядке» не придёт.
+if [ -n "$recovered" ]; then
+  msg="${msg}${msg:+
+}✅ $recovered"
+fi
 
 if [ -n "$msg" ]; then
   if ! tg_text "$msg"; then
@@ -154,6 +208,9 @@ fi
 echo "$key" > "$STATE/key"
 if is_num "$restarts"; then
   echo "$restarts" > "$STATE/restarts"
+fi
+if [ -n "$silent" ]; then
+  echo "$silent" > "$STATE/silent"
 fi
 
 if [ "$key" = ok ]; then

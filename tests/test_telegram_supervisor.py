@@ -82,7 +82,18 @@ class FakeBuilder:
         return self
 
     def build(self):
-        return self._app
+        return self._app() if callable(self._app) else self._app
+
+
+class FakeRequest:
+    """HTTP-клиент из build_request: помнит хук ответа и закрытие."""
+
+    def __init__(self, on_response=None):
+        self.on_response = on_response
+        self.closed = False
+
+    async def shutdown(self):
+        self.closed = True
 
 
 @pytest.fixture
@@ -91,9 +102,15 @@ def ptb(monkeypatch):
     import telegram_bot
     import telegram_commands
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:test")
-    monkeypatch.setattr(telegram_bot, "build_request", lambda: "proxied-client")
     monkeypatch.setattr(telegram_commands, "setup_commands", lambda app: None)
-    holder = {"requests": {}}
+    holder = {"requests": {}, "clients": []}
+
+    def build_request(on_response=None):
+        client = FakeRequest(on_response)
+        holder["clients"].append(client)
+        return client
+
+    monkeypatch.setattr(telegram_bot, "build_request", build_request)
 
     def install(app):
         monkeypatch.setattr(telegram.ext, "ApplicationBuilder", lambda: FakeBuilder(app, holder["requests"]))
@@ -120,7 +137,51 @@ def test_polling_starts_through_the_proxy_and_stops_cleanly(ptb):
     log, errors = run(scenario())
     assert log[:3] == ["initialize", "start", "polling"]
     assert "shutdown" in log and errors == []
-    assert ptb["requests"] == {"request": "proxied-client", "get_updates_request": "proxied-client"}
+    send, updates = ptb["clients"]
+    assert ptb["requests"] == {"request": send, "get_updates_request": updates}, "оба клиента — из build_request"
+    assert send.on_response is None and updates.on_response is not None, "ответы getUpdates отмечаются"
+    assert send.closed and updates.closed, "HTTP-клиенты закрываются при остановке"
+
+
+def test_silent_polling_is_rebuilt_with_fresh_clients(ptb, monkeypatch):
+    """
+    PTB повторяет TimedOut опроса бесконечно и молча: забитый мёртвыми туннелями пул getUpdates супервизор видит
+    только по отсутствию ответов. Тогда приложение пересоздаётся с новыми клиентами, старые закрываются; опрос,
+    который получает ответы, не трогается.
+    """
+    monkeypatch.setattr(supervisor, "POLL_STALE_SECONDS", 0.05)
+    monkeypatch.setattr(supervisor, "WAIT_STEP_SECONDS", 0.01)
+    monkeypatch.setattr(supervisor, "INITIAL_BACKOFF_SECONDS", 0.01)
+
+    async def scenario():
+        shutdown = asyncio.Event()
+        apps = []
+
+        def new_app():
+            apps.append(FakeApp([]))
+            return apps[-1]
+
+        ptb["install"](new_app)
+        state, errors = make_state()
+        task = asyncio.create_task(supervisor.telegram_supervisor(lambda: state, shutdown))
+        for _ in range(200):
+            if len(apps) == 2 and "polling" in apps[1].log:
+                break
+            await asyncio.sleep(0.01)
+        for _ in range(20):                     # второй опрос получает ответы: 0,2 с — вчетверо дольше порога
+            ptb["clients"][-1].on_response()
+            await asyncio.sleep(0.01)
+        shutdown.set()
+        await task
+        return apps, errors
+
+    apps, errors = run(scenario())
+    assert len(apps) == 2, "молчащий опрос пересоздан один раз, отвечающий — не тронут"
+    assert "shutdown" in apps[0].log
+    first_send, first_updates = ptb["clients"][:2]
+    assert first_send.closed and first_updates.closed, "клиенты с забитым пулом закрыты, а не переиспользованы"
+    assert len(ptb["clients"]) == 4
+    assert errors == [], "сетевой сбой, а не ошибка процесса"
 
 
 def test_network_failure_is_retried_without_recording_an_error(ptb):
