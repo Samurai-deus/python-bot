@@ -20,7 +20,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Замок с хэшами: транзитивные зависимости те же, что проверил CI (tests/test_lock.py).
-COPY requirements.lock .
+# Сначала pip самого образа — из своего замка: вшитые в pip пакеты базового образа тоже сканирует Trivy
+# (09.11.2026 — certifi с компрометированными корнями, см. requirements-pip.lock).
+COPY requirements-pip.lock requirements.lock ./
+RUN pip install --require-hashes -r requirements-pip.lock
 RUN pip install --require-hashes -r requirements.lock
 
 # Фиксированный UID. Раньше useradd -r выдавал системный UID, а /data монтировался

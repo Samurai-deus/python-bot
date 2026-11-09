@@ -1,0 +1,6 @@
+# pip самого образа (Dockerfile ставит его до requirements.lock). Базовый python:3.14-slim несёт pip со своими
+# вшитыми пакетами — их сканирует Trivy: 09.11.2026 вшитый certifi 2026.6.17 (GHSA-6q48-6c7w-9gw2, CRITICAL,
+# скомпрометированные корни emSign) валил сборку, а pip 26.3 вшивает certifi 2026.10.23. Обновлять, когда Trivy
+# находит уязвимость в pip/_vendor: версия и хэш колеса — https://pypi.org/pypi/pip/<версия>/json.
+pip==26.3 \
+    --hash=sha256:f3b60b20ffaadd4415ed7957212a38ac63fa4c5fa375bd0f4a797777940fad13
