@@ -81,11 +81,11 @@ class FakeCarry:
     def short_qty(self, s):
         return self.shorts[s]
 
-    def executions(self, category, since):
+    def executions(self, category, since, until):
         return [{"execId": f"{category}-1", "symbol": "BTCUSDT", "side": "Buy", "execQty": "0.125",
                  "execPrice": "80000", "execFee": "0.000125", "feeCurrency": "BTC", "execTime": str(NOW)}]
 
-    def settlements(self, since):
+    def settlements(self, since, until):
         return [{"id": "f1", "symbol": "BTCUSDT", "change": "1.0", "funding": "-1.0", "transactionTime": str(NOW)},
                 {"id": "f2", "symbol": "ETHUSDT", "change": "-0.2", "funding": "0.2", "transactionTime": str(NOW)}]
 
@@ -348,6 +348,84 @@ def test_report_subtracts_opening_fees_for_a_start_recorded_after_opening(env):
     assert s["change_after_costs"] == pytest.approx(100.0 - 5.5)
     store.set("start_before_open", NOW)
     assert report.summary(sqlite3.connect(str(tmp / "carry.db")))["opening_fees"] == 0.0
+
+
+HOUR = 3_600_000
+FUNDING_T = (NOW // (8 * HOUR) + 1) * 8 * HOUR       # момент выплаты — ровно начало часа
+
+
+def test_funding_executions_are_not_counted_as_fees(env):
+    """09.11.2026: список исполнений отдаёт и фандинг (execType Funding) — отчёт показывал «комиссии −124 USDT»."""
+    store, tmp = env
+    store.set("opened_at", NOW)
+    store.add_fills("linear", [
+        {"execId": "t1", "execType": "Trade", "symbol": "BTCUSDT", "side": "Sell", "execQty": "0.1", "execPrice": "80000",
+         "execFee": "4.4", "feeCurrency": "USDT", "execTime": str(NOW + 1_000)},
+        {"execId": "f1", "execType": "Funding", "symbol": "BTCUSDT", "side": "Sell", "execQty": "0.1", "execPrice": "80000",
+         "execFee": "-0.8", "feeCurrency": "USDT", "execTime": str(FUNDING_T)}])
+    s = report.summary(sqlite3.connect(str(tmp / "carry.db")))
+    assert s["fees_usdt"] == pytest.approx(4.4)
+
+
+def _old_fills_db(path):
+    c = sqlite3.connect(path)
+    c.execute("CREATE TABLE fills (exec_id TEXT PRIMARY KEY, category TEXT, symbol TEXT, side TEXT, qty REAL, price REAL,"
+              " fee REAL, fee_coin TEXT, ts INTEGER)")
+    c.executemany("INSERT INTO fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        ("t1", "linear", "BTCUSDT", "Sell", 0.1, 80_000, 4.4, "USDT", NOW + 1_000),
+        ("f1", "linear", "BTCUSDT", "Sell", 0.1, 80_000, -0.8, "USDT", FUNDING_T),
+        ("s1", "spot", "BTCUSDT", "Buy", 0.1, 80_000, 0.0001, "BTC", FUNDING_T)])   # спот в начале часа — сделка
+    c.execute("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT)")
+    c.execute("INSERT INTO state VALUES ('opened_at', ?)", (str(NOW),))
+    c.execute("CREATE TABLE funding (id TEXT PRIMARY KEY, symbol TEXT, change REAL, funding REAL, ts INTEGER)")
+    c.execute("CREATE TABLE snapshots (ts INTEGER PRIMARY KEY, equity REAL, mm_rate REAL, deviations TEXT)")
+    c.execute("CREATE TABLE events (ts INTEGER, kind TEXT, detail TEXT)")
+    c.commit()
+    return c
+
+
+def test_old_fills_are_marked_by_the_on_the_hour_sign(tmp_path):
+    p = str(tmp_path / "old.db")
+    _old_fills_db(p).close()
+    Store(p)
+    types = dict(sqlite3.connect(p).execute("SELECT exec_id, exec_type FROM fills").fetchall())
+    assert types == {"t1": "Trade", "f1": "Funding", "s1": "Trade"}
+    assert report.summary(sqlite3.connect(p))["fees_usdt"] == pytest.approx(4.4 + 0.0001 * 80_000)
+
+
+def test_report_on_a_db_the_executor_has_not_migrated_yet(tmp_path):
+    """API читает базу И13 своим соединением — столбца exec_type может ещё не быть."""
+    conn = _old_fills_db(str(tmp_path / "old.db"))
+    assert report.summary(conn)["fees_usdt"] == pytest.approx(4.4 + 0.0001 * 80_000)
+
+
+def test_history_is_requested_with_end_time_in_windows_up_to_7_days():
+    """Журнал транзакций при одном startTime отдаёт 24 ч: без endTime выплата 12.10.2026 00:00 не попала в учёт."""
+    from carry import client as cc
+    cli = CarryClient.__new__(CarryClient)
+    calls = []
+    cli._pages = lambda path, params: calls.append((path, params)) or []
+    start = NOW - 15 * 86_400_000
+    cli.settlements(start, NOW)
+    cli.executions("linear", NOW - 48 * HOUR, NOW)
+    windows = [(p["startTime"], p["endTime"]) for path, p in calls if path.endswith("transaction-log")]
+    assert windows[0][0] == start and windows[-1][1] == NOW
+    assert all(b - a <= cc.WINDOW_MS for a, b in windows) and len(windows) == 3
+    assert all(a2 == b1 for (_, b1), (a2, _) in zip(windows, windows[1:])), "окна идут встык"
+    assert [p for path, p in calls if path.endswith("execution/list")][0]["endTime"] == NOW
+
+
+def test_settlements_are_backfilled_once_from_the_opening(env):
+    store, _ = env
+    cli = FakeCarry()
+    asked = []
+    cli.settlements = lambda since, until: asked.append((since, until)) or []
+    store.set("opened_at", NOW - 30 * 86_400_000)
+    cm.sync(cli, store, NOW)
+    cm.sync(cli, store, NOW + HOUR)
+    assert (NOW - 30 * 86_400_000, NOW) in asked
+    assert sum(1 for a, _ in asked if a == NOW - 30 * 86_400_000) == 1, "дозагрузка — один раз"
+    assert store.get("settlements_backfilled")
 
 
 class PagedFunding:

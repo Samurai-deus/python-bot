@@ -31,6 +31,14 @@ class Store:
         # База, созданная до 14.09 (без позиций в снимке): колонка добавляется на месте.
         if "positions" not in {r[1] for r in self.conn.execute("PRAGMA table_info(snapshots)")}:
             self.conn.execute("ALTER TABLE snapshots ADD COLUMN positions TEXT")
+        # Список исполнений Bybit отдаёт и начисления фандинга (execType «Funding», execFee = −начисление). До 09.11.2026
+        # тип не хранился, и отчёт показывал фандинг как «комиссии −124 USDT». Старые строки размечаются по признаку:
+        # фандинг начисляется ровно в начале часа, рыночная сделка в 00 мс часа — нет (на проде: 336 строк из 336
+        # и ни одной из 2 сделок).
+        if "exec_type" not in {r[1] for r in self.conn.execute("PRAGMA table_info(fills)")}:
+            self.conn.execute("ALTER TABLE fills ADD COLUMN exec_type TEXT")
+            self.conn.execute("UPDATE fills SET exec_type = CASE WHEN category = 'linear' AND ts % 3600000 = 0"
+                              " THEN 'Funding' ELSE 'Trade' END")
         self.conn.commit()
 
     def get(self, key: str) -> str | None:
@@ -46,10 +54,11 @@ class Store:
         added = 0
         for r in rows:
             cur = self.conn.execute(
-                "INSERT OR IGNORE INTO fills (exec_id, category, symbol, side, qty, price, fee, fee_coin, ts)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO fills (exec_id, category, symbol, side, qty, price, fee, fee_coin, ts, exec_type)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (r["execId"], category, r.get("symbol"), r.get("side"), _f(r.get("execQty")), _f(r.get("execPrice")),
-                 _f(r.get("execFee")), r.get("feeCurrency") or "", int(r.get("execTime") or 0)))
+                 _f(r.get("execFee")), r.get("feeCurrency") or "", int(r.get("execTime") or 0),
+                 r.get("execType") or "Trade"))
             added += cur.rowcount
         self.conn.commit()
         return added

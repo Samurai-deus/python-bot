@@ -7,6 +7,8 @@ import os
 
 from exchange.bybit_client import BybitClient, fmt_number, new_order_link_id
 
+WINDOW_MS = 7 * 86_400_000 - 60_000      # окно запроса истории: меньше 7 суток с запасом на границу
+
 
 def keys_from_env() -> tuple:
     return os.environ.get("CARRY_BYBIT_API_KEY", "").strip(), os.environ.get("CARRY_BYBIT_API_SECRET", "").strip()
@@ -78,10 +80,23 @@ class CarryClient(BybitClient):
                 break
         return out
 
-    def executions(self, category: str, start_ms: int) -> list[dict]:
-        return self._pages("/v5/execution/list", {"category": category, "startTime": int(start_ms), "limit": 100})
+    def _windows(self, path: str, params: dict, start_ms: int, end_ms: int) -> list[dict]:
+        """
+        [start; end] окнами не длиннее 7 суток (предел Bybit), endTime — всегда явно. Журнал транзакций при одном
+        startTime отдаёт окно startTime + 24 ч: синхронизация «последние 48 ч» видела фандинг с опозданием на сутки,
+        а выплату 12.10.2026 00:00 не увидела вовсе (найдено 09.11.2026).
+        """
+        out: list = []
+        lo = int(start_ms)
+        while lo < end_ms:
+            hi = min(int(end_ms), lo + WINDOW_MS)
+            out += self._pages(path, dict(params, startTime=lo, endTime=hi))
+            lo = hi
+        return out
 
-    def settlements(self, start_ms: int) -> list[dict]:
-        return self._pages("/v5/account/transaction-log", {"accountType": "UNIFIED", "category": "linear",
-                                                           "type": "SETTLEMENT", "startTime": int(start_ms),
-                                                           "limit": 50})
+    def executions(self, category: str, start_ms: int, end_ms: int) -> list[dict]:
+        return self._windows("/v5/execution/list", {"category": category, "limit": 100}, start_ms, end_ms)
+
+    def settlements(self, start_ms: int, end_ms: int) -> list[dict]:
+        return self._windows("/v5/account/transaction-log", {"accountType": "UNIFIED", "category": "linear",
+                                                             "type": "SETTLEMENT", "limit": 50}, start_ms, end_ms)
