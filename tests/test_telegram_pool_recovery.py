@@ -101,3 +101,13 @@ def test_sync_send_closes_its_loop_client(telegram_env):
     telegram_bot._cleanup_loop(loop)
     assert client.is_closed
     assert loop.is_closed()
+
+
+def test_only_transport_errors_reset_client():
+    """Отказ Telegram по содержанию (BadRequest — тоже NetworkError в PTB, например разметка) клиент не пересоздаёт."""
+    from telegram.error import BadRequest
+
+    assert telegram_bot._is_transport_error(TimedOut())
+    assert telegram_bot._is_transport_error(NetworkError("httpx.ProxyError: 502 Bad Gateway"))
+    assert not telegram_bot._is_transport_error(BadRequest("Can't parse entities"))
+    assert not telegram_bot._is_transport_error(ValueError("x"))
