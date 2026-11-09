@@ -7,10 +7,26 @@ docs/DEFERRED_PLAN.md, шаг 5). Состояние процесса прихо
 """
 import asyncio
 import logging
+import time
 from typing import Any
 from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+# Сколько getUpdates может не получать ответа, прежде чем приложение пересоздаётся. Исправный опрос получает
+# ответ каждые ~12 с (долгий опрос 10 с + poll_interval 2 с).
+#
+# 09.11.2026: httpcore 1.0.9 при таймауте TLS внутри туннеля через HTTP-прокси навсегда оставляет соединение
+# в пуле ACTIVE (tests/test_telegram_pool_recovery.py). PTB 22.8 повторяет TimedOut опроса бесконечно и молча —
+# ни error_callback, ни исключения наружу: после сбоя прокси пул getUpdates забивается мёртвыми туннелями, и
+# бот перестаёт видеть команды навсегда. Отсюда — свой признак: время последнего ответа на getUpdates.
+POLL_STALE_SECONDS = 180.0
+WAIT_STEP_SECONDS = 1.0
+INITIAL_BACKOFF_SECONDS = 10.0
+
+
+class PollingStale(Exception):
+    """getUpdates давно без ответа: пересоздать приложение с новыми HTTP-клиентами."""
 
 
 async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asyncio.Event):
@@ -41,12 +57,18 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
     logger.info("📱 Telegram supervisor started")
 
     # Exponential backoff: 10s → 300s max
-    backoff_seconds = 10.0
+    backoff_seconds = INITIAL_BACKOFF_SECONDS
     MAX_BACKOFF = 300.0
     BACKOFF_MULTIPLIER = 1.5
 
     app = None
     polling_task = None
+    clients: tuple = ()
+    last_answer = time.monotonic()
+
+    def _answered() -> None:
+        nonlocal last_answer
+        last_answer = time.monotonic()
 
     while get_state().system_health.is_running and not shutdown_evt.is_set():
         try:
@@ -58,11 +80,12 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
                 # где api.telegram.org напрямую недоступен, бот не получит ни одной
                 # команды при исправно работающей отправке.
                 from telegram_bot import build_request
+                clients = (build_request(), build_request(on_response=_answered))
                 app = (
                     ApplicationBuilder()
                     .token(TOKEN)
-                    .request(build_request())
-                    .get_updates_request(build_request())
+                    .request(clients[0])
+                    .get_updates_request(clients[1])
                     .build()
                 )
                 setup_commands(app)
@@ -117,11 +140,12 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
                     )
                     raise
 
+            last_answer = time.monotonic()
             polling_task = asyncio.create_task(_safe_polling(), name="TelegramPolling")
             logger.info("✅ Telegram polling started successfully")
 
             # Reset backoff on success
-            backoff_seconds = 10.0
+            backoff_seconds = INITIAL_BACKOFF_SECONDS
 
             # КРИТИЧНО: Ждём shutdown event или cancellation, а не polling_task;
             # polling_task будет отменён при shutdown через finally блок
@@ -139,9 +163,13 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
                             logger.warning("Telegram polling task completed with error: %s: %s", type(e).__name__, e)
                             raise
 
+                    silent_for = time.monotonic() - last_answer
+                    if silent_for > POLL_STALE_SECONDS:
+                        raise PollingStale(f"getUpdates без ответа {silent_for:.0f} с")
+
                     # КРИТИЧНО: sleep с проверкой cancellation для быстрого отклика на shutdown
                     try:
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(WAIT_STEP_SECONDS)
                     except asyncio.CancelledError:
                         raise  # Пробрасываем для правильного shutdown
             except asyncio.CancelledError:
@@ -182,7 +210,7 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
                 except Exception as e:
                     logger.debug("Error shutting down app during cancellation: %s: %s", type(e).__name__, e)
             raise  # Пробрасываем CancelledError для правильного завершения
-        except (NetworkError, Conflict) as e:
+        except (NetworkError, Conflict, PollingStale) as e:
             logger.warning("TELEGRAM_NETWORK_FAILURE: %s: %s", type(e).__name__, e)
             # Exponential backoff
             backoff_seconds = min(backoff_seconds * BACKOFF_MULTIPLIER, MAX_BACKOFF)
@@ -270,5 +298,16 @@ async def telegram_supervisor(get_state: Callable[[], Any], shutdown_evt: asynci
                                 logger.debug("Telegram shutdown: Error during app.shutdown(): %s: %s", error_type, e)
                 except Exception as e:
                     logger.debug("Telegram shutdown: Error during app cleanup: %s: %s", type(e).__name__, e)
+
+            # Следующий оборот — с новыми HTTP-клиентами. app.shutdown() закрывает клиенты, только если initialize()
+            # успел пройти, а initialize() пересобирает лишь закрытый клиент: прежде приложение жило весь срок
+            # процесса, и клиент с пулом из мёртвых туннелей переходил из перезапуска в перезапуск.
+            for client in clients:
+                try:
+                    await asyncio.wait_for(client.shutdown(), timeout=2.0)
+                except Exception as e:
+                    logger.debug("Telegram shutdown: HTTP-клиент не закрылся: %s: %s", type(e).__name__, e)
+            clients = ()
+            app = None
 
     logger.info("📱 Telegram supervisor stopped")

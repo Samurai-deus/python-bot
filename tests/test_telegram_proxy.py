@@ -87,5 +87,7 @@ def test_runner_passes_proxied_client_for_get_updates_too():
     source = (root / "loops" / "telegram_supervisor.py").read_text(encoding="utf-8")
     skip = (tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT)
     code = "".join(t.string for t in tokenize.generate_tokens(io.StringIO(source).readline) if t.type not in skip)
-    assert ".request(build_request())" in code
-    assert ".get_updates_request(build_request())" in code
+    # Клиенты собираются заранее: супервизор закрывает их сам и отмечает ответы getUpdates (on_response).
+    assert "clients=(build_request(),build_request(on_response=_answered))" in code
+    assert ".request(clients[0])" in code
+    assert ".get_updates_request(clients[1])" in code
