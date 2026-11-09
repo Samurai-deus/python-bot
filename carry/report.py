@@ -47,8 +47,9 @@ def summary(conn: sqlite3.Connection) -> dict:
     funding = conn.execute("SELECT COALESCE(SUM(change), 0) FROM funding WHERE ts >= ?", (opened or 0,)).fetchone()[0]
     fee_usdt = "fee * CASE WHEN fee_coin IN ('USDT', '') THEN 1 ELSE price END"
     trades = _trades_only(conn)
-    fees_usdt = conn.execute(f"SELECT COALESCE(SUM({fee_usdt}), 0) FROM fills WHERE ts >= ? AND {trades}",
-                             (opened or 0,)).fetchone()[0]
+    # Все сделки, без отсечки по opened_at: 14.09 пара BTC открыта в 10:08, а opened_at записан в 10:23 после пары ETH —
+    # с отсечкой отчёт терял половину комиссий открытия (15,49 вместо 30,97 USDT).
+    fees_usdt = conn.execute(f"SELECT COALESCE(SUM({fee_usdt}), 0) FROM fills WHERE {trades}").fetchone()[0]
     # До 29.09 старт писался в конце цикла открытия, уже после покупок (запуск 14.09): комиссии открытия в
     # итог не попадали, а правило считает «итог после всех издержек» — вычитаются явно (исполнения цикла
     # открытия: до opened_at + 15 мин). С 29.09 старт пишется до покупок (start_before_open) — вычитать нечего.

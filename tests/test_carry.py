@@ -365,6 +365,10 @@ def test_funding_executions_are_not_counted_as_fees(env):
          "execFee": "-0.8", "feeCurrency": "USDT", "execTime": str(FUNDING_T)}])
     s = report.summary(sqlite3.connect(str(tmp / "carry.db")))
     assert s["fees_usdt"] == pytest.approx(4.4)
+    # 14.09: пара BTC открыта раньше, чем записан opened_at (после пары ETH) — её комиссия тоже комиссия
+    store.add_fills("spot", [{"execId": "b0", "execType": "Trade", "symbol": "BTCUSDT", "side": "Buy", "execQty": "0.1",
+                              "execPrice": "80000", "execFee": "0.0001", "feeCurrency": "BTC", "execTime": str(NOW - 900_000)}])
+    assert report.summary(sqlite3.connect(str(tmp / "carry.db")))["fees_usdt"] == pytest.approx(4.4 + 8.0)
 
 
 def _old_fills_db(path):
