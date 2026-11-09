@@ -215,25 +215,24 @@ def test_silent_bot_alerts_once_and_reports_recovery(host):
     19.10–09.11.2026: бот был healthy, но три недели не доставил ни одного сообщения. Сторож пишет сам — одно
     сообщение на эпизод (текст без «сколько часов», иначе новое каждый час) и отдельную строку о восстановлении.
     """
+    # Запусков сторожа — по минимуму: на Windows каждый — секунды (бюджет теста, CLAUDE.md).
     host.deliver = False
-    host.delivered(host.now - H)
-    host.run()
-    host.run(at=int(1.5 * H))                   # 2,5 ч молчания — ещё не тревога
+    host.delivered(host.now - int(2.5 * H))
+    host.run()                                  # 2,5 ч молчания — ещё не тревога
     assert len(host.messages()) == 1, host.messages()
 
-    host.run(at=int(2.5 * H))                   # 3,5 ч
-    host.run(at=3 * H)
-    host.run(at=4 * H)
+    host.run(at=H)                              # 3,5 ч
+    host.run(at=2 * H)
     msgs = host.messages()
     assert len(msgs) == 2, "о молчании — одно сообщение на эпизод"
     assert "не доставляет в Telegram" in msgs[1] and "последний heartbeat" in msgs[1]
 
     host.deliver = True
-    host.run(at=4 * H + 300)
+    host.run(at=2 * H + 300)
     msgs = host.messages()
     assert len(msgs) == 3
     assert "снова в порядке" in msgs[2] and "снова доставляет в Telegram" in msgs[2]
-    host.run(at=4 * H + 600)
+    host.run(at=2 * H + 600)
     assert len(host.messages()) == 3, "о восстановлении — один раз"
 
 
